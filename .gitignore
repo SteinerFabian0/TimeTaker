@@ -1,0 +1,35 @@
+# --- Build output -----------------------------------------------------------
+build/
+build-*/
+compile_commands.json
+*.o
+*.elf
+*.map
+
+# --- KiCad: keep schematics, PCB, project, rules, fab outputs ----------------
+# Local UI state, automatic backups, lock files, caches.
+*.kicad_prl
+*-backups/
+*-unsaved-export-*
+fp-info-cache
+~*.lck
+*.lck
+\#auto_saved_files\#
+_autosave-*
+
+# --- Web app -----------------------------------------------------------------
+node_modules/
+dist/
+.vite/
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.pyc
+
+# --- Editors / OS / tools ----------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+.claude/settings.local.json

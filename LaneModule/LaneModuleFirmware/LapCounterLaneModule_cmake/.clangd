@@ -1,0 +1,6 @@
+# Workspace-root compile_commands.json, refreshed on every configure by the
+# CMake Tools "cmake.copyCompileCommands" setting (.vscode/settings.json). Do
+# not point this at a preset's build dir: that pins IntelliSense to one
+# variant, so #ifdef RELEASE resolves wrong when the other preset is selected.
+CompileFlags:
+  CompilationDatabase: .

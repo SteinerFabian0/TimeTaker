@@ -1,0 +1,662 @@
+# TimeTaker host protocol: the single source for C and TypeScript.
+#
+# This file is the protocol. gen_protocol.py turns it into:
+#   ControlModule/.../app/config/host_protocol.h        C structs, IDs, enums, status codes
+#   ControlModule/.../test/host_protocol/golden_cases.h C golden cases (from the examples below)
+#   WebApp/src/protocol/generated.ts                    TS descriptors, types, encode/decode
+#   protocol/golden/golden.json                         golden frames for the TS tests
+#
+#   python3 protocol/gen_protocol.py           regenerate everything
+#   python3 protocol/gen_protocol.py --check   exit 1 if any output is stale (run by the host tests)
+#
+# Never edit the outputs. Change this file and regenerate.
+#
+# ---------------------------------------------------------------------------
+# Wire format (SYSTEM_ARCHITECTURE.md §7)
+#
+#   frame   = COBS( header | payload | crc16 ) 0x00
+#   header  = msgId u8 | flags u8 | tag u16          (4 bytes)
+#   crc16   = CRC-16/CCITT-FALSE over header|payload, little-endian
+#
+# All values are little-endian. Structs are packed and fixed-size. Only the LAST
+# field of a payload may be a tail ("T[]"). A tail takes the rest of the
+# payload, and its length follows from the frame length.
+#
+# Three traffic classes, told apart by the header flags:
+#   request   host → device, tag = request id. Answered by exactly one response
+#             with the same msgId and tag and the RESPONSE flag. Every
+#             response payload STARTS with `status i16` (injected by the
+#             generator). If status != OK, the device sends the status only
+#             (2 bytes).
+#   event     device → host, EVENT flag, tag 0. Every event payload STARTS with
+#             `evSeq u32` (injected). Events are logged and replayable
+#             (RESUME).
+#   stream    device → host, STREAM flag, tag 0. Best effort, never logged,
+#             dropped first under backpressure.
+#
+# Message ID ranges (gaps on purpose; add inside a group, never renumber):
+#   0x00-0x0F session   0x10-0x1F system   0x20-0x3F lanes   0x40-0x4F sequences
+#   0x50-0x5F stream subscriptions         0x60-0x7F power (reserved)
+#   0x80-0x8F display/aux (reserved)       0xA0-0xAF update
+#   0xC0-0xDF events    0xE0-0xEF streams  0xF0-0xFF debug streams
+#
+# Compatibility: MINOR adds messages, or fields at the END of a payload.
+# MAJOR breaks. The device answers an unknown request with ERR_UNSUPPORTED.
+# The app ignores unknown events and streams.
+#
+# Field types: u8 i8 u16 i16 u32 i32 u64 i64 | u8[N] (bytes) | str[N] (UTF-8,
+# zero-padded) | <struct name> | tails: u8[] str[] <scalar>[] <struct>[]
+# An `enum` key on a field names the enum its values come from (documentation
+# and TS typing only; the wire type is the field type).
+# ---------------------------------------------------------------------------
+
+[protocol]
+major = 0
+minor = 1
+max_payload = 240   # header 4 + payload 240 = 244 raw bytes; the nRF link adds 1 channel byte (245)
+
+# USB identity of the control module (usb_cdc.c descriptors, the web app's
+# Web Serial port filter). pid.codes test pair: private development only.
+# Allocate a real pair before the design is published (SYSTEM_ARCHITECTURE §8).
+[usb]
+vid = 0x1209
+pid = 0x0001
+product = "TimeTaker"
+
+[[flag]]
+name = "RESPONSE"
+bit = 0
+doc = "Response to the request with the same msgId and tag"
+
+[[flag]]
+name = "EVENT"
+bit = 1
+doc = "Sequenced, logged, replayable device event"
+
+[[flag]]
+name = "STREAM"
+bit = 2
+doc = "Best-effort stream data, not logged"
+
+# ---------------------------------------------------------------------------
+# Status codes (ctrlStatus_e). 0 = OK, errors negative, grouped in tens with
+# gaps. Values are STABLE: a removed code leaves its number free and never
+# changes meaning. The firmware uses these internally too (ctrl_status.h).
+# ---------------------------------------------------------------------------
+
+[[status]]
+name = "OK"
+value = 0
+doc = "Success, the only non-negative code"
+
+# Generic (-1 .. -9)
+[[status]]
+name = "ERR_NOT_INITIALIZED"
+value = -2
+doc = "Module used before its init ran"
+[[status]]
+name = "ERR_INVALID_STATE"
+value = -3
+doc = "Not valid in the current state"
+[[status]]
+name = "ERR_HAL"
+value = -5
+doc = "HAL call failed with no more specific code"
+[[status]]
+name = "ERR_INVALID_ARG"
+value = -6
+doc = "Bad parameter, out of range, or NULL"
+[[status]]
+name = "ERR_UNSUPPORTED"
+value = -7
+doc = "Unknown request, or not supported by this firmware or node"
+[[status]]
+name = "ERR_BUSY"
+value = -8
+doc = "Resource busy, retry later"
+[[status]]
+name = "ERR_TIMEOUT"
+value = -9
+doc = "Operation did not complete in time"
+
+# Host link / session (-10 .. -19)
+[[status]]
+name = "ERR_FRAME_CRC"
+value = -10
+doc = "Frame CRC mismatch"
+[[status]]
+name = "ERR_FRAME_COBS"
+value = -11
+doc = "Frame ended inside a COBS block"
+[[status]]
+name = "ERR_FRAME_OVERFLOW"
+value = -12
+doc = "Frame longer than the receive buffer"
+[[status]]
+name = "ERR_BAD_LENGTH"
+value = -13
+doc = "Payload length does not match the message"
+[[status]]
+name = "ERR_PROTO_MISMATCH"
+value = -14
+doc = "Incompatible protocol MAJOR version"
+[[status]]
+name = "ERR_NOT_BOUND"
+value = -15
+doc = "BLE client not bound: hold the BLE button for 2 s"
+[[status]]
+name = "ERR_LOG_GAP"
+value = -16
+doc = "RESUME point already overwritten in the event log"
+[[status]]
+name = "ERR_BOOT_MISMATCH"
+value = -17
+doc = "RESUME names another bootId: the device rebooted"
+[[status]]
+name = "ERR_TX_FULL"
+value = -18
+doc = "Session transmit queue full"
+[[status]]
+name = "ERR_NO_SESSION"
+value = -19
+doc = "Request before HELLO"
+
+# Lane bus (-20 .. -29)
+[[status]]
+name = "ERR_I3C"
+value = -20
+doc = "I3C transfer failed"
+[[status]]
+name = "ERR_LANE_ABSENT"
+value = -21
+doc = "Addressed lane is not enumerated"
+[[status]]
+name = "ERR_LANE_NACK"
+value = -22
+doc = "Lane rejected the register access"
+[[status]]
+name = "ERR_ENUM_TIMEOUT"
+value = -23
+doc = "No hot-join within the enumeration timeout"
+[[status]]
+name = "ERR_LANE_FIFO_GAP"
+value = -24
+doc = "Lane event sequence skipped (events lost on the lane)"
+
+# Sequences / timeline (-30 .. -39)
+[[status]]
+name = "ERR_SEQ_RUNNING"
+value = -30
+doc = "A start sequence is already running"
+[[status]]
+name = "ERR_SCHEDULE_FULL"
+value = -31
+doc = "No room for another scheduled action"
+[[status]]
+name = "ERR_TOO_LATE"
+value = -32
+doc = "Requested time already passed or inside the bus lead time"
+
+# Storage (-40 .. -49)
+[[status]]
+name = "ERR_FLASH"
+value = -40
+doc = "Flash erase or program failed"
+[[status]]
+name = "ERR_SETTINGS_CORRUPT"
+value = -41
+doc = "Stored settings failed their CRC; defaults loaded"
+
+# Firmware update (-50 .. -59)
+[[status]]
+name = "ERR_IMAGE_TOO_BIG"
+value = -50
+doc = "Image does not fit the target slot"
+[[status]]
+name = "ERR_IMAGE_CRC"
+value = -51
+doc = "Image CRC check failed"
+[[status]]
+name = "ERR_IMAGE_BOARD"
+value = -52
+doc = "Image is for another board type"
+[[status]]
+name = "ERR_UPDATE_SEQUENCE"
+value = -53
+doc = "Update chunk out of order, or no update in progress"
+
+# Power (-60 .. -69)
+[[status]]
+name = "ERR_POWER_FAULT"
+value = -60
+doc = "External power board reported a fault"
+[[status]]
+name = "ERR_USB_FAULT"
+value = -61
+doc = "USB-C port protector tripped"
+[[status]]
+name = "ERR_LANE_POWER"
+value = -62
+doc = "Lane rail could not be switched or did not come up"
+
+# System (-70 .. -79)
+[[status]]
+name = "ERR_CLOCK"
+value = -70
+doc = "Clock tree failure"
+[[status]]
+name = "ERR_OPTION_BYTES"
+value = -71
+doc = "Option bytes not programmed as required"
+[[status]]
+name = "ERR_TIMER"
+value = -72
+doc = "A timer refused a start, stop or channel switch"
+[[status]]
+name = "ERR_USB"
+value = -73
+doc = "USB device stack failed to start"
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+[[enum]]
+name = "nodeClass"
+prefix = "NODE"
+values = [
+  { name = "CTRL", value = 0, doc = "The control module itself" },
+  { name = "LANE", value = 1, doc = "Lane module, index 1..6" },
+  { name = "BLE", value = 2, doc = "The nRF52805 bridge" },
+  { name = "POWER", value = 3, doc = "Power board (0) and its lane channels (1..6), later" },
+  { name = "DISPLAY", value = 4, doc = "Aux display on UART4, later" },
+]
+
+[[enum]]
+name = "boardType"
+prefix = "BOARD"
+values = [
+  { name = "UNKNOWN", value = 0 },
+  { name = "CONTROL", value = 1 },
+  { name = "LANE", value = 2 },
+  { name = "BLE_BRIDGE", value = 3 },
+  { name = "CONTROL_BOOT", value = 4, doc = "Control module running its bootloader" },
+  { name = "LANE_BOOT", value = 5, doc = "Lane running its (future) bootloader" },
+]
+
+[[enum]]
+name = "nodeState"
+prefix = "NODE_STATE"
+values = [
+  { name = "ABSENT", value = 0 },
+  { name = "OK", value = 1 },
+  { name = "FAULT", value = 2 },
+  { name = "UPDATING", value = 3 },
+]
+
+[[enum]]
+name = "transport"
+prefix = "TRANSPORT"
+values = [
+  { name = "USB", value = 1 },
+  { name = "BLE", value = 2 },
+]
+
+[[enum]]
+name = "bindState"
+prefix = "BIND"
+values = [
+  { name = "TRUSTED", value = 0, doc = "USB session: physical access, always trusted" },
+  { name = "BOUND", value = 1, doc = "BLE client on the bind list" },
+  { name = "UNBOUND", value = 2, doc = "BLE client not bound: only HELLO/PING allowed until the pairing window opens" },
+]
+
+[[enum]]
+name = "clientKind"
+prefix = "CLIENT"
+values = [
+  { name = "WEBAPP", value = 1 },
+  { name = "TOOL", value = 2, doc = "Scripts, bench tools" },
+]
+
+[[enum]]
+name = "laneEventType"
+prefix = "LANE_EVT"
+values = [
+  { name = "CROSSING", value = 1, doc = "A car passed: entry time, dwell, depth" },
+  { name = "BLOCKED", value = 2, doc = "Signal below LOW for longer than the block timeout" },
+  { name = "CLEARED", value = 3, doc = "A BLOCKED condition ended" },
+  { name = "SENSOR_FAULT", value = 4 },
+]
+
+[[enum]]
+name = "laneEventFlag"
+prefix = "LANE_FLAG"
+doc = "Bit flags, OR-ed together in the flags field"
+values = [
+  { name = "NO_LOCK", value = 0x01, doc = "No SYNC period measured: time is raw local" },
+  { name = "UNALIGNED", value = 0x02, doc = "Tick index not aligned to the control module" },
+  { name = "EXTRAPOLATED", value = 0x04, doc = "SYNC lost: mapped with the last period" },
+  { name = "IN_HOLDOFF", value = 0x08, doc = "Inside the holdoff window after the previous event" },
+  { name = "MERGED", value = 0x10, doc = "Two dips within the merge gap counted as one car" },
+  { name = "SATURATED", value = 0x20, doc = "Sensor saturated during the pass" },
+]
+
+[[enum]]
+name = "laneState"
+prefix = "LANE_STATE"
+values = [
+  { name = "JOINED", value = 1, doc = "Enumerated on the bus" },
+  { name = "CONFIGURED", value = 2, doc = "Config pushed and SYNC aligned" },
+  { name = "LEFT", value = 3, doc = "Dropped off the bus (chain broken, reset)" },
+  { name = "FAULT", value = 4, doc = "Reports a fault; status field says which" },
+  { name = "SYNC_LOST", value = 5 },
+  { name = "SYNC_OK", value = 6 },
+]
+
+[[enum]]
+name = "buttonId"
+prefix = "BUTTON"
+values = [
+  { name = "BTN1", value = 1 },
+  { name = "BTN2", value = 2 },
+  { name = "BTN3", value = 3 },
+  { name = "BLE_BIND", value = 4, doc = "SW501, reported by the nRF" },
+]
+
+[[enum]]
+name = "pressKind"
+prefix = "PRESS"
+values = [
+  { name = "SHORT", value = 1 },
+  { name = "LONG", value = 2 },
+  { name = "VERY_LONG", value = 3 },
+]
+
+[[enum]]
+name = "resetCause"
+prefix = "RESET"
+values = [
+  { name = "UNKNOWN", value = 0 },
+  { name = "POWER_ON", value = 1 },
+  { name = "PIN", value = 2 },
+  { name = "SOFTWARE", value = 3 },
+  { name = "WATCHDOG", value = 4 },
+  { name = "BROWNOUT", value = 5 },
+  { name = "FAULT", value = 6, doc = "fault_guard breadcrumb reboot" },
+]
+
+[[enum]]
+name = "rebootTarget"
+prefix = "REBOOT"
+values = [
+  { name = "APP", value = 0 },
+  { name = "BOOTLOADER", value = 1 },
+]
+
+[[enum]]
+name = "logLevel"
+prefix = "LOG"
+values = [
+  { name = "ERROR", value = 1 },
+  { name = "WARN", value = 2 },
+  { name = "INFO", value = 3 },
+  { name = "DEBUG", value = 4 },
+]
+
+# ---------------------------------------------------------------------------
+# Reusable structs
+# ---------------------------------------------------------------------------
+
+[[struct]]
+name = "nodeInfo"
+doc = "One addressable node, as listed by NODE_LIST"
+fields = [
+  { name = "nodeClass", type = "u8", enum = "nodeClass" },
+  { name = "index", type = "u8", doc = "0 for singletons, 1..6 for lanes" },
+  { name = "boardType", type = "u8", enum = "boardType" },
+  { name = "state", type = "u8", enum = "nodeState" },
+  { name = "fwMajor", type = "u8" },
+  { name = "fwMinor", type = "u8" },
+  { name = "fwPatch", type = "u8" },
+  { name = "protoMinor", type = "u8", doc = "Lane bus / link protocol minor version of that node" },
+  { name = "fwGitRev", type = "u32", doc = "Short git revision the image was built from" },
+  { name = "imageCrc", type = "u32", doc = "CRC32 of the running image (0 = unknown)" },
+]
+
+# ---------------------------------------------------------------------------
+# Session (0x00 - 0x0F)
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0x01
+name = "HELLO"
+kind = "request"
+doc = "Opens a session. Must be the first request on every transport connection."
+request = [
+  { name = "protoMajor", type = "u8" },
+  { name = "protoMinor", type = "u8" },
+  { name = "clientKind", type = "u8", enum = "clientKind" },
+  { name = "reserved", type = "u8" },
+  { name = "clientId", type = "u8[16]", doc = "Random per browser profile, kept in localStorage; the BLE bind key" },
+  { name = "clientName", type = "str[24]", doc = "Shown in the bind list" },
+]
+response = [
+  { name = "protoMajor", type = "u8" },
+  { name = "protoMinor", type = "u8" },
+  { name = "transport", type = "u8", enum = "transport", doc = "Which transport this session runs on" },
+  { name = "bindState", type = "u8", enum = "bindState" },
+  { name = "bootId", type = "u32", doc = "Random per control module boot; keys the event sequence" },
+  { name = "sysUs", type = "u64", doc = "System time when the response was built" },
+  { name = "logOldestSeq", type = "u32", doc = "Oldest evSeq still in the event log" },
+  { name = "logNextSeq", type = "u32", doc = "evSeq the next event will get" },
+  { name = "otherSessions", type = "u8", doc = "Number of other live sessions (USB + BLE at once)" },
+  { name = "reserved", type = "u8[3]" },
+]
+example_request = { protoMajor = 0, protoMinor = 1, clientKind = 1, reserved = 0, clientId = "00112233445566778899aabbccddeeff", clientName = "Laptop Großonkel" }
+example_response = { protoMajor = 0, protoMinor = 1, transport = 2, bindState = 1, bootId = 0x5eed1234, sysUs = 1234567890123, logOldestSeq = 0, logNextSeq = 42, otherSessions = 1, reserved = "000000" }
+
+[[message]]
+id = 0x02
+name = "PING"
+kind = "request"
+doc = "Heartbeat (host sends every 1 s) and clock estimate: the host maps sysUs to its own clock from the round trip."
+request = [
+  { name = "hostMs", type = "u32", doc = "Echoed back unchanged" },
+]
+response = [
+  { name = "hostMs", type = "u32" },
+  { name = "sysUs", type = "u64" },
+]
+example_request = { hostMs = 987654 }
+example_response = { hostMs = 987654, sysUs = 9223372036854775807 }  # > 2^53: TS must use bigint
+
+[[message]]
+id = 0x03
+name = "RESUME"
+kind = "request"
+doc = "Moves this session's event cursor back to fromSeq; the device replays from there. ERR_BOOT_MISMATCH or ERR_LOG_GAP (status-only) when it cannot."
+request = [
+  { name = "bootId", type = "u32" },
+  { name = "fromSeq", type = "u32" },
+]
+response = [
+  { name = "logOldestSeq", type = "u32" },
+  { name = "logNextSeq", type = "u32" },
+]
+example_request = { bootId = 0x5eed1234, fromSeq = 17 }
+example_response = { status = -16 }
+
+[[message]]
+id = 0x04
+name = "NODE_LIST"
+kind = "request"
+doc = "Every node the control module knows, with versions. The web app builds its UI from this."
+request = []
+response = [
+  { name = "nodes", type = "nodeInfo[]" },
+]
+example_request = {}
+
+[[message.example_response.nodes]]
+nodeClass = 0
+index = 0
+boardType = 1
+state = 1
+fwMajor = 0
+fwMinor = 1
+fwPatch = 0
+protoMinor = 1
+fwGitRev = 0x0abc123
+imageCrc = 0xdeadbeef
+
+[[message.example_response.nodes]]
+nodeClass = 1
+index = 3
+boardType = 2
+state = 2
+fwMajor = 1
+fwMinor = 2
+fwPatch = 3
+protoMinor = 0
+fwGitRev = 0x1234567
+imageCrc = 0
+
+[[message]]
+id = 0x08
+name = "BIND_ALLOW"
+kind = "request"
+doc = "Opens the BLE pairing window from the app. Accepted from TRUSTED (USB) and BOUND sessions only."
+request = [
+  { name = "windowS", type = "u16", doc = "Window length in seconds, 0 closes it" },
+]
+response = []
+example_request = { windowS = 60 }
+example_response = {}
+
+# ---------------------------------------------------------------------------
+# System (0x10 - 0x1F)
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0x11
+name = "REBOOT"
+kind = "request"
+doc = "Reboots the control module, into the app or into its bootloader. The response goes out before the reset."
+request = [
+  { name = "target", type = "u8", enum = "rebootTarget" },
+]
+response = []
+example_request = { target = 1 }
+example_response = {}
+
+# ---------------------------------------------------------------------------
+# Lanes (0x20 - 0x3F)
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0x21
+name = "LANE_POWER"
+kind = "request"
+doc = "Switches the lane rail (LANE_3V3). On: rail first, SYNC and bus lines once it has settled. Off: signals parked first, then the rail. Answers once the switch is under way; the lane events report the rest."
+request = [
+  { name = "on", type = "u8", doc = "1 = power the lanes, 0 = off" },
+]
+response = [
+  { name = "powered", type = "u8", doc = "Rail state when the response was built (on settles in about 30 ms)" },
+]
+example_request = { on = 1 }
+example_response = { powered = 0 }
+
+# ---------------------------------------------------------------------------
+# Events (0xC0 - 0xDF). evSeq u32 is injected as the first field.
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0xC0
+name = "EVT_BOOT"
+kind = "event"
+doc = "Always evSeq 0 of a boot: marks the start of a log."
+fields = [
+  { name = "resetCause", type = "u8", enum = "resetCause" },
+  { name = "reserved", type = "u8[3]" },
+  { name = "bootId", type = "u32" },
+  { name = "sysUs", type = "u64" },
+]
+example = { evSeq = 0, resetCause = 1, reserved = "000000", bootId = 0x5eed1234, sysUs = 1500 }
+
+[[message]]
+id = 0xC1
+name = "EVT_CROSSING"
+kind = "event"
+doc = "A lane event: car crossing, block, clear or sensor fault. tEntryUs is the timing reference (car nose on the line)."
+fields = [
+  { name = "lane", type = "u8", doc = "1..6" },
+  { name = "type", type = "u8", enum = "laneEventType" },
+  { name = "flags", type = "u8", enum = "laneEventFlag" },
+  { name = "reserved", type = "u8" },
+  { name = "tEntryUs", type = "u64", doc = "System time of the interpolated entry" },
+  { name = "laneSeq", type = "u16", doc = "The lane's own event counter (gaps = lost on the lane)" },
+  { name = "dwell10us", type = "u16", doc = "Entry to exit, in units of 10 µs" },
+  { name = "depth", type = "u16", doc = "Signal minimum relative to baseline: confidence" },
+  { name = "reserved2", type = "u16" },
+]
+example = { evSeq = 4242, lane = 3, type = 1, flags = 0x18, reserved = 0, tEntryUs = 81234567, laneSeq = 65535, dwell10us = 2150, depth = 812, reserved2 = 0 }
+
+[[message]]
+id = 0xC2
+name = "EVT_LANE_STATE"
+kind = "event"
+doc = "A lane joined, was configured, left, faulted, or lost/regained SYNC."
+fields = [
+  { name = "lane", type = "u8" },
+  { name = "state", type = "u8", enum = "laneState" },
+  { name = "status", type = "i16", doc = "ctrlStatus_e reason (0 if none)" },
+  { name = "sysUs", type = "u64" },
+]
+example = { evSeq = 5, lane = 6, state = 4, status = -22, sysUs = 9000000 }
+
+[[message]]
+id = 0xC3
+name = "EVT_BUTTON"
+kind = "event"
+doc = "A button on the control module (or the BLE bind button) was pressed. The host decides what it means."
+fields = [
+  { name = "button", type = "u8", enum = "buttonId" },
+  { name = "press", type = "u8", enum = "pressKind" },
+  { name = "reserved", type = "u16" },
+  { name = "sysUs", type = "u64" },
+]
+example = { evSeq = 77, button = 2, press = 2, reserved = 0, sysUs = 4000000000 }
+
+# ---------------------------------------------------------------------------
+# Streams (0xE0 - 0xEF) and debug streams (0xF0 - 0xFF)
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0xE0
+name = "STR_RAW_SAMPLES"
+kind = "stream"
+doc = "Decimated raw sensor samples of one lane for the diagnostics view. Sample i was taken at firstUs + i*periodUs."
+fields = [
+  { name = "lane", type = "u8" },
+  { name = "reserved", type = "u8" },
+  { name = "chunkSeq", type = "u16", doc = "Counts chunks of this lane's stream, so the app sees drops" },
+  { name = "periodUs", type = "u32" },
+  { name = "firstUs", type = "u64" },
+  { name = "samples", type = "u16[]" },
+]
+example = { lane = 1, reserved = 0, chunkSeq = 9, periodUs = 1000, firstUs = 5000000, samples = [4000, 3990, 1200, 0, 65535] }
+
+[[message]]
+id = 0xF0
+name = "DBG_LOG"
+kind = "stream"
+doc = "Free-text firmware log line (bring-up aid; mnemonics stay stable like the hub's log vocabulary)."
+fields = [
+  { name = "level", type = "u8", enum = "logLevel" },
+  { name = "reserved", type = "u8[3]" },
+  { name = "sysUs", type = "u64" },
+  { name = "text", type = "str[]" },
+]
+example = { level = 3, reserved = "000000", sysUs = 123, text = "LANE 3 JOIN addr=0x0B µs-ok" }

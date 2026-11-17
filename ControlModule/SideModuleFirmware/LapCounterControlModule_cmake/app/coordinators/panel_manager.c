@@ -1,0 +1,111 @@
+/*
+ * panel_manager.c
+ *
+ * @brief  Panel LEDs and buttons. See panel_manager.h.
+ */
+
+#include "panel_manager.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "stm32_hal.h"
+#include "ctrl_status.h"
+#include "host_protocol.h"
+#include "indicator_led.h"
+#include "button_handler.h"
+#include "sys_time.h"
+#include "host_manager.h"
+
+typedef enum {
+    PANEL_LINK_UNKNOWN = 0,
+    PANEL_LINK_NO_HOST,
+    PANEL_LINK_NO_SESSION,
+    PANEL_LINK_SESSION,
+} panelLink_e;
+
+static panelLink_e panelLinkShown;
+static uint32_t    panelTrafficSeen;
+static uint32_t    panelLedsFreeAtMs;
+
+static ctrlStatus_e panelShowLink(panelLink_e link)
+{
+    switch (link) {
+    case PANEL_LINK_NO_HOST:
+        return indicatorLedBlink(INDICATOR_LED_STATUS, 2000U, 50U, 0U);
+    case PANEL_LINK_NO_SESSION:
+        return indicatorLedBlink(INDICATOR_LED_STATUS, 1000U, 500U, 0U);
+    case PANEL_LINK_SESSION:
+        return indicatorLedSet(INDICATOR_LED_STATUS, true);
+    default:
+        return indicatorLedSet(INDICATOR_LED_STATUS, false);
+    }
+}
+
+static panelLink_e panelCurrentLink(void)
+{
+    if (hostManagerAnySessionOpen()) {
+        return PANEL_LINK_SESSION;
+    }
+    return hostManagerAnyLinkUp() ? PANEL_LINK_NO_SESSION : PANEL_LINK_NO_HOST;
+}
+
+static ctrlStatus_e panelPublishButtons(void)
+{
+    ctrlStatus_e result = CTRL_OK;
+
+    for (int id = (int)BUTTON_BTN1; id <= (int)BUTTON_COUNT; id++) {
+        buttonPress_e press = buttonHandlerTakePress((buttonId_e)id);
+        if (press == BUTTON_PRESS_NONE) {
+            continue;
+        }
+        /* buttonId_e/buttonPress_e values equal hpButtonId_e/hpPressKind_e. */
+        const hpEvtButton_t evt = {
+            .button = (uint8_t)id,
+            .press  = (uint8_t)press,
+            .sysUs  = sysTimeNowUs(),
+        };
+        ctrlStatus_e status = hostManagerPublishEvent(HP_MSG_EVT_BUTTON, &evt, sizeof(evt));
+        if (status != CTRL_OK) {
+            result = status;
+        }
+    }
+    return result;
+}
+
+ctrlStatus_e panelManagerInit(uint32_t ledsFreeAtMs)
+{
+    panelLinkShown    = PANEL_LINK_UNKNOWN;
+    panelTrafficSeen  = hostManagerTrafficCount();
+    panelLedsFreeAtMs = ledsFreeAtMs;
+    return CTRL_OK;
+}
+
+ctrlStatus_e panelManagerRun(void)
+{
+    ctrlStatus_e result = panelPublishButtons();
+
+    if ((int32_t)(HAL_GetTick() - panelLedsFreeAtMs) < 0) {
+        return result;                   /* boot flash still playing */
+    }
+
+    panelLink_e link = panelCurrentLink();
+    if (link != panelLinkShown) {
+        ctrlStatus_e status = panelShowLink(link);
+        if (status == CTRL_OK) {
+            panelLinkShown = link;       /* else retried next pass */
+        } else {
+            result = status;
+        }
+    }
+
+    uint32_t traffic = hostManagerTrafficCount();
+    if (traffic != panelTrafficSeen && !indicatorLedIsBlinking(INDICATOR_LED_ACT)) {
+        panelTrafficSeen = traffic;
+        ctrlStatus_e status = indicatorLedBlink(INDICATOR_LED_ACT, 60U, 500U, 1U);
+        if (status != CTRL_OK) {
+            result = status;
+        }
+    }
+    return result;
+}

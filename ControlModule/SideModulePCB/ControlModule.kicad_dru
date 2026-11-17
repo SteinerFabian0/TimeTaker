@@ -1,0 +1,15 @@
+(version 1)
+
+# Reverse-mount 1206 optics (PT80, PT81, LED80) sit over the edge slot by design;
+# the slot is board outline, not part of the footprint. Allow 0.1 mm instead of 0.4 mm
+# for copper inside those courtyards only, so anything else near an edge still flags.
+(rule "Reverse-mount optics at edge slot"
+	(constraint edge_clearance (min 0.1mm))
+	(condition "A.intersectsCourtyard('PT80') || A.intersectsCourtyard('PT81') || A.intersectsCourtyard('LED80')"))
+
+# USB FS pair (USB_DP/USB_DN, MCU -> TPD4S201): 0.275 mm / 0.175 mm gap = 90 ohm diff on
+# 0.203 mm 7628 prepreg (er 4.4) to the In1/In2 GND planes, solved with a 2D field solver.
+# Keep copper pours >= 0.5 mm away so they do not pull the impedance down (< 0.2 ohm effect at 0.5 mm).
+(rule "USB_90R pour clearance"
+	(constraint clearance (min 0.5mm))
+	(condition "A.NetClass == 'USB_90R' && B.Type == 'Zone'"))

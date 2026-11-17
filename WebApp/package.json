@@ -1,0 +1,13 @@
+{
+  "name": "timetaker-webapp",
+  "private": true,
+  "type": "module",
+  "description": "TimeTaker race control web app (Chrome/Edge: Web Serial + Web Bluetooth)",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "debug": "node tools/serve.mjs"
+  }
+}

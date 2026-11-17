@@ -1,0 +1,46 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}"
+        },
+        {
+            "name": "debug_GCC_STM32C542CCU6",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "${presetName}",
+                "TOOLCHAIN_FILE": "GCC.14.3.1.cmake",
+                "LANE_RELEASE": "OFF"
+            },
+            "inherits": "default",
+            "displayName": "debug_GCC_STM32C542CCU6 (-Og, no RELEASE define)"
+        },
+        {
+            "name": "release_GCC_STM32C542CCU6",
+            "displayName": "release_GCC_STM32C542CCU6 (production: -O2, RELEASE defined)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "debug_GCC_STM32C542CCU6",
+                "TOOLCHAIN_FILE": "GCC.14.3.1.cmake",
+                "LANE_RELEASE": "ON"
+            },
+            "inherits": "default"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "configurePreset": "default"
+        },
+        {
+            "name": "debug_GCC_STM32C542CCU6",
+            "configurePreset": "debug_GCC_STM32C542CCU6"
+        },
+        {
+            "name": "release_GCC_STM32C542CCU6",
+            "configurePreset": "release_GCC_STM32C542CCU6"
+        }
+    ]
+}

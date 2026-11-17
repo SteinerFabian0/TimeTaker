@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TimeTaker Debug Console</title>
+  <style>
+    :root {
+      --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+      --accent: #c8102e; --ok: #1f7a3f; --warn: #a35b00; --bad: #b3261e; --mono-bg: #f1f0ec;
+      --in: #1f5fa8; --out: #7a4fa3;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #141413; --panel: #1d1d1b; --text: #ecebe6; --muted: #9b9a94; --line: #2e2e2b;
+        --accent: #ff4d5e; --ok: #4cc27a; --warn: #f0a33a; --bad: #ff6b60; --mono-bg: #24241f;
+        --in: #6ea8ff; --out: #c39bff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+           font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+             padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+    h1 span { color: var(--accent); }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+    main { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 16px; padding: 16px 20px; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+    .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button { font: inherit; padding: 6px 12px; border-radius: 7px; border: 1px solid var(--line);
+             background: var(--panel); color: var(--text); cursor: pointer; }
+    button:hover:not(:disabled) { border-color: var(--muted); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .45; cursor: default; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px;
+            border: 1px solid var(--line); font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.open { background: var(--ok); } .dot.connecting { background: var(--warn); } .dot.closed { background: var(--bad); }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; }
+    dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 600; color: var(--muted); font-size: 12px; }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .scroll { max-height: 56vh; overflow: auto; }
+    .frames { max-height: 30vh; overflow: auto; background: var(--mono-bg); border-radius: 7px; padding: 8px; }
+    .frames div { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .in { color: var(--in); } .out { color: var(--out); }
+    .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+    .err { color: var(--bad); }
+    .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>TimeTaker</span> · Debug console</h1>
+    <div class="row">
+      <span class="pill"><span class="dot" id="stateDot"></span><span id="stateText">not connected</span></span>
+      <button class="primary" id="btnUsb">Connect USB</button>
+      <button id="btnSim">Simulator</button>
+      <button id="btnDisconnect" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="col">
+      <section>
+        <h2>Device</h2>
+        <dl>
+          <dt>Transport</dt><dd id="dTransport">–</dd>
+          <dt>Boot</dt><dd class="mono" id="dBoot">–</dd>
+          <dt>Protocol</dt><dd id="dProto">–</dd>
+          <dt>Device time</dt><dd class="mono" id="dClock">–</dd>
+          <dt>Round trip</dt><dd id="dRtt">–</dd>
+          <dt>Next evSeq</dt><dd id="dSeq">–</dd>
+          <dt>Frames</dt><dd id="dFrames">–</dd>
+        </dl>
+        <p class="note err" id="dError" hidden></p>
+      </section>
+
+      <section>
+        <h2>Controls</h2>
+        <div class="row">
+          <button id="btnLaneOn" disabled>Lanes on</button>
+          <button id="btnLaneOff" disabled>Lanes off</button>
+          <button id="btnNodes" disabled>Node list</button>
+          <button id="btnReboot" disabled>Reboot</button>
+        </div>
+        <p class="note">Lanes on: rail first, then SYNC on PB15 after 30 ms. That is the moment to put the scope on it.</p>
+      </section>
+
+      <section id="simPanel" hidden>
+        <h2>Simulator</h2>
+        <div class="row">
+          <button data-btn="1" data-press="1">BTN1</button>
+          <button data-btn="2" data-press="1">BTN2</button>
+          <button data-btn="3" data-press="1">BTN3</button>
+          <button data-btn="2" data-press="2">BTN2 long</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnCars">Cars: off</button>
+          <button id="btnDrop">Drop 3 events</button>
+          <button id="btnPowerCycle">Power cycle</button>
+        </div>
+        <p class="note">Speaks the real protocol. Lanes and cars are simulated ahead of the firmware.</p>
+      </section>
+
+      <section>
+        <h2>Nodes</h2>
+        <table>
+          <thead><tr><th>Node</th><th>Board</th><th>State</th><th>Firmware</th></tr></thead>
+          <tbody id="nodes"><tr><td colspan="4" class="note">–</td></tr></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="col">
+      <section>
+        <div class="row" style="justify-content: space-between">
+          <h2>Events</h2>
+          <span class="note" id="evCount"></span>
+        </div>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>evSeq</th><th>Device time</th><th>Event</th><th>Details</th></tr></thead>
+            <tbody id="events"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="row" style="justify-content: space-between">
+          <h2>Frames</h2>
+          <label class="note"><input type="checkbox" id="chkFrames"> trace PING too</label>
+        </div>
+        <div class="frames mono" id="frames"></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="./console.ts"></script>
+</body>
+</html>

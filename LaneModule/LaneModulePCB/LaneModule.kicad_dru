@@ -1,0 +1,15 @@
+(version 1)
+
+# Reverse-mount 1206 optics (PT80, PT81, LED80) sit over the edge slot by design;
+# the slot is board outline, not part of the footprint. Allow 0.1 mm instead of 0.4 mm
+# for copper inside those courtyards only, so anything else near an edge still flags.
+(rule "Reverse-mount optics at edge slot"
+	(constraint edge_clearance (min 0.1mm))
+	(condition "A.intersectsCourtyard('PT80') || A.intersectsCourtyard('PT81') || A.intersectsCourtyard('LED80')"))
+
+# U1 (STM32 QFN48, 0.5 mm pitch): the footprint itself leaves 0.175 mm between the
+# exposed pad and the signal pads. Allow 0.15 mm between U1's own pads only;
+# everything else keeps the 0.2 mm board clearance.
+(rule "U1 QFN pad-to-pad"
+	(constraint clearance (min 0.15mm))
+	(condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('U1') && B.memberOfFootprint('U1')"))

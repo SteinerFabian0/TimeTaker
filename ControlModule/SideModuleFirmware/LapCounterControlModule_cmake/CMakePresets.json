@@ -1,0 +1,46 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}"
+        },
+        {
+            "name": "debug_GCC_main",
+            "displayName": "debug_GCC_main (-Og, no RELEASE define)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "${presetName}",
+                "TOOLCHAIN_FILE": "GCC.14.3.1.cmake",
+                "CTRL_RELEASE": "OFF"
+            },
+            "inherits": "default"
+        },
+        {
+            "name": "release_GCC_main",
+            "displayName": "release_GCC_main (production: -O2, RELEASE defined)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "debug_GCC_main",
+                "TOOLCHAIN_FILE": "GCC.14.3.1.cmake",
+                "CTRL_RELEASE": "ON"
+            },
+            "inherits": "default"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default",
+            "hidden": true,
+            "configurePreset": "default"
+        },
+        {
+            "name": "debug_GCC_main",
+            "configurePreset": "debug_GCC_main"
+        },
+        {
+            "name": "release_GCC_main",
+            "configurePreset": "release_GCC_main"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webapp-debug",
+      "runtimeExecutable": "/home/fabian/.local/bin/node",
+      "runtimeArgs": ["WebApp/tools/serve.mjs"],
+      "port": 5173
+    }
+  ]
+}
