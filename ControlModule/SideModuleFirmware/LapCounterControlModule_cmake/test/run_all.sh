@@ -42,6 +42,21 @@ else
 fi
 echo
 
+# Shared headers must be byte-identical with their other tree's copy.
+# copy_check <file in app/config> <other copy>
+copy_check()
+{
+    echo "== $1 copy check"
+    if cmp "$CTRL/app/config/$1" "$2"; then
+        echo "identical"
+    else
+        failed=$((failed + 1))
+    fi
+    echo
+}
+copy_check lane_protocol.h     "$ROOT/LaneModule/LaneModuleFirmware/LapCounterLaneModule_cmake/app/config/lane_protocol.h"
+copy_check ble_link_protocol.h "$ROOT/ControlModule/BleFirmware/src/ble_link_protocol.h"
+
 suite host_frame_codec "$CTRL/app/modules/frame_codec.c"
 suite host_protocol    "$CTRL/app/modules/frame_codec.c"
 suite host_event_log   "$CTRL/app/modules/event_log.c"

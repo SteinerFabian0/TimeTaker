@@ -24,7 +24,7 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "host protocol structs assume a little-endian target");
 
 #define HP_PROTO_MAJOR      0U
-#define HP_PROTO_MINOR      1U
+#define HP_PROTO_MINOR      2U
 #define HP_MAX_PAYLOAD      240U
 #define HP_MAX_FRAME_RAW    (4U + HP_MAX_PAYLOAD)  /* header + payload, before CRC and COBS */
 
@@ -192,6 +192,58 @@ typedef enum {
     HP_LOG_DEBUG = 4,
 } hpLogLevel_e;
 
+/* Lane sampling mode (lane_protocol.h laneSamplingMode_e, same values) */
+typedef enum {
+    HP_SAMPLING_OFF = 0, /* Sensor in shutdown */
+    HP_SAMPLING_ON  = 1, /* Detect and emit events */
+    HP_SAMPLING_RAW = 2, /* ON, plus raw samples for STR_RAW_SAMPLES */
+} hpSamplingMode_e;
+
+typedef enum {
+    HP_LED_OFF   = 0,
+    HP_LED_ON    = 1, /* Steady at level */
+    HP_LED_BLINK = 2, /* Period, on-share, count */
+} hpLedMode_e;
+
+/* The lane's own state machine (lane_protocol.h laneState_e, same values) */
+typedef enum {
+    HP_LANE_BUS_UNENUMERATED = 0,
+    HP_LANE_BUS_ENUMERATED   = 1, /* Has an address, waiting for config */
+    HP_LANE_BUS_IDLE         = 2, /* Configured, sampling off */
+    HP_LANE_BUS_SAMPLING     = 3,
+    HP_LANE_BUS_SLEEP        = 4,
+    HP_LANE_BUS_PARKED       = 5, /* Boot-loop guard tripped */
+} hpLaneBusState_e;
+
+typedef enum {
+    HP_ABORT_HOST        = 1, /* ABORT_SEQUENCE request */
+    HP_ABORT_BUTTON      = 2, /* BTN2 long press on the control module */
+    HP_ABORT_LANE_FAILED = 3, /* A lane did not take its scheduled actions in time */
+    HP_ABORT_LANE_LEFT   = 4, /* A lane dropped off the bus during the sequence */
+    HP_ABORT_POWER       = 5, /* Lane power switched off */
+} hpSeqAbortReason_e;
+
+typedef enum {
+    HP_BIND_CHANGE_ADDED         = 1,
+    HP_BIND_CHANGE_REMOVED       = 2,
+    HP_BIND_CHANGE_CLEARED       = 3, /* Whole list cleared (BLE button 10 s, or BIND_REMOVE with a zero id) */
+    HP_BIND_CHANGE_WINDOW_OPENED = 4,
+    HP_BIND_CHANGE_WINDOW_CLOSED = 5,
+    HP_BIND_CHANGE_REJECTED      = 6, /* An unbound BLE client was kicked after its grace time */
+} hpBindChange_e;
+
+typedef enum {
+    HP_FAULT_SRC_USB        = 1, /* USB-C port protector (USB_FAULT) */
+    HP_FAULT_SRC_EXT_POWER  = 2, /* External power board (EXT_PWR_FAULT) */
+    HP_FAULT_SRC_LANE_POWER = 3, /* Lane rail did not come up or was cut */
+} hpFaultSource_e;
+
+typedef enum {
+    HP_BLE_LINK_DOWN             = 0,
+    HP_BLE_LINK_UP               = 1,
+    HP_BLE_LINK_VERSION_MISMATCH = 2, /* nRF link protocol MAJOR differs: BLE data refused */
+} hpBleLinkState_e;
+
 /* =========================================================================
  *                                STRUCTS
  * ========================================================================= */
@@ -221,6 +273,44 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(hpNodeInfo_t) == 16U, "hpNodeInfo_t layout");
 #define HP_NODE_INFO_BYTES 16U
 
+/* Detection and sampling config of one lane (lane_protocol.h laneConfig_t, same layout) */
+typedef struct __attribute__((packed)) {
+    uint32_t samplePeriodUs;        /* Sampling period, e.g. 1000 (1 kHz) */
+    uint32_t samplePhaseUs;         /* Offset inside the period (staggers the IR pulses) */
+    uint32_t mergeGapUs;            /* Re-entry within this counts as the same car */
+    uint32_t blockTimeoutUs;        /* Below LOW longer than this: BLOCKED */
+    uint32_t holdoffUs;             /* Holdoff after an event, 0 = off */
+    uint32_t holdoffSamplePeriodUs; /* Sampling period inside the holdoff, 0 = unchanged */
+    uint16_t thrDropPermille;       /* LOW = baseline x (1000 - x) / 1000 */
+    uint16_t hystPermille;          /* HIGH = LOW + baseline x x / 1000 */
+    uint16_t minDwell10us;          /* Shorter dips are glitches */
+    uint16_t rawDecimation;         /* RAW mode keeps every Nth sample (>= 1) */
+    uint8_t  irCurrent;             /* VCNL4040 LED_I code */
+    uint8_t  psIntegration;         /* VCNL4040 PS_IT code */
+    uint8_t  psMultiPulse;          /* VCNL4040 PS_MPS code */
+    uint8_t  reserved;
+} hpLaneConfig_t;
+_Static_assert(sizeof(hpLaneConfig_t) == 36U, "hpLaneConfig_t layout");
+#define HP_LANE_CONFIG_BYTES 36U
+
+/* One bound BLE client */
+typedef struct __attribute__((packed)) {
+    uint8_t  clientId[16];
+    char     clientName[24]; /* UTF-8, zero-padded, not always terminated */
+    uint32_t lastUsed;       /* LRU stamp: higher = used more recently */
+} hpBindEntry_t;
+_Static_assert(sizeof(hpBindEntry_t) == 44U, "hpBindEntry_t layout");
+#define HP_BIND_ENTRY_BYTES 44U
+
+/* Persistent device settings (settings_store) */
+typedef struct __attribute__((packed)) {
+    char    deviceName[24]; /* UTF-8, zero-padded, not always terminated; Shown in the app */
+    uint8_t bleEnabled;     /* 0 = the nRF stops advertising */
+    uint8_t reserved[3];
+} hpDeviceSettings_t;
+_Static_assert(sizeof(hpDeviceSettings_t) == 28U, "hpDeviceSettings_t layout");
+#define HP_DEVICE_SETTINGS_BYTES 28U
+
 /* =========================================================================
  *                               MESSAGES
  * ========================================================================= */
@@ -229,13 +319,39 @@ _Static_assert(sizeof(hpNodeInfo_t) == 16U, "hpNodeInfo_t layout");
 #define HP_MSG_PING             0x02U  /* request */
 #define HP_MSG_RESUME           0x03U  /* request */
 #define HP_MSG_NODE_LIST        0x04U  /* request */
+#define HP_MSG_BIND_LIST        0x05U  /* request */
+#define HP_MSG_BIND_REMOVE      0x06U  /* request */
 #define HP_MSG_BIND_ALLOW       0x08U  /* request */
 #define HP_MSG_REBOOT           0x11U  /* request */
+#define HP_MSG_STATUS           0x12U  /* request */
+#define HP_MSG_SETTINGS_GET     0x13U  /* request */
+#define HP_MSG_SETTINGS_SET     0x14U  /* request */
+#define HP_MSG_LANE_SCAN        0x20U  /* request */
 #define HP_MSG_LANE_POWER       0x21U  /* request */
+#define HP_MSG_LANE_CONFIG_GET  0x22U  /* request */
+#define HP_MSG_LANE_CONFIG_SET  0x23U  /* request */
+#define HP_MSG_LANE_SAMPLING    0x24U  /* request */
+#define HP_MSG_LANE_LED         0x25U  /* request */
+#define HP_MSG_LANE_STATUS      0x26U  /* request */
+#define HP_MSG_LANE_RAW_STREAM  0x27U  /* request */
+#define HP_MSG_LANE_CALIBRATE   0x28U  /* request */
+#define HP_MSG_START_SEQUENCE   0x40U  /* request */
+#define HP_MSG_ABORT_SEQUENCE   0x41U  /* request */
+#define HP_MSG_UPDATE_BEGIN     0xA0U  /* request */
+#define HP_MSG_UPDATE_CHUNK     0xA1U  /* request */
+#define HP_MSG_UPDATE_END       0xA2U  /* request */
+#define HP_MSG_UPDATE_ABORT     0xA3U  /* request */
+#define HP_MSG_BOOT_APP         0xA4U  /* request */
 #define HP_MSG_EVT_BOOT         0xC0U  /* event */
 #define HP_MSG_EVT_CROSSING     0xC1U  /* event */
 #define HP_MSG_EVT_LANE_STATE   0xC2U  /* event */
 #define HP_MSG_EVT_BUTTON       0xC3U  /* event */
+#define HP_MSG_EVT_SEQ_STARTED  0xC4U  /* event */
+#define HP_MSG_EVT_LIGHTS_OUT   0xC5U  /* event */
+#define HP_MSG_EVT_SEQ_ABORTED  0xC6U  /* event */
+#define HP_MSG_EVT_BIND_CHANGED 0xC7U  /* event */
+#define HP_MSG_EVT_BLE_LINK     0xC8U  /* event */
+#define HP_MSG_EVT_FAULT        0xC9U  /* event */
 #define HP_MSG_STR_RAW_SAMPLES  0xE0U  /* stream */
 #define HP_MSG_DBG_LOG          0xF0U  /* stream */
 
@@ -330,6 +446,48 @@ _Static_assert(sizeof(hpNodeListRsp_t) == 2U, "hpNodeListRsp_t layout");
 #define HP_NODE_LIST_RSP_ITEM_BYTES 16U
 #define HP_NODE_LIST_RSP_MAX_ITEMS ((HP_MAX_PAYLOAD - HP_NODE_LIST_RSP_BYTES) / HP_NODE_LIST_RSP_ITEM_BYTES)
 
+/* ---- 0x05 BIND_LIST (request) ------------------------------------
+ * The BLE bind list, paged (8 entries do not fit one frame). TRUSTED or BOUND sessions only.
+ */
+
+/* BIND_LIST request */
+typedef struct __attribute__((packed)) {
+    uint8_t start; /* Index of the first entry wanted */
+} hpBindListReq_t;
+_Static_assert(sizeof(hpBindListReq_t) == 1U, "hpBindListReq_t layout");
+#define HP_BIND_LIST_REQ_BYTES 1U
+
+/* BIND_LIST response */
+typedef struct __attribute__((packed)) {
+    int16_t       status;    /* ctrlStatus_e. On error the payload is this field only. */
+    uint8_t       total;     /* Entries on the list */
+    uint8_t       start;
+    uint16_t      windowS;   /* Seconds left in the pairing window, 0 = closed */
+    hpBindEntry_t entries[]; /* tail: rest of the payload; Up to 5 per page */
+} hpBindListRsp_t;
+_Static_assert(sizeof(hpBindListRsp_t) == 6U, "hpBindListRsp_t layout");
+#define HP_BIND_LIST_RSP_BYTES 6U
+#define HP_BIND_LIST_RSP_ITEM_BYTES 44U
+#define HP_BIND_LIST_RSP_MAX_ITEMS ((HP_MAX_PAYLOAD - HP_BIND_LIST_RSP_BYTES) / HP_BIND_LIST_RSP_ITEM_BYTES)
+
+/* ---- 0x06 BIND_REMOVE (request) ----------------------------------
+ * Removes one client from the bind list; an all-zero clientId clears the list. TRUSTED or BOUND sessions only.
+ */
+
+/* BIND_REMOVE request */
+typedef struct __attribute__((packed)) {
+    uint8_t clientId[16];
+} hpBindRemoveReq_t;
+_Static_assert(sizeof(hpBindRemoveReq_t) == 16U, "hpBindRemoveReq_t layout");
+#define HP_BIND_REMOVE_REQ_BYTES 16U
+
+/* BIND_REMOVE response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpBindRemoveRsp_t;
+_Static_assert(sizeof(hpBindRemoveRsp_t) == 2U, "hpBindRemoveRsp_t layout");
+#define HP_BIND_REMOVE_RSP_BYTES 2U
+
 /* ---- 0x08 BIND_ALLOW (request) -----------------------------------
  * Opens the BLE pairing window from the app. Accepted from TRUSTED (USB) and BOUND sessions only.
  */
@@ -366,6 +524,79 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(hpRebootRsp_t) == 2U, "hpRebootRsp_t layout");
 #define HP_REBOOT_RSP_BYTES 2U
 
+/* ---- 0x12 STATUS (request) ---------------------------------------
+ * Control module health: errors, loop time, lanes, links, event log window.
+ */
+
+/* STATUS request: empty payload */
+#define HP_STATUS_REQ_BYTES 0U
+
+/* STATUS response */
+typedef struct __attribute__((packed)) {
+    int16_t  status;         /* ctrlStatus_e. On error the payload is this field only. */
+    int16_t  lastError;      /* ctrlStatus_e of the last error, 0 = none */
+    uint16_t loopMaxMs;      /* Longest super-loop pass since boot */
+    uint32_t errorCount;
+    uint32_t uptimeMs;
+    uint8_t  lanesPresent;   /* Lanes enumerated (contiguous from 1) */
+    uint8_t  lanesPowered;   /* 1 = lane rail settled and SYNC running */
+    uint8_t  bleLink;        /* hpBleLinkState_e */
+    uint8_t  seqRunning;     /* 1 = a start sequence is running */
+    uint16_t usbFaults;      /* USB_FAULT trips since boot */
+    uint16_t settingsWrites; /* Flash writes since boot */
+    uint32_t logOldestSeq;
+    uint32_t logNextSeq;
+} hpStatusRsp_t;
+_Static_assert(sizeof(hpStatusRsp_t) == 30U, "hpStatusRsp_t layout");
+#define HP_STATUS_RSP_BYTES 30U
+
+/* ---- 0x13 SETTINGS_GET (request) ---------------------------------
+ * Reads the persistent device settings.
+ */
+
+/* SETTINGS_GET request: empty payload */
+#define HP_SETTINGS_GET_REQ_BYTES 0U
+
+/* SETTINGS_GET response */
+typedef struct __attribute__((packed)) {
+    int16_t            status;   /* ctrlStatus_e. On error the payload is this field only. */
+    hpDeviceSettings_t settings;
+} hpSettingsGetRsp_t;
+_Static_assert(sizeof(hpSettingsGetRsp_t) == 30U, "hpSettingsGetRsp_t layout");
+#define HP_SETTINGS_GET_RSP_BYTES 30U
+
+/* ---- 0x14 SETTINGS_SET (request) ---------------------------------
+ * Writes the device settings. Stored to flash when no start sequence runs (deferred, at most every 10 s).
+ */
+
+/* SETTINGS_SET request */
+typedef struct __attribute__((packed)) {
+    hpDeviceSettings_t settings;
+} hpSettingsSetReq_t;
+_Static_assert(sizeof(hpSettingsSetReq_t) == 28U, "hpSettingsSetReq_t layout");
+#define HP_SETTINGS_SET_REQ_BYTES 28U
+
+/* SETTINGS_SET response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpSettingsSetRsp_t;
+_Static_assert(sizeof(hpSettingsSetRsp_t) == 2U, "hpSettingsSetRsp_t layout");
+#define HP_SETTINGS_SET_RSP_BYTES 2U
+
+/* ---- 0x20 LANE_SCAN (request) ------------------------------------
+ * Re-runs the lane chain enumeration: every lane LEFT, then JOINED/CONFIGURED in chain order. Needs lane power.
+ */
+
+/* LANE_SCAN request: empty payload */
+#define HP_LANE_SCAN_REQ_BYTES 0U
+
+/* LANE_SCAN response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpLaneScanRsp_t;
+_Static_assert(sizeof(hpLaneScanRsp_t) == 2U, "hpLaneScanRsp_t layout");
+#define HP_LANE_SCAN_RSP_BYTES 2U
+
 /* ---- 0x21 LANE_POWER (request) -----------------------------------
  * Switches the lane rail (LANE_3V3). On: rail first, SYNC and bus lines once it has settled. Off: signals parked first, then the rail. Answers once the switch is under way; the lane events report the rest.
  */
@@ -384,6 +615,292 @@ typedef struct __attribute__((packed)) {
 } hpLanePowerRsp_t;
 _Static_assert(sizeof(hpLanePowerRsp_t) == 3U, "hpLanePowerRsp_t layout");
 #define HP_LANE_POWER_RSP_BYTES 3U
+
+/* ---- 0x22 LANE_CONFIG_GET (request) ------------------------------
+ * The control module's config table entry for one lane (pushed to the lane at every join).
+ */
+
+/* LANE_CONFIG_GET request */
+typedef struct __attribute__((packed)) {
+    uint8_t lane; /* 1..6 */
+} hpLaneConfigGetReq_t;
+_Static_assert(sizeof(hpLaneConfigGetReq_t) == 1U, "hpLaneConfigGetReq_t layout");
+#define HP_LANE_CONFIG_GET_REQ_BYTES 1U
+
+/* LANE_CONFIG_GET response */
+typedef struct __attribute__((packed)) {
+    int16_t        status;      /* ctrlStatus_e. On error the payload is this field only. */
+    uint8_t        lane;
+    uint8_t        reserved[3];
+    hpLaneConfig_t config;
+} hpLaneConfigGetRsp_t;
+_Static_assert(sizeof(hpLaneConfigGetRsp_t) == 42U, "hpLaneConfigGetRsp_t layout");
+#define HP_LANE_CONFIG_GET_RSP_BYTES 42U
+
+/* ---- 0x23 LANE_CONFIG_SET (request) ------------------------------
+ * Writes the config table for the lanes in laneMask and pushes it to those present. save = 1 also persists the table.
+ */
+
+/* LANE_CONFIG_SET request */
+typedef struct __attribute__((packed)) {
+    uint8_t        laneMask; /* Bit n-1 = lane n */
+    uint8_t        save;
+    uint16_t       reserved;
+    hpLaneConfig_t config;
+} hpLaneConfigSetReq_t;
+_Static_assert(sizeof(hpLaneConfigSetReq_t) == 40U, "hpLaneConfigSetReq_t layout");
+#define HP_LANE_CONFIG_SET_REQ_BYTES 40U
+
+/* LANE_CONFIG_SET response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpLaneConfigSetRsp_t;
+_Static_assert(sizeof(hpLaneConfigSetRsp_t) == 2U, "hpLaneConfigSetRsp_t layout");
+#define HP_LANE_CONFIG_SET_RSP_BYTES 2U
+
+/* ---- 0x24 LANE_SAMPLING (request) --------------------------------
+ * Sets the sampling mode of the lanes in laneMask (kept in the config table, restored after a re-join).
+ */
+
+/* LANE_SAMPLING request */
+typedef struct __attribute__((packed)) {
+    uint8_t laneMask;
+    uint8_t mode;     /* hpSamplingMode_e */
+} hpLaneSamplingReq_t;
+_Static_assert(sizeof(hpLaneSamplingReq_t) == 2U, "hpLaneSamplingReq_t layout");
+#define HP_LANE_SAMPLING_REQ_BYTES 2U
+
+/* LANE_SAMPLING response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpLaneSamplingRsp_t;
+_Static_assert(sizeof(hpLaneSamplingRsp_t) == 2U, "hpLaneSamplingRsp_t layout");
+#define HP_LANE_SAMPLING_RSP_BYTES 2U
+
+/* ---- 0x25 LANE_LED (request) -------------------------------------
+ * Sets the start light of the lanes in laneMask at once. Refused while a start sequence runs (ERR_SEQ_RUNNING).
+ */
+
+/* LANE_LED request */
+typedef struct __attribute__((packed)) {
+    uint8_t  laneMask;
+    uint8_t  mode;            /* hpLedMode_e */
+    uint16_t level;           /* 0..1000 perceived brightness */
+    uint16_t blinkPeriodMs;
+    uint16_t blinkOnPermille;
+    uint16_t blinkCount;      /* 0 = until changed */
+} hpLaneLedReq_t;
+_Static_assert(sizeof(hpLaneLedReq_t) == 10U, "hpLaneLedReq_t layout");
+#define HP_LANE_LED_REQ_BYTES 10U
+
+/* LANE_LED response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpLaneLedRsp_t;
+_Static_assert(sizeof(hpLaneLedRsp_t) == 2U, "hpLaneLedRsp_t layout");
+#define HP_LANE_LED_RSP_BYTES 2U
+
+/* ---- 0x26 LANE_STATUS (request) ----------------------------------
+ * One lane's STATUS and SIGNAL registers, read fresh over the bus.
+ */
+
+/* LANE_STATUS request */
+typedef struct __attribute__((packed)) {
+    uint8_t lane;
+} hpLaneStatusReq_t;
+_Static_assert(sizeof(hpLaneStatusReq_t) == 1U, "hpLaneStatusReq_t layout");
+#define HP_LANE_STATUS_REQ_BYTES 1U
+
+/* LANE_STATUS response */
+typedef struct __attribute__((packed)) {
+    int16_t  status;        /* ctrlStatus_e. On error the payload is this field only. */
+    uint8_t  lane;
+    uint8_t  state;         /* hpLaneBusState_e */
+    uint8_t  samplingMode;  /* hpSamplingMode_e */
+    uint8_t  fifoCount;
+    uint16_t flags;         /* lane_protocol.h LANE_STATUS_* bits */
+    uint16_t droppedEvents;
+    uint16_t syncShifts;
+    uint16_t badWrites;
+    uint16_t lateActions;
+    int16_t  lastError;     /* The lane's own status code */
+    uint8_t  resetCause;    /* hpResetCause_e */
+    uint8_t  faultId;
+    uint32_t uptimeMs;
+    uint16_t raw;
+    uint16_t baseline;
+    uint16_t thrLow;
+    uint16_t thrHigh;
+    uint16_t noise;
+    uint16_t reserved;
+} hpLaneStatusRsp_t;
+_Static_assert(sizeof(hpLaneStatusRsp_t) == 36U, "hpLaneStatusRsp_t layout");
+#define HP_LANE_STATUS_RSP_BYTES 36U
+
+/* ---- 0x27 LANE_RAW_STREAM (request) ------------------------------
+ * Streams one lane's raw samples as STR_RAW_SAMPLES (puts it in RAW mode; lane 0 stops and restores the previous mode). One lane at a time.
+ */
+
+/* LANE_RAW_STREAM request */
+typedef struct __attribute__((packed)) {
+    uint8_t  lane;       /* 1..6, 0 = stop */
+    uint8_t  reserved;
+    uint16_t decimation; /* Keep every Nth sample (>= 1) */
+} hpLaneRawStreamReq_t;
+_Static_assert(sizeof(hpLaneRawStreamReq_t) == 4U, "hpLaneRawStreamReq_t layout");
+#define HP_LANE_RAW_STREAM_REQ_BYTES 4U
+
+/* LANE_RAW_STREAM response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpLaneRawStreamRsp_t;
+_Static_assert(sizeof(hpLaneRawStreamRsp_t) == 2U, "hpLaneRawStreamRsp_t layout");
+#define HP_LANE_RAW_STREAM_RSP_BYTES 2U
+
+/* ---- 0x28 LANE_CALIBRATE (request) -------------------------------
+ * The lanes in laneMask re-learn their baseline. Only meaningful with the lane free.
+ */
+
+/* LANE_CALIBRATE request */
+typedef struct __attribute__((packed)) {
+    uint8_t laneMask;
+} hpLaneCalibrateReq_t;
+_Static_assert(sizeof(hpLaneCalibrateReq_t) == 1U, "hpLaneCalibrateReq_t layout");
+#define HP_LANE_CALIBRATE_REQ_BYTES 1U
+
+/* LANE_CALIBRATE response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpLaneCalibrateRsp_t;
+_Static_assert(sizeof(hpLaneCalibrateRsp_t) == 2U, "hpLaneCalibrateRsp_t layout");
+#define HP_LANE_CALIBRATE_RSP_BYTES 2U
+
+/* ---- 0x40 START_SEQUENCE (request) -------------------------------
+ * F1-style start: lane k lights at T0 + k*step, all go out together at Tout = T0 + n*step + random hold. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
+ */
+
+/* START_SEQUENCE request */
+typedef struct __attribute__((packed)) {
+    uint8_t  lights;      /* 1..6; lanes present are lit in index order */
+    uint8_t  armSampling; /* 1 = also switch sampling ON at T0 */
+    uint16_t stepMs;
+    uint16_t holdMinMs;
+    uint16_t holdMaxMs;
+    uint16_t leadMs;      /* Time from now to T0; 0 = default (>= 150 ms) */
+    uint16_t reserved;
+} hpStartSequenceReq_t;
+_Static_assert(sizeof(hpStartSequenceReq_t) == 12U, "hpStartSequenceReq_t layout");
+#define HP_START_SEQUENCE_REQ_BYTES 12U
+
+/* START_SEQUENCE response */
+typedef struct __attribute__((packed)) {
+    int16_t  status;   /* ctrlStatus_e. On error the payload is this field only. */
+    uint16_t reserved;
+    uint64_t t0Us;     /* System time the first light goes on */
+} hpStartSequenceRsp_t;
+_Static_assert(sizeof(hpStartSequenceRsp_t) == 12U, "hpStartSequenceRsp_t layout");
+#define HP_START_SEQUENCE_RSP_BYTES 12U
+
+/* ---- 0x41 ABORT_SEQUENCE (request) -------------------------------
+ * Cancels the running start sequence: lanes' pending actions cancelled, lights blink, EVT_SEQ_ABORTED.
+ */
+
+/* ABORT_SEQUENCE request: empty payload */
+#define HP_ABORT_SEQUENCE_REQ_BYTES 0U
+
+/* ABORT_SEQUENCE response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpAbortSequenceRsp_t;
+_Static_assert(sizeof(hpAbortSequenceRsp_t) == 2U, "hpAbortSequenceRsp_t layout");
+#define HP_ABORT_SEQUENCE_RSP_BYTES 2U
+
+/* ---- 0xA0 UPDATE_BEGIN (request) ---------------------------------
+ * Starts an update: erases the app region. The image must be for this board type.
+ */
+
+/* UPDATE_BEGIN request */
+typedef struct __attribute__((packed)) {
+    uint8_t  boardType;   /* hpBoardType_e */
+    uint8_t  reserved[3];
+    uint32_t size;        /* Image bytes */
+    uint32_t crc32;       /* CRC-32 (IEEE) of the whole image */
+} hpUpdateBeginReq_t;
+_Static_assert(sizeof(hpUpdateBeginReq_t) == 12U, "hpUpdateBeginReq_t layout");
+#define HP_UPDATE_BEGIN_REQ_BYTES 12U
+
+/* UPDATE_BEGIN response */
+typedef struct __attribute__((packed)) {
+    int16_t  status;   /* ctrlStatus_e. On error the payload is this field only. */
+    uint16_t chunkMax; /* Largest data tail UPDATE_CHUNK accepts */
+    uint16_t reserved;
+} hpUpdateBeginRsp_t;
+_Static_assert(sizeof(hpUpdateBeginRsp_t) == 6U, "hpUpdateBeginRsp_t layout");
+#define HP_UPDATE_BEGIN_RSP_BYTES 6U
+
+/* ---- 0xA1 UPDATE_CHUNK (request) ---------------------------------
+ * Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe.
+ */
+
+/* UPDATE_CHUNK request */
+typedef struct __attribute__((packed)) {
+    uint32_t offset;
+    uint8_t  data[]; /* tail: rest of the payload */
+} hpUpdateChunkReq_t;
+_Static_assert(sizeof(hpUpdateChunkReq_t) == 4U, "hpUpdateChunkReq_t layout");
+#define HP_UPDATE_CHUNK_REQ_BYTES 4U
+#define HP_UPDATE_CHUNK_REQ_ITEM_BYTES 1U
+#define HP_UPDATE_CHUNK_REQ_MAX_ITEMS ((HP_MAX_PAYLOAD - HP_UPDATE_CHUNK_REQ_BYTES) / HP_UPDATE_CHUNK_REQ_ITEM_BYTES)
+
+/* UPDATE_CHUNK response */
+typedef struct __attribute__((packed)) {
+    int16_t  status;     /* ctrlStatus_e. On error the payload is this field only. */
+    uint32_t nextOffset;
+} hpUpdateChunkRsp_t;
+_Static_assert(sizeof(hpUpdateChunkRsp_t) == 6U, "hpUpdateChunkRsp_t layout");
+#define HP_UPDATE_CHUNK_RSP_BYTES 6U
+
+/* ---- 0xA2 UPDATE_END (request) -----------------------------------
+ * Verifies the CRC over the written image and writes the image header last. ERR_IMAGE_CRC if it does not match.
+ */
+
+/* UPDATE_END request: empty payload */
+#define HP_UPDATE_END_REQ_BYTES 0U
+
+/* UPDATE_END response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpUpdateEndRsp_t;
+_Static_assert(sizeof(hpUpdateEndRsp_t) == 2U, "hpUpdateEndRsp_t layout");
+#define HP_UPDATE_END_RSP_BYTES 2U
+
+/* ---- 0xA3 UPDATE_ABORT (request) ---------------------------------
+ * Abandons the update. The bootloader stays (no valid app).
+ */
+
+/* UPDATE_ABORT request: empty payload */
+#define HP_UPDATE_ABORT_REQ_BYTES 0U
+
+/* UPDATE_ABORT response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpUpdateAbortRsp_t;
+_Static_assert(sizeof(hpUpdateAbortRsp_t) == 2U, "hpUpdateAbortRsp_t layout");
+#define HP_UPDATE_ABORT_RSP_BYTES 2U
+
+/* ---- 0xA4 BOOT_APP (request) -------------------------------------
+ * Leaves the bootloader and starts the app, if its header and CRC are valid. The response goes out first.
+ */
+
+/* BOOT_APP request: empty payload */
+#define HP_BOOT_APP_REQ_BYTES 0U
+
+/* BOOT_APP response */
+typedef struct __attribute__((packed)) {
+    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
+} hpBootAppRsp_t;
+_Static_assert(sizeof(hpBootAppRsp_t) == 2U, "hpBootAppRsp_t layout");
+#define HP_BOOT_APP_RSP_BYTES 2U
 
 /* ---- 0xC0 EVT_BOOT (event) ---------------------------------------
  * Always evSeq 0 of a boot: marks the start of a log.
@@ -450,6 +967,97 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(hpEvtButton_t) == 16U, "hpEvtButton_t layout");
 #define HP_EVT_BUTTON_BYTES 16U
 
+/* ---- 0xC4 EVT_SEQ_STARTED (event) --------------------------------
+ * A start sequence was planned and written to the lanes. Tout is deliberately not in it.
+ */
+
+/* EVT_SEQ_STARTED */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;       /* Event sequence number within this boot (bootId) */
+    uint8_t  lights;
+    uint8_t  armSampling;
+    uint16_t stepMs;
+    uint64_t t0Us;
+} hpEvtSeqStarted_t;
+_Static_assert(sizeof(hpEvtSeqStarted_t) == 16U, "hpEvtSeqStarted_t layout");
+#define HP_EVT_SEQ_STARTED_BYTES 16U
+
+/* ---- 0xC5 EVT_LIGHTS_OUT (event) ---------------------------------
+ * All lights went out at toutUs: the race start. False starts and reaction times are judged against it.
+ */
+
+/* EVT_LIGHTS_OUT */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;       /* Event sequence number within this boot (bootId) */
+    uint8_t  lights;
+    uint8_t  reserved[3];
+    uint64_t toutUs;
+} hpEvtLightsOut_t;
+_Static_assert(sizeof(hpEvtLightsOut_t) == 16U, "hpEvtLightsOut_t layout");
+#define HP_EVT_LIGHTS_OUT_BYTES 16U
+
+/* ---- 0xC6 EVT_SEQ_ABORTED (event) --------------------------------
+ * The start sequence was cancelled.
+ */
+
+/* EVT_SEQ_ABORTED */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;       /* Event sequence number within this boot (bootId) */
+    uint8_t  reason;      /* hpSeqAbortReason_e */
+    uint8_t  reserved[3];
+    uint64_t atUs;
+} hpEvtSeqAborted_t;
+_Static_assert(sizeof(hpEvtSeqAborted_t) == 16U, "hpEvtSeqAborted_t layout");
+#define HP_EVT_SEQ_ABORTED_BYTES 16U
+
+/* ---- 0xC7 EVT_BIND_CHANGED (event) -------------------------------
+ * The BLE bind list or pairing window changed.
+ */
+
+/* EVT_BIND_CHANGED */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;             /* Event sequence number within this boot (bootId) */
+    uint8_t  change;            /* hpBindChange_e */
+    uint8_t  count;             /* Entries on the list after the change */
+    uint16_t windowS;           /* Pairing window seconds left */
+    uint8_t  clientIdPrefix[8]; /* First 8 bytes of the client concerned (zero if none) */
+} hpEvtBindChanged_t;
+_Static_assert(sizeof(hpEvtBindChanged_t) == 16U, "hpEvtBindChanged_t layout");
+#define HP_EVT_BIND_CHANGED_BYTES 16U
+
+/* ---- 0xC8 EVT_BLE_LINK (event) -----------------------------------
+ * The BLE link to a central came up, changed parameters, or went down.
+ */
+
+/* EVT_BLE_LINK */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;         /* Event sequence number within this boot (bootId) */
+    uint8_t  state;         /* hpBleLinkState_e */
+    uint8_t  phy;           /* 1 = 1M, 2 = 2M */
+    uint16_t attMtu;
+    uint16_t intervalUnits; /* 1.25 ms units */
+    uint8_t  reason;        /* HCI reason on DOWN */
+    uint8_t  reserved;
+    uint64_t sysUs;
+} hpEvtBleLink_t;
+_Static_assert(sizeof(hpEvtBleLink_t) == 20U, "hpEvtBleLink_t layout");
+#define HP_EVT_BLE_LINK_BYTES 20U
+
+/* ---- 0xC9 EVT_FAULT (event) --------------------------------------
+ * A hardware fault input tripped.
+ */
+
+/* EVT_FAULT */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;    /* Event sequence number within this boot (bootId) */
+    uint8_t  source;   /* hpFaultSource_e */
+    uint8_t  reserved;
+    int16_t  status;
+    uint64_t sysUs;
+} hpEvtFault_t;
+_Static_assert(sizeof(hpEvtFault_t) == 16U, "hpEvtFault_t layout");
+#define HP_EVT_FAULT_BYTES 16U
+
 /* ---- 0xE0 STR_RAW_SAMPLES (stream) -------------------------------
  * Decimated raw sensor samples of one lane for the diagnostics view. Sample i was taken at firstUs + i*periodUs.
  */
@@ -496,13 +1104,39 @@ static inline const char *hpMsgName(uint8_t msgId)
     case HP_MSG_PING: return "PING";
     case HP_MSG_RESUME: return "RESUME";
     case HP_MSG_NODE_LIST: return "NODE_LIST";
+    case HP_MSG_BIND_LIST: return "BIND_LIST";
+    case HP_MSG_BIND_REMOVE: return "BIND_REMOVE";
     case HP_MSG_BIND_ALLOW: return "BIND_ALLOW";
     case HP_MSG_REBOOT: return "REBOOT";
+    case HP_MSG_STATUS: return "STATUS";
+    case HP_MSG_SETTINGS_GET: return "SETTINGS_GET";
+    case HP_MSG_SETTINGS_SET: return "SETTINGS_SET";
+    case HP_MSG_LANE_SCAN: return "LANE_SCAN";
     case HP_MSG_LANE_POWER: return "LANE_POWER";
+    case HP_MSG_LANE_CONFIG_GET: return "LANE_CONFIG_GET";
+    case HP_MSG_LANE_CONFIG_SET: return "LANE_CONFIG_SET";
+    case HP_MSG_LANE_SAMPLING: return "LANE_SAMPLING";
+    case HP_MSG_LANE_LED: return "LANE_LED";
+    case HP_MSG_LANE_STATUS: return "LANE_STATUS";
+    case HP_MSG_LANE_RAW_STREAM: return "LANE_RAW_STREAM";
+    case HP_MSG_LANE_CALIBRATE: return "LANE_CALIBRATE";
+    case HP_MSG_START_SEQUENCE: return "START_SEQUENCE";
+    case HP_MSG_ABORT_SEQUENCE: return "ABORT_SEQUENCE";
+    case HP_MSG_UPDATE_BEGIN: return "UPDATE_BEGIN";
+    case HP_MSG_UPDATE_CHUNK: return "UPDATE_CHUNK";
+    case HP_MSG_UPDATE_END: return "UPDATE_END";
+    case HP_MSG_UPDATE_ABORT: return "UPDATE_ABORT";
+    case HP_MSG_BOOT_APP: return "BOOT_APP";
     case HP_MSG_EVT_BOOT: return "EVT_BOOT";
     case HP_MSG_EVT_CROSSING: return "EVT_CROSSING";
     case HP_MSG_EVT_LANE_STATE: return "EVT_LANE_STATE";
     case HP_MSG_EVT_BUTTON: return "EVT_BUTTON";
+    case HP_MSG_EVT_SEQ_STARTED: return "EVT_SEQ_STARTED";
+    case HP_MSG_EVT_LIGHTS_OUT: return "EVT_LIGHTS_OUT";
+    case HP_MSG_EVT_SEQ_ABORTED: return "EVT_SEQ_ABORTED";
+    case HP_MSG_EVT_BIND_CHANGED: return "EVT_BIND_CHANGED";
+    case HP_MSG_EVT_BLE_LINK: return "EVT_BLE_LINK";
+    case HP_MSG_EVT_FAULT: return "EVT_FAULT";
     case HP_MSG_STR_RAW_SAMPLES: return "STR_RAW_SAMPLES";
     case HP_MSG_DBG_LOG: return "DBG_LOG";
     default: return "?";

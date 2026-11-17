@@ -235,6 +235,7 @@ def load(path: Path) -> dict:
 
     proto = doc["protocol"]
     max_payload = proto["max_payload"]
+    max_event = proto["max_event_payload"]
 
     flags = doc.get("flag", [])
     statuses = doc.get("status", [])
@@ -295,6 +296,9 @@ def load(path: Path) -> dict:
             parts = (("body", msg.body),)
             if "example" in m:
                 msg.examples["body"] = m["example"]
+        if kind == "event" and msg.body.size > max_event:
+            raise SchemaError(f"{where}: {msg.body.size} B, over max_event_payload {max_event} "
+                              "(the control module's event log slot)")
         for _, st in parts:
             if st.size > max_payload:
                 raise SchemaError(f"{where}: {st.name} is {st.size} B, over max_payload {max_payload}")

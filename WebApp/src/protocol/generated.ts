@@ -12,7 +12,7 @@
 import { decodeStruct, encodeStruct } from './wire.ts';
 import type { StructDesc } from './wire.ts';
 
-export const PROTO = { major: 0, minor: 1, maxPayload: 240, headerBytes: 4 } as const;
+export const PROTO = { major: 0, minor: 2, maxPayload: 240, headerBytes: 4 } as const;
 
 /** USB identity of the control module: the Web Serial port filter. */
 export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker' } as const;
@@ -196,6 +196,65 @@ export const LogLevel = {
 } as const;
 export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 
+/** Lane sampling mode (lane_protocol.h laneSamplingMode_e, same values) */
+export const SamplingMode = {
+  OFF: 0,
+  ON: 1,
+  RAW: 2,
+} as const;
+export type SamplingMode = (typeof SamplingMode)[keyof typeof SamplingMode];
+
+export const LedMode = {
+  OFF: 0,
+  ON: 1,
+  BLINK: 2,
+} as const;
+export type LedMode = (typeof LedMode)[keyof typeof LedMode];
+
+/** The lane's own state machine (lane_protocol.h laneState_e, same values) */
+export const LaneBusState = {
+  UNENUMERATED: 0,
+  ENUMERATED: 1,
+  IDLE: 2,
+  SAMPLING: 3,
+  SLEEP: 4,
+  PARKED: 5,
+} as const;
+export type LaneBusState = (typeof LaneBusState)[keyof typeof LaneBusState];
+
+export const SeqAbortReason = {
+  HOST: 1,
+  BUTTON: 2,
+  LANE_FAILED: 3,
+  LANE_LEFT: 4,
+  POWER: 5,
+} as const;
+export type SeqAbortReason = (typeof SeqAbortReason)[keyof typeof SeqAbortReason];
+
+export const BindChange = {
+  ADDED: 1,
+  REMOVED: 2,
+  CLEARED: 3,
+  WINDOW_OPENED: 4,
+  WINDOW_CLOSED: 5,
+  REJECTED: 6,
+} as const;
+export type BindChange = (typeof BindChange)[keyof typeof BindChange];
+
+export const FaultSource = {
+  USB: 1,
+  EXT_POWER: 2,
+  LANE_POWER: 3,
+} as const;
+export type FaultSource = (typeof FaultSource)[keyof typeof FaultSource];
+
+export const BleLinkState = {
+  DOWN: 0,
+  UP: 1,
+  VERSION_MISMATCH: 2,
+} as const;
+export type BleLinkState = (typeof BleLinkState)[keyof typeof BleLinkState];
+
 // ---- structs --------------------------------------------------------------
 
 /** Frame header, the first 4 bytes of every frame */
@@ -258,6 +317,98 @@ export type NodeInfo = {
 export const encodeNodeInfo = (v: NodeInfo): Uint8Array => encodeStruct(NODE_INFO, v);
 export const decodeNodeInfo = (b: Uint8Array): NodeInfo => decodeStruct(NODE_INFO, b) as NodeInfo;
 
+/** Detection and sampling config of one lane (lane_protocol.h laneConfig_t, same layout) */
+export const LANE_CONFIG: StructDesc = {
+  name: 'LaneConfig',
+  size: 36,
+  fields: [
+    { name: 'samplePeriodUs', kind: 'scalar', type: 'u32' },
+    { name: 'samplePhaseUs', kind: 'scalar', type: 'u32' },
+    { name: 'mergeGapUs', kind: 'scalar', type: 'u32' },
+    { name: 'blockTimeoutUs', kind: 'scalar', type: 'u32' },
+    { name: 'holdoffUs', kind: 'scalar', type: 'u32' },
+    { name: 'holdoffSamplePeriodUs', kind: 'scalar', type: 'u32' },
+    { name: 'thrDropPermille', kind: 'scalar', type: 'u16' },
+    { name: 'hystPermille', kind: 'scalar', type: 'u16' },
+    { name: 'minDwell10us', kind: 'scalar', type: 'u16' },
+    { name: 'rawDecimation', kind: 'scalar', type: 'u16' },
+    { name: 'irCurrent', kind: 'scalar', type: 'u8' },
+    { name: 'psIntegration', kind: 'scalar', type: 'u8' },
+    { name: 'psMultiPulse', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u8' },
+  ],
+};
+export type LaneConfig = {
+  /** Sampling period, e.g. 1000 (1 kHz) */
+  samplePeriodUs: number;
+  /** Offset inside the period (staggers the IR pulses) */
+  samplePhaseUs: number;
+  /** Re-entry within this counts as the same car */
+  mergeGapUs: number;
+  /** Below LOW longer than this: BLOCKED */
+  blockTimeoutUs: number;
+  /** Holdoff after an event, 0 = off */
+  holdoffUs: number;
+  /** Sampling period inside the holdoff, 0 = unchanged */
+  holdoffSamplePeriodUs: number;
+  /** LOW = baseline x (1000 - x) / 1000 */
+  thrDropPermille: number;
+  /** HIGH = LOW + baseline x x / 1000 */
+  hystPermille: number;
+  /** Shorter dips are glitches */
+  minDwell10us: number;
+  /** RAW mode keeps every Nth sample (>= 1) */
+  rawDecimation: number;
+  /** VCNL4040 LED_I code */
+  irCurrent: number;
+  /** VCNL4040 PS_IT code */
+  psIntegration: number;
+  /** VCNL4040 PS_MPS code */
+  psMultiPulse: number;
+  reserved: number;
+};
+export const encodeLaneConfig = (v: LaneConfig): Uint8Array => encodeStruct(LANE_CONFIG, v);
+export const decodeLaneConfig = (b: Uint8Array): LaneConfig => decodeStruct(LANE_CONFIG, b) as LaneConfig;
+
+/** One bound BLE client */
+export const BIND_ENTRY: StructDesc = {
+  name: 'BindEntry',
+  size: 44,
+  fields: [
+    { name: 'clientId', kind: 'bytes', size: 16 },
+    { name: 'clientName', kind: 'str', size: 24 },
+    { name: 'lastUsed', kind: 'scalar', type: 'u32' },
+  ],
+};
+export type BindEntry = {
+  clientId: Uint8Array;
+  clientName: string;
+  /** LRU stamp: higher = used more recently */
+  lastUsed: number;
+};
+export const encodeBindEntry = (v: BindEntry): Uint8Array => encodeStruct(BIND_ENTRY, v);
+export const decodeBindEntry = (b: Uint8Array): BindEntry => decodeStruct(BIND_ENTRY, b) as BindEntry;
+
+/** Persistent device settings (settings_store) */
+export const DEVICE_SETTINGS: StructDesc = {
+  name: 'DeviceSettings',
+  size: 28,
+  fields: [
+    { name: 'deviceName', kind: 'str', size: 24 },
+    { name: 'bleEnabled', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'bytes', size: 3 },
+  ],
+};
+export type DeviceSettings = {
+  /** Shown in the app */
+  deviceName: string;
+  /** 0 = the nRF stops advertising */
+  bleEnabled: number;
+  reserved: Uint8Array;
+};
+export const encodeDeviceSettings = (v: DeviceSettings): Uint8Array => encodeStruct(DEVICE_SETTINGS, v);
+export const decodeDeviceSettings = (b: Uint8Array): DeviceSettings => decodeStruct(DEVICE_SETTINGS, b) as DeviceSettings;
+
 // ---- messages -------------------------------------------------------------
 
 export const MsgId = {
@@ -265,13 +416,39 @@ export const MsgId = {
   PING: 0x02,
   RESUME: 0x03,
   NODE_LIST: 0x04,
+  BIND_LIST: 0x05,
+  BIND_REMOVE: 0x06,
   BIND_ALLOW: 0x08,
   REBOOT: 0x11,
+  STATUS: 0x12,
+  SETTINGS_GET: 0x13,
+  SETTINGS_SET: 0x14,
+  LANE_SCAN: 0x20,
   LANE_POWER: 0x21,
+  LANE_CONFIG_GET: 0x22,
+  LANE_CONFIG_SET: 0x23,
+  LANE_SAMPLING: 0x24,
+  LANE_LED: 0x25,
+  LANE_STATUS: 0x26,
+  LANE_RAW_STREAM: 0x27,
+  LANE_CALIBRATE: 0x28,
+  START_SEQUENCE: 0x40,
+  ABORT_SEQUENCE: 0x41,
+  UPDATE_BEGIN: 0xa0,
+  UPDATE_CHUNK: 0xa1,
+  UPDATE_END: 0xa2,
+  UPDATE_ABORT: 0xa3,
+  BOOT_APP: 0xa4,
   EVT_BOOT: 0xc0,
   EVT_CROSSING: 0xc1,
   EVT_LANE_STATE: 0xc2,
   EVT_BUTTON: 0xc3,
+  EVT_SEQ_STARTED: 0xc4,
+  EVT_LIGHTS_OUT: 0xc5,
+  EVT_SEQ_ABORTED: 0xc6,
+  EVT_BIND_CHANGED: 0xc7,
+  EVT_BLE_LINK: 0xc8,
+  EVT_FAULT: 0xc9,
   STR_RAW_SAMPLES: 0xe0,
   DBG_LOG: 0xf0,
 } as const;
@@ -446,6 +623,78 @@ export type NodeListRsp = {
 export const encodeNodeListRsp = (v: NodeListRsp): Uint8Array => encodeStruct(NODE_LIST_RSP, v);
 export const decodeNodeListRsp = (b: Uint8Array): NodeListRsp => decodeStruct(NODE_LIST_RSP, b) as NodeListRsp;
 
+// 0x05 BIND_LIST (request): The BLE bind list, paged (8 entries do not fit one frame). TRUSTED or BOUND sessions only.
+/** BIND_LIST request */
+export const BIND_LIST_REQ: StructDesc = {
+  name: 'BindListReq',
+  size: 1,
+  fields: [
+    { name: 'start', kind: 'scalar', type: 'u8' },
+  ],
+};
+export type BindListReq = {
+  /** Index of the first entry wanted */
+  start: number;
+};
+export const encodeBindListReq = (v: BindListReq): Uint8Array => encodeStruct(BIND_LIST_REQ, v);
+export const decodeBindListReq = (b: Uint8Array): BindListReq => decodeStruct(BIND_LIST_REQ, b) as BindListReq;
+
+/** BIND_LIST response */
+export const BIND_LIST_RSP: StructDesc = {
+  name: 'BindListRsp',
+  size: 6,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'total', kind: 'scalar', type: 'u8' },
+    { name: 'start', kind: 'scalar', type: 'u8' },
+    { name: 'windowS', kind: 'scalar', type: 'u16' },
+    { name: 'entries', kind: 'tail', item: { kind: 'struct', struct: BIND_ENTRY } },
+  ],
+};
+export type BindListRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  /** Entries on the list */
+  total: number;
+  start: number;
+  /** Seconds left in the pairing window, 0 = closed */
+  windowS: number;
+  /** Up to 5 per page */
+  entries: BindEntry[];
+};
+export const encodeBindListRsp = (v: BindListRsp): Uint8Array => encodeStruct(BIND_LIST_RSP, v);
+export const decodeBindListRsp = (b: Uint8Array): BindListRsp => decodeStruct(BIND_LIST_RSP, b) as BindListRsp;
+
+// 0x06 BIND_REMOVE (request): Removes one client from the bind list; an all-zero clientId clears the list. TRUSTED or BOUND sessions only.
+/** BIND_REMOVE request */
+export const BIND_REMOVE_REQ: StructDesc = {
+  name: 'BindRemoveReq',
+  size: 16,
+  fields: [
+    { name: 'clientId', kind: 'bytes', size: 16 },
+  ],
+};
+export type BindRemoveReq = {
+  clientId: Uint8Array;
+};
+export const encodeBindRemoveReq = (v: BindRemoveReq): Uint8Array => encodeStruct(BIND_REMOVE_REQ, v);
+export const decodeBindRemoveReq = (b: Uint8Array): BindRemoveReq => decodeStruct(BIND_REMOVE_REQ, b) as BindRemoveReq;
+
+/** BIND_REMOVE response */
+export const BIND_REMOVE_RSP: StructDesc = {
+  name: 'BindRemoveRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type BindRemoveRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeBindRemoveRsp = (v: BindRemoveRsp): Uint8Array => encodeStruct(BIND_REMOVE_RSP, v);
+export const decodeBindRemoveRsp = (b: Uint8Array): BindRemoveRsp => decodeStruct(BIND_REMOVE_RSP, b) as BindRemoveRsp;
+
 // 0x08 BIND_ALLOW (request): Opens the BLE pairing window from the app. Accepted from TRUSTED (USB) and BOUND sessions only.
 /** BIND_ALLOW request */
 export const BIND_ALLOW_REQ: StructDesc = {
@@ -508,6 +757,148 @@ export type RebootRsp = {
 export const encodeRebootRsp = (v: RebootRsp): Uint8Array => encodeStruct(REBOOT_RSP, v);
 export const decodeRebootRsp = (b: Uint8Array): RebootRsp => decodeStruct(REBOOT_RSP, b) as RebootRsp;
 
+// 0x12 STATUS (request): Control module health: errors, loop time, lanes, links, event log window.
+/** STATUS request */
+export const STATUS_REQ: StructDesc = {
+  name: 'StatusReq',
+  size: 0,
+  fields: [],
+};
+export type StatusReq = Record<string, never>;
+export const encodeStatusReq = (v: StatusReq): Uint8Array => encodeStruct(STATUS_REQ, v);
+export const decodeStatusReq = (b: Uint8Array): StatusReq => decodeStruct(STATUS_REQ, b) as StatusReq;
+
+/** STATUS response */
+export const STATUS_RSP: StructDesc = {
+  name: 'StatusRsp',
+  size: 30,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'lastError', kind: 'scalar', type: 'i16' },
+    { name: 'loopMaxMs', kind: 'scalar', type: 'u16' },
+    { name: 'errorCount', kind: 'scalar', type: 'u32' },
+    { name: 'uptimeMs', kind: 'scalar', type: 'u32' },
+    { name: 'lanesPresent', kind: 'scalar', type: 'u8' },
+    { name: 'lanesPowered', kind: 'scalar', type: 'u8' },
+    { name: 'bleLink', kind: 'scalar', type: 'u8' },
+    { name: 'seqRunning', kind: 'scalar', type: 'u8' },
+    { name: 'usbFaults', kind: 'scalar', type: 'u16' },
+    { name: 'settingsWrites', kind: 'scalar', type: 'u16' },
+    { name: 'logOldestSeq', kind: 'scalar', type: 'u32' },
+    { name: 'logNextSeq', kind: 'scalar', type: 'u32' },
+  ],
+};
+export type StatusRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  /** ctrlStatus_e of the last error, 0 = none */
+  lastError: number;
+  /** Longest super-loop pass since boot */
+  loopMaxMs: number;
+  errorCount: number;
+  uptimeMs: number;
+  /** Lanes enumerated (contiguous from 1) */
+  lanesPresent: number;
+  /** 1 = lane rail settled and SYNC running */
+  lanesPowered: number;
+  /** enum BleLinkState */
+  bleLink: number;
+  /** 1 = a start sequence is running */
+  seqRunning: number;
+  /** USB_FAULT trips since boot */
+  usbFaults: number;
+  /** Flash writes since boot */
+  settingsWrites: number;
+  logOldestSeq: number;
+  logNextSeq: number;
+};
+export const encodeStatusRsp = (v: StatusRsp): Uint8Array => encodeStruct(STATUS_RSP, v);
+export const decodeStatusRsp = (b: Uint8Array): StatusRsp => decodeStruct(STATUS_RSP, b) as StatusRsp;
+
+// 0x13 SETTINGS_GET (request): Reads the persistent device settings.
+/** SETTINGS_GET request */
+export const SETTINGS_GET_REQ: StructDesc = {
+  name: 'SettingsGetReq',
+  size: 0,
+  fields: [],
+};
+export type SettingsGetReq = Record<string, never>;
+export const encodeSettingsGetReq = (v: SettingsGetReq): Uint8Array => encodeStruct(SETTINGS_GET_REQ, v);
+export const decodeSettingsGetReq = (b: Uint8Array): SettingsGetReq => decodeStruct(SETTINGS_GET_REQ, b) as SettingsGetReq;
+
+/** SETTINGS_GET response */
+export const SETTINGS_GET_RSP: StructDesc = {
+  name: 'SettingsGetRsp',
+  size: 30,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'settings', kind: 'struct', struct: DEVICE_SETTINGS },
+  ],
+};
+export type SettingsGetRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  settings: DeviceSettings;
+};
+export const encodeSettingsGetRsp = (v: SettingsGetRsp): Uint8Array => encodeStruct(SETTINGS_GET_RSP, v);
+export const decodeSettingsGetRsp = (b: Uint8Array): SettingsGetRsp => decodeStruct(SETTINGS_GET_RSP, b) as SettingsGetRsp;
+
+// 0x14 SETTINGS_SET (request): Writes the device settings. Stored to flash when no start sequence runs (deferred, at most every 10 s).
+/** SETTINGS_SET request */
+export const SETTINGS_SET_REQ: StructDesc = {
+  name: 'SettingsSetReq',
+  size: 28,
+  fields: [
+    { name: 'settings', kind: 'struct', struct: DEVICE_SETTINGS },
+  ],
+};
+export type SettingsSetReq = {
+  settings: DeviceSettings;
+};
+export const encodeSettingsSetReq = (v: SettingsSetReq): Uint8Array => encodeStruct(SETTINGS_SET_REQ, v);
+export const decodeSettingsSetReq = (b: Uint8Array): SettingsSetReq => decodeStruct(SETTINGS_SET_REQ, b) as SettingsSetReq;
+
+/** SETTINGS_SET response */
+export const SETTINGS_SET_RSP: StructDesc = {
+  name: 'SettingsSetRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type SettingsSetRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeSettingsSetRsp = (v: SettingsSetRsp): Uint8Array => encodeStruct(SETTINGS_SET_RSP, v);
+export const decodeSettingsSetRsp = (b: Uint8Array): SettingsSetRsp => decodeStruct(SETTINGS_SET_RSP, b) as SettingsSetRsp;
+
+// 0x20 LANE_SCAN (request): Re-runs the lane chain enumeration: every lane LEFT, then JOINED/CONFIGURED in chain order. Needs lane power.
+/** LANE_SCAN request */
+export const LANE_SCAN_REQ: StructDesc = {
+  name: 'LaneScanReq',
+  size: 0,
+  fields: [],
+};
+export type LaneScanReq = Record<string, never>;
+export const encodeLaneScanReq = (v: LaneScanReq): Uint8Array => encodeStruct(LANE_SCAN_REQ, v);
+export const decodeLaneScanReq = (b: Uint8Array): LaneScanReq => decodeStruct(LANE_SCAN_REQ, b) as LaneScanReq;
+
+/** LANE_SCAN response */
+export const LANE_SCAN_RSP: StructDesc = {
+  name: 'LaneScanRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type LaneScanRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeLaneScanRsp = (v: LaneScanRsp): Uint8Array => encodeStruct(LANE_SCAN_RSP, v);
+export const decodeLaneScanRsp = (b: Uint8Array): LaneScanRsp => decodeStruct(LANE_SCAN_RSP, b) as LaneScanRsp;
+
 // 0x21 LANE_POWER (request): Switches the lane rail (LANE_3V3). On: rail first, SYNC and bus lines once it has settled. Off: signals parked first, then the rail. Answers once the switch is under way; the lane events report the rest.
 /** LANE_POWER request */
 export const LANE_POWER_REQ: StructDesc = {
@@ -541,6 +932,527 @@ export type LanePowerRsp = {
 };
 export const encodeLanePowerRsp = (v: LanePowerRsp): Uint8Array => encodeStruct(LANE_POWER_RSP, v);
 export const decodeLanePowerRsp = (b: Uint8Array): LanePowerRsp => decodeStruct(LANE_POWER_RSP, b) as LanePowerRsp;
+
+// 0x22 LANE_CONFIG_GET (request): The control module's config table entry for one lane (pushed to the lane at every join).
+/** LANE_CONFIG_GET request */
+export const LANE_CONFIG_GET_REQ: StructDesc = {
+  name: 'LaneConfigGetReq',
+  size: 1,
+  fields: [
+    { name: 'lane', kind: 'scalar', type: 'u8' },
+  ],
+};
+export type LaneConfigGetReq = {
+  /** 1..6 */
+  lane: number;
+};
+export const encodeLaneConfigGetReq = (v: LaneConfigGetReq): Uint8Array => encodeStruct(LANE_CONFIG_GET_REQ, v);
+export const decodeLaneConfigGetReq = (b: Uint8Array): LaneConfigGetReq => decodeStruct(LANE_CONFIG_GET_REQ, b) as LaneConfigGetReq;
+
+/** LANE_CONFIG_GET response */
+export const LANE_CONFIG_GET_RSP: StructDesc = {
+  name: 'LaneConfigGetRsp',
+  size: 42,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'lane', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'bytes', size: 3 },
+    { name: 'config', kind: 'struct', struct: LANE_CONFIG },
+  ],
+};
+export type LaneConfigGetRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  lane: number;
+  reserved: Uint8Array;
+  config: LaneConfig;
+};
+export const encodeLaneConfigGetRsp = (v: LaneConfigGetRsp): Uint8Array => encodeStruct(LANE_CONFIG_GET_RSP, v);
+export const decodeLaneConfigGetRsp = (b: Uint8Array): LaneConfigGetRsp => decodeStruct(LANE_CONFIG_GET_RSP, b) as LaneConfigGetRsp;
+
+// 0x23 LANE_CONFIG_SET (request): Writes the config table for the lanes in laneMask and pushes it to those present. save = 1 also persists the table.
+/** LANE_CONFIG_SET request */
+export const LANE_CONFIG_SET_REQ: StructDesc = {
+  name: 'LaneConfigSetReq',
+  size: 40,
+  fields: [
+    { name: 'laneMask', kind: 'scalar', type: 'u8' },
+    { name: 'save', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u16' },
+    { name: 'config', kind: 'struct', struct: LANE_CONFIG },
+  ],
+};
+export type LaneConfigSetReq = {
+  /** Bit n-1 = lane n */
+  laneMask: number;
+  save: number;
+  reserved: number;
+  config: LaneConfig;
+};
+export const encodeLaneConfigSetReq = (v: LaneConfigSetReq): Uint8Array => encodeStruct(LANE_CONFIG_SET_REQ, v);
+export const decodeLaneConfigSetReq = (b: Uint8Array): LaneConfigSetReq => decodeStruct(LANE_CONFIG_SET_REQ, b) as LaneConfigSetReq;
+
+/** LANE_CONFIG_SET response */
+export const LANE_CONFIG_SET_RSP: StructDesc = {
+  name: 'LaneConfigSetRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type LaneConfigSetRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeLaneConfigSetRsp = (v: LaneConfigSetRsp): Uint8Array => encodeStruct(LANE_CONFIG_SET_RSP, v);
+export const decodeLaneConfigSetRsp = (b: Uint8Array): LaneConfigSetRsp => decodeStruct(LANE_CONFIG_SET_RSP, b) as LaneConfigSetRsp;
+
+// 0x24 LANE_SAMPLING (request): Sets the sampling mode of the lanes in laneMask (kept in the config table, restored after a re-join).
+/** LANE_SAMPLING request */
+export const LANE_SAMPLING_REQ: StructDesc = {
+  name: 'LaneSamplingReq',
+  size: 2,
+  fields: [
+    { name: 'laneMask', kind: 'scalar', type: 'u8' },
+    { name: 'mode', kind: 'scalar', type: 'u8' },
+  ],
+};
+export type LaneSamplingReq = {
+  laneMask: number;
+  /** enum SamplingMode */
+  mode: number;
+};
+export const encodeLaneSamplingReq = (v: LaneSamplingReq): Uint8Array => encodeStruct(LANE_SAMPLING_REQ, v);
+export const decodeLaneSamplingReq = (b: Uint8Array): LaneSamplingReq => decodeStruct(LANE_SAMPLING_REQ, b) as LaneSamplingReq;
+
+/** LANE_SAMPLING response */
+export const LANE_SAMPLING_RSP: StructDesc = {
+  name: 'LaneSamplingRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type LaneSamplingRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeLaneSamplingRsp = (v: LaneSamplingRsp): Uint8Array => encodeStruct(LANE_SAMPLING_RSP, v);
+export const decodeLaneSamplingRsp = (b: Uint8Array): LaneSamplingRsp => decodeStruct(LANE_SAMPLING_RSP, b) as LaneSamplingRsp;
+
+// 0x25 LANE_LED (request): Sets the start light of the lanes in laneMask at once. Refused while a start sequence runs (ERR_SEQ_RUNNING).
+/** LANE_LED request */
+export const LANE_LED_REQ: StructDesc = {
+  name: 'LaneLedReq',
+  size: 10,
+  fields: [
+    { name: 'laneMask', kind: 'scalar', type: 'u8' },
+    { name: 'mode', kind: 'scalar', type: 'u8' },
+    { name: 'level', kind: 'scalar', type: 'u16' },
+    { name: 'blinkPeriodMs', kind: 'scalar', type: 'u16' },
+    { name: 'blinkOnPermille', kind: 'scalar', type: 'u16' },
+    { name: 'blinkCount', kind: 'scalar', type: 'u16' },
+  ],
+};
+export type LaneLedReq = {
+  laneMask: number;
+  /** enum LedMode */
+  mode: number;
+  /** 0..1000 perceived brightness */
+  level: number;
+  blinkPeriodMs: number;
+  blinkOnPermille: number;
+  /** 0 = until changed */
+  blinkCount: number;
+};
+export const encodeLaneLedReq = (v: LaneLedReq): Uint8Array => encodeStruct(LANE_LED_REQ, v);
+export const decodeLaneLedReq = (b: Uint8Array): LaneLedReq => decodeStruct(LANE_LED_REQ, b) as LaneLedReq;
+
+/** LANE_LED response */
+export const LANE_LED_RSP: StructDesc = {
+  name: 'LaneLedRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type LaneLedRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeLaneLedRsp = (v: LaneLedRsp): Uint8Array => encodeStruct(LANE_LED_RSP, v);
+export const decodeLaneLedRsp = (b: Uint8Array): LaneLedRsp => decodeStruct(LANE_LED_RSP, b) as LaneLedRsp;
+
+// 0x26 LANE_STATUS (request): One lane's STATUS and SIGNAL registers, read fresh over the bus.
+/** LANE_STATUS request */
+export const LANE_STATUS_REQ: StructDesc = {
+  name: 'LaneStatusReq',
+  size: 1,
+  fields: [
+    { name: 'lane', kind: 'scalar', type: 'u8' },
+  ],
+};
+export type LaneStatusReq = {
+  lane: number;
+};
+export const encodeLaneStatusReq = (v: LaneStatusReq): Uint8Array => encodeStruct(LANE_STATUS_REQ, v);
+export const decodeLaneStatusReq = (b: Uint8Array): LaneStatusReq => decodeStruct(LANE_STATUS_REQ, b) as LaneStatusReq;
+
+/** LANE_STATUS response */
+export const LANE_STATUS_RSP: StructDesc = {
+  name: 'LaneStatusRsp',
+  size: 36,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'lane', kind: 'scalar', type: 'u8' },
+    { name: 'state', kind: 'scalar', type: 'u8' },
+    { name: 'samplingMode', kind: 'scalar', type: 'u8' },
+    { name: 'fifoCount', kind: 'scalar', type: 'u8' },
+    { name: 'flags', kind: 'scalar', type: 'u16' },
+    { name: 'droppedEvents', kind: 'scalar', type: 'u16' },
+    { name: 'syncShifts', kind: 'scalar', type: 'u16' },
+    { name: 'badWrites', kind: 'scalar', type: 'u16' },
+    { name: 'lateActions', kind: 'scalar', type: 'u16' },
+    { name: 'lastError', kind: 'scalar', type: 'i16' },
+    { name: 'resetCause', kind: 'scalar', type: 'u8' },
+    { name: 'faultId', kind: 'scalar', type: 'u8' },
+    { name: 'uptimeMs', kind: 'scalar', type: 'u32' },
+    { name: 'raw', kind: 'scalar', type: 'u16' },
+    { name: 'baseline', kind: 'scalar', type: 'u16' },
+    { name: 'thrLow', kind: 'scalar', type: 'u16' },
+    { name: 'thrHigh', kind: 'scalar', type: 'u16' },
+    { name: 'noise', kind: 'scalar', type: 'u16' },
+    { name: 'reserved', kind: 'scalar', type: 'u16' },
+  ],
+};
+export type LaneStatusRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  lane: number;
+  /** enum LaneBusState */
+  state: number;
+  /** enum SamplingMode */
+  samplingMode: number;
+  fifoCount: number;
+  /** lane_protocol.h LANE_STATUS_* bits */
+  flags: number;
+  droppedEvents: number;
+  syncShifts: number;
+  badWrites: number;
+  lateActions: number;
+  /** The lane's own status code */
+  lastError: number;
+  /** enum ResetCause */
+  resetCause: number;
+  faultId: number;
+  uptimeMs: number;
+  raw: number;
+  baseline: number;
+  thrLow: number;
+  thrHigh: number;
+  noise: number;
+  reserved: number;
+};
+export const encodeLaneStatusRsp = (v: LaneStatusRsp): Uint8Array => encodeStruct(LANE_STATUS_RSP, v);
+export const decodeLaneStatusRsp = (b: Uint8Array): LaneStatusRsp => decodeStruct(LANE_STATUS_RSP, b) as LaneStatusRsp;
+
+// 0x27 LANE_RAW_STREAM (request): Streams one lane's raw samples as STR_RAW_SAMPLES (puts it in RAW mode; lane 0 stops and restores the previous mode). One lane at a time.
+/** LANE_RAW_STREAM request */
+export const LANE_RAW_STREAM_REQ: StructDesc = {
+  name: 'LaneRawStreamReq',
+  size: 4,
+  fields: [
+    { name: 'lane', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u8' },
+    { name: 'decimation', kind: 'scalar', type: 'u16' },
+  ],
+};
+export type LaneRawStreamReq = {
+  /** 1..6, 0 = stop */
+  lane: number;
+  reserved: number;
+  /** Keep every Nth sample (>= 1) */
+  decimation: number;
+};
+export const encodeLaneRawStreamReq = (v: LaneRawStreamReq): Uint8Array => encodeStruct(LANE_RAW_STREAM_REQ, v);
+export const decodeLaneRawStreamReq = (b: Uint8Array): LaneRawStreamReq => decodeStruct(LANE_RAW_STREAM_REQ, b) as LaneRawStreamReq;
+
+/** LANE_RAW_STREAM response */
+export const LANE_RAW_STREAM_RSP: StructDesc = {
+  name: 'LaneRawStreamRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type LaneRawStreamRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeLaneRawStreamRsp = (v: LaneRawStreamRsp): Uint8Array => encodeStruct(LANE_RAW_STREAM_RSP, v);
+export const decodeLaneRawStreamRsp = (b: Uint8Array): LaneRawStreamRsp => decodeStruct(LANE_RAW_STREAM_RSP, b) as LaneRawStreamRsp;
+
+// 0x28 LANE_CALIBRATE (request): The lanes in laneMask re-learn their baseline. Only meaningful with the lane free.
+/** LANE_CALIBRATE request */
+export const LANE_CALIBRATE_REQ: StructDesc = {
+  name: 'LaneCalibrateReq',
+  size: 1,
+  fields: [
+    { name: 'laneMask', kind: 'scalar', type: 'u8' },
+  ],
+};
+export type LaneCalibrateReq = {
+  laneMask: number;
+};
+export const encodeLaneCalibrateReq = (v: LaneCalibrateReq): Uint8Array => encodeStruct(LANE_CALIBRATE_REQ, v);
+export const decodeLaneCalibrateReq = (b: Uint8Array): LaneCalibrateReq => decodeStruct(LANE_CALIBRATE_REQ, b) as LaneCalibrateReq;
+
+/** LANE_CALIBRATE response */
+export const LANE_CALIBRATE_RSP: StructDesc = {
+  name: 'LaneCalibrateRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type LaneCalibrateRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeLaneCalibrateRsp = (v: LaneCalibrateRsp): Uint8Array => encodeStruct(LANE_CALIBRATE_RSP, v);
+export const decodeLaneCalibrateRsp = (b: Uint8Array): LaneCalibrateRsp => decodeStruct(LANE_CALIBRATE_RSP, b) as LaneCalibrateRsp;
+
+// 0x40 START_SEQUENCE (request): F1-style start: lane k lights at T0 + k*step, all go out together at Tout = T0 + n*step + random hold. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
+/** START_SEQUENCE request */
+export const START_SEQUENCE_REQ: StructDesc = {
+  name: 'StartSequenceReq',
+  size: 12,
+  fields: [
+    { name: 'lights', kind: 'scalar', type: 'u8' },
+    { name: 'armSampling', kind: 'scalar', type: 'u8' },
+    { name: 'stepMs', kind: 'scalar', type: 'u16' },
+    { name: 'holdMinMs', kind: 'scalar', type: 'u16' },
+    { name: 'holdMaxMs', kind: 'scalar', type: 'u16' },
+    { name: 'leadMs', kind: 'scalar', type: 'u16' },
+    { name: 'reserved', kind: 'scalar', type: 'u16' },
+  ],
+};
+export type StartSequenceReq = {
+  /** 1..6; lanes present are lit in index order */
+  lights: number;
+  /** 1 = also switch sampling ON at T0 */
+  armSampling: number;
+  stepMs: number;
+  holdMinMs: number;
+  holdMaxMs: number;
+  /** Time from now to T0; 0 = default (>= 150 ms) */
+  leadMs: number;
+  reserved: number;
+};
+export const encodeStartSequenceReq = (v: StartSequenceReq): Uint8Array => encodeStruct(START_SEQUENCE_REQ, v);
+export const decodeStartSequenceReq = (b: Uint8Array): StartSequenceReq => decodeStruct(START_SEQUENCE_REQ, b) as StartSequenceReq;
+
+/** START_SEQUENCE response */
+export const START_SEQUENCE_RSP: StructDesc = {
+  name: 'StartSequenceRsp',
+  size: 12,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'reserved', kind: 'scalar', type: 'u16' },
+    { name: 't0Us', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type StartSequenceRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  reserved: number;
+  /** System time the first light goes on */
+  t0Us: bigint;
+};
+export const encodeStartSequenceRsp = (v: StartSequenceRsp): Uint8Array => encodeStruct(START_SEQUENCE_RSP, v);
+export const decodeStartSequenceRsp = (b: Uint8Array): StartSequenceRsp => decodeStruct(START_SEQUENCE_RSP, b) as StartSequenceRsp;
+
+// 0x41 ABORT_SEQUENCE (request): Cancels the running start sequence: lanes' pending actions cancelled, lights blink, EVT_SEQ_ABORTED.
+/** ABORT_SEQUENCE request */
+export const ABORT_SEQUENCE_REQ: StructDesc = {
+  name: 'AbortSequenceReq',
+  size: 0,
+  fields: [],
+};
+export type AbortSequenceReq = Record<string, never>;
+export const encodeAbortSequenceReq = (v: AbortSequenceReq): Uint8Array => encodeStruct(ABORT_SEQUENCE_REQ, v);
+export const decodeAbortSequenceReq = (b: Uint8Array): AbortSequenceReq => decodeStruct(ABORT_SEQUENCE_REQ, b) as AbortSequenceReq;
+
+/** ABORT_SEQUENCE response */
+export const ABORT_SEQUENCE_RSP: StructDesc = {
+  name: 'AbortSequenceRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type AbortSequenceRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeAbortSequenceRsp = (v: AbortSequenceRsp): Uint8Array => encodeStruct(ABORT_SEQUENCE_RSP, v);
+export const decodeAbortSequenceRsp = (b: Uint8Array): AbortSequenceRsp => decodeStruct(ABORT_SEQUENCE_RSP, b) as AbortSequenceRsp;
+
+// 0xa0 UPDATE_BEGIN (request): Starts an update: erases the app region. The image must be for this board type.
+/** UPDATE_BEGIN request */
+export const UPDATE_BEGIN_REQ: StructDesc = {
+  name: 'UpdateBeginReq',
+  size: 12,
+  fields: [
+    { name: 'boardType', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'bytes', size: 3 },
+    { name: 'size', kind: 'scalar', type: 'u32' },
+    { name: 'crc32', kind: 'scalar', type: 'u32' },
+  ],
+};
+export type UpdateBeginReq = {
+  /** enum BoardType */
+  boardType: number;
+  reserved: Uint8Array;
+  /** Image bytes */
+  size: number;
+  /** CRC-32 (IEEE) of the whole image */
+  crc32: number;
+};
+export const encodeUpdateBeginReq = (v: UpdateBeginReq): Uint8Array => encodeStruct(UPDATE_BEGIN_REQ, v);
+export const decodeUpdateBeginReq = (b: Uint8Array): UpdateBeginReq => decodeStruct(UPDATE_BEGIN_REQ, b) as UpdateBeginReq;
+
+/** UPDATE_BEGIN response */
+export const UPDATE_BEGIN_RSP: StructDesc = {
+  name: 'UpdateBeginRsp',
+  size: 6,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'chunkMax', kind: 'scalar', type: 'u16' },
+    { name: 'reserved', kind: 'scalar', type: 'u16' },
+  ],
+};
+export type UpdateBeginRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  /** Largest data tail UPDATE_CHUNK accepts */
+  chunkMax: number;
+  reserved: number;
+};
+export const encodeUpdateBeginRsp = (v: UpdateBeginRsp): Uint8Array => encodeStruct(UPDATE_BEGIN_RSP, v);
+export const decodeUpdateBeginRsp = (b: Uint8Array): UpdateBeginRsp => decodeStruct(UPDATE_BEGIN_RSP, b) as UpdateBeginRsp;
+
+// 0xa1 UPDATE_CHUNK (request): Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe.
+/** UPDATE_CHUNK request */
+export const UPDATE_CHUNK_REQ: StructDesc = {
+  name: 'UpdateChunkReq',
+  size: 4,
+  fields: [
+    { name: 'offset', kind: 'scalar', type: 'u32' },
+    { name: 'data', kind: 'tail', item: { kind: 'bytes' } },
+  ],
+};
+export type UpdateChunkReq = {
+  offset: number;
+  data: Uint8Array;
+};
+export const encodeUpdateChunkReq = (v: UpdateChunkReq): Uint8Array => encodeStruct(UPDATE_CHUNK_REQ, v);
+export const decodeUpdateChunkReq = (b: Uint8Array): UpdateChunkReq => decodeStruct(UPDATE_CHUNK_REQ, b) as UpdateChunkReq;
+
+/** UPDATE_CHUNK response */
+export const UPDATE_CHUNK_RSP: StructDesc = {
+  name: 'UpdateChunkRsp',
+  size: 6,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'nextOffset', kind: 'scalar', type: 'u32' },
+  ],
+};
+export type UpdateChunkRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+  nextOffset: number;
+};
+export const encodeUpdateChunkRsp = (v: UpdateChunkRsp): Uint8Array => encodeStruct(UPDATE_CHUNK_RSP, v);
+export const decodeUpdateChunkRsp = (b: Uint8Array): UpdateChunkRsp => decodeStruct(UPDATE_CHUNK_RSP, b) as UpdateChunkRsp;
+
+// 0xa2 UPDATE_END (request): Verifies the CRC over the written image and writes the image header last. ERR_IMAGE_CRC if it does not match.
+/** UPDATE_END request */
+export const UPDATE_END_REQ: StructDesc = {
+  name: 'UpdateEndReq',
+  size: 0,
+  fields: [],
+};
+export type UpdateEndReq = Record<string, never>;
+export const encodeUpdateEndReq = (v: UpdateEndReq): Uint8Array => encodeStruct(UPDATE_END_REQ, v);
+export const decodeUpdateEndReq = (b: Uint8Array): UpdateEndReq => decodeStruct(UPDATE_END_REQ, b) as UpdateEndReq;
+
+/** UPDATE_END response */
+export const UPDATE_END_RSP: StructDesc = {
+  name: 'UpdateEndRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type UpdateEndRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeUpdateEndRsp = (v: UpdateEndRsp): Uint8Array => encodeStruct(UPDATE_END_RSP, v);
+export const decodeUpdateEndRsp = (b: Uint8Array): UpdateEndRsp => decodeStruct(UPDATE_END_RSP, b) as UpdateEndRsp;
+
+// 0xa3 UPDATE_ABORT (request): Abandons the update. The bootloader stays (no valid app).
+/** UPDATE_ABORT request */
+export const UPDATE_ABORT_REQ: StructDesc = {
+  name: 'UpdateAbortReq',
+  size: 0,
+  fields: [],
+};
+export type UpdateAbortReq = Record<string, never>;
+export const encodeUpdateAbortReq = (v: UpdateAbortReq): Uint8Array => encodeStruct(UPDATE_ABORT_REQ, v);
+export const decodeUpdateAbortReq = (b: Uint8Array): UpdateAbortReq => decodeStruct(UPDATE_ABORT_REQ, b) as UpdateAbortReq;
+
+/** UPDATE_ABORT response */
+export const UPDATE_ABORT_RSP: StructDesc = {
+  name: 'UpdateAbortRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type UpdateAbortRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeUpdateAbortRsp = (v: UpdateAbortRsp): Uint8Array => encodeStruct(UPDATE_ABORT_RSP, v);
+export const decodeUpdateAbortRsp = (b: Uint8Array): UpdateAbortRsp => decodeStruct(UPDATE_ABORT_RSP, b) as UpdateAbortRsp;
+
+// 0xa4 BOOT_APP (request): Leaves the bootloader and starts the app, if its header and CRC are valid. The response goes out first.
+/** BOOT_APP request */
+export const BOOT_APP_REQ: StructDesc = {
+  name: 'BootAppReq',
+  size: 0,
+  fields: [],
+};
+export type BootAppReq = Record<string, never>;
+export const encodeBootAppReq = (v: BootAppReq): Uint8Array => encodeStruct(BOOT_APP_REQ, v);
+export const decodeBootAppReq = (b: Uint8Array): BootAppReq => decodeStruct(BOOT_APP_REQ, b) as BootAppReq;
+
+/** BOOT_APP response */
+export const BOOT_APP_RSP: StructDesc = {
+  name: 'BootAppRsp',
+  size: 2,
+  fields: [
+    { name: 'status', kind: 'scalar', type: 'i16' },
+  ],
+};
+export type BootAppRsp = {
+  /** ctrlStatus_e. On error the payload is this field only. */
+  status: number;
+};
+export const encodeBootAppRsp = (v: BootAppRsp): Uint8Array => encodeStruct(BOOT_APP_RSP, v);
+export const decodeBootAppRsp = (b: Uint8Array): BootAppRsp => decodeStruct(BOOT_APP_RSP, b) as BootAppRsp;
 
 // 0xc0 EVT_BOOT (event): Always evSeq 0 of a boot: marks the start of a log.
 /** EVT_BOOT */
@@ -660,6 +1572,162 @@ export type EvtButton = {
 export const encodeEvtButton = (v: EvtButton): Uint8Array => encodeStruct(EVT_BUTTON, v);
 export const decodeEvtButton = (b: Uint8Array): EvtButton => decodeStruct(EVT_BUTTON, b) as EvtButton;
 
+// 0xc4 EVT_SEQ_STARTED (event): A start sequence was planned and written to the lanes. Tout is deliberately not in it.
+/** EVT_SEQ_STARTED */
+export const EVT_SEQ_STARTED: StructDesc = {
+  name: 'EvtSeqStarted',
+  size: 16,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'lights', kind: 'scalar', type: 'u8' },
+    { name: 'armSampling', kind: 'scalar', type: 'u8' },
+    { name: 'stepMs', kind: 'scalar', type: 'u16' },
+    { name: 't0Us', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type EvtSeqStarted = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  lights: number;
+  armSampling: number;
+  stepMs: number;
+  t0Us: bigint;
+};
+export const encodeEvtSeqStarted = (v: EvtSeqStarted): Uint8Array => encodeStruct(EVT_SEQ_STARTED, v);
+export const decodeEvtSeqStarted = (b: Uint8Array): EvtSeqStarted => decodeStruct(EVT_SEQ_STARTED, b) as EvtSeqStarted;
+
+// 0xc5 EVT_LIGHTS_OUT (event): All lights went out at toutUs: the race start. False starts and reaction times are judged against it.
+/** EVT_LIGHTS_OUT */
+export const EVT_LIGHTS_OUT: StructDesc = {
+  name: 'EvtLightsOut',
+  size: 16,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'lights', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'bytes', size: 3 },
+    { name: 'toutUs', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type EvtLightsOut = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  lights: number;
+  reserved: Uint8Array;
+  toutUs: bigint;
+};
+export const encodeEvtLightsOut = (v: EvtLightsOut): Uint8Array => encodeStruct(EVT_LIGHTS_OUT, v);
+export const decodeEvtLightsOut = (b: Uint8Array): EvtLightsOut => decodeStruct(EVT_LIGHTS_OUT, b) as EvtLightsOut;
+
+// 0xc6 EVT_SEQ_ABORTED (event): The start sequence was cancelled.
+/** EVT_SEQ_ABORTED */
+export const EVT_SEQ_ABORTED: StructDesc = {
+  name: 'EvtSeqAborted',
+  size: 16,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'reason', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'bytes', size: 3 },
+    { name: 'atUs', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type EvtSeqAborted = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  /** enum SeqAbortReason */
+  reason: number;
+  reserved: Uint8Array;
+  atUs: bigint;
+};
+export const encodeEvtSeqAborted = (v: EvtSeqAborted): Uint8Array => encodeStruct(EVT_SEQ_ABORTED, v);
+export const decodeEvtSeqAborted = (b: Uint8Array): EvtSeqAborted => decodeStruct(EVT_SEQ_ABORTED, b) as EvtSeqAborted;
+
+// 0xc7 EVT_BIND_CHANGED (event): The BLE bind list or pairing window changed.
+/** EVT_BIND_CHANGED */
+export const EVT_BIND_CHANGED: StructDesc = {
+  name: 'EvtBindChanged',
+  size: 16,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'change', kind: 'scalar', type: 'u8' },
+    { name: 'count', kind: 'scalar', type: 'u8' },
+    { name: 'windowS', kind: 'scalar', type: 'u16' },
+    { name: 'clientIdPrefix', kind: 'bytes', size: 8 },
+  ],
+};
+export type EvtBindChanged = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  /** enum BindChange */
+  change: number;
+  /** Entries on the list after the change */
+  count: number;
+  /** Pairing window seconds left */
+  windowS: number;
+  /** First 8 bytes of the client concerned (zero if none) */
+  clientIdPrefix: Uint8Array;
+};
+export const encodeEvtBindChanged = (v: EvtBindChanged): Uint8Array => encodeStruct(EVT_BIND_CHANGED, v);
+export const decodeEvtBindChanged = (b: Uint8Array): EvtBindChanged => decodeStruct(EVT_BIND_CHANGED, b) as EvtBindChanged;
+
+// 0xc8 EVT_BLE_LINK (event): The BLE link to a central came up, changed parameters, or went down.
+/** EVT_BLE_LINK */
+export const EVT_BLE_LINK: StructDesc = {
+  name: 'EvtBleLink',
+  size: 20,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'state', kind: 'scalar', type: 'u8' },
+    { name: 'phy', kind: 'scalar', type: 'u8' },
+    { name: 'attMtu', kind: 'scalar', type: 'u16' },
+    { name: 'intervalUnits', kind: 'scalar', type: 'u16' },
+    { name: 'reason', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u8' },
+    { name: 'sysUs', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type EvtBleLink = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  /** enum BleLinkState */
+  state: number;
+  /** 1 = 1M, 2 = 2M */
+  phy: number;
+  attMtu: number;
+  /** 1.25 ms units */
+  intervalUnits: number;
+  /** HCI reason on DOWN */
+  reason: number;
+  reserved: number;
+  sysUs: bigint;
+};
+export const encodeEvtBleLink = (v: EvtBleLink): Uint8Array => encodeStruct(EVT_BLE_LINK, v);
+export const decodeEvtBleLink = (b: Uint8Array): EvtBleLink => decodeStruct(EVT_BLE_LINK, b) as EvtBleLink;
+
+// 0xc9 EVT_FAULT (event): A hardware fault input tripped.
+/** EVT_FAULT */
+export const EVT_FAULT: StructDesc = {
+  name: 'EvtFault',
+  size: 16,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'source', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u8' },
+    { name: 'status', kind: 'scalar', type: 'i16' },
+    { name: 'sysUs', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type EvtFault = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  /** enum FaultSource */
+  source: number;
+  reserved: number;
+  status: number;
+  sysUs: bigint;
+};
+export const encodeEvtFault = (v: EvtFault): Uint8Array => encodeStruct(EVT_FAULT, v);
+export const decodeEvtFault = (b: Uint8Array): EvtFault => decodeStruct(EVT_FAULT, b) as EvtFault;
+
 // 0xe0 STR_RAW_SAMPLES (stream): Decimated raw sensor samples of one lane for the diagnostics view. Sample i was taken at firstUs + i*periodUs.
 /** STR_RAW_SAMPLES */
 export const STR_RAW_SAMPLES: StructDesc = {
@@ -727,13 +1795,39 @@ export const MESSAGES: readonly MsgDesc[] = [
   { id: 0x02, name: 'PING', kind: 'request', req: PING_REQ, rsp: PING_RSP },
   { id: 0x03, name: 'RESUME', kind: 'request', req: RESUME_REQ, rsp: RESUME_RSP },
   { id: 0x04, name: 'NODE_LIST', kind: 'request', req: NODE_LIST_REQ, rsp: NODE_LIST_RSP },
+  { id: 0x05, name: 'BIND_LIST', kind: 'request', req: BIND_LIST_REQ, rsp: BIND_LIST_RSP },
+  { id: 0x06, name: 'BIND_REMOVE', kind: 'request', req: BIND_REMOVE_REQ, rsp: BIND_REMOVE_RSP },
   { id: 0x08, name: 'BIND_ALLOW', kind: 'request', req: BIND_ALLOW_REQ, rsp: BIND_ALLOW_RSP },
   { id: 0x11, name: 'REBOOT', kind: 'request', req: REBOOT_REQ, rsp: REBOOT_RSP },
+  { id: 0x12, name: 'STATUS', kind: 'request', req: STATUS_REQ, rsp: STATUS_RSP },
+  { id: 0x13, name: 'SETTINGS_GET', kind: 'request', req: SETTINGS_GET_REQ, rsp: SETTINGS_GET_RSP },
+  { id: 0x14, name: 'SETTINGS_SET', kind: 'request', req: SETTINGS_SET_REQ, rsp: SETTINGS_SET_RSP },
+  { id: 0x20, name: 'LANE_SCAN', kind: 'request', req: LANE_SCAN_REQ, rsp: LANE_SCAN_RSP },
   { id: 0x21, name: 'LANE_POWER', kind: 'request', req: LANE_POWER_REQ, rsp: LANE_POWER_RSP },
+  { id: 0x22, name: 'LANE_CONFIG_GET', kind: 'request', req: LANE_CONFIG_GET_REQ, rsp: LANE_CONFIG_GET_RSP },
+  { id: 0x23, name: 'LANE_CONFIG_SET', kind: 'request', req: LANE_CONFIG_SET_REQ, rsp: LANE_CONFIG_SET_RSP },
+  { id: 0x24, name: 'LANE_SAMPLING', kind: 'request', req: LANE_SAMPLING_REQ, rsp: LANE_SAMPLING_RSP },
+  { id: 0x25, name: 'LANE_LED', kind: 'request', req: LANE_LED_REQ, rsp: LANE_LED_RSP },
+  { id: 0x26, name: 'LANE_STATUS', kind: 'request', req: LANE_STATUS_REQ, rsp: LANE_STATUS_RSP },
+  { id: 0x27, name: 'LANE_RAW_STREAM', kind: 'request', req: LANE_RAW_STREAM_REQ, rsp: LANE_RAW_STREAM_RSP },
+  { id: 0x28, name: 'LANE_CALIBRATE', kind: 'request', req: LANE_CALIBRATE_REQ, rsp: LANE_CALIBRATE_RSP },
+  { id: 0x40, name: 'START_SEQUENCE', kind: 'request', req: START_SEQUENCE_REQ, rsp: START_SEQUENCE_RSP },
+  { id: 0x41, name: 'ABORT_SEQUENCE', kind: 'request', req: ABORT_SEQUENCE_REQ, rsp: ABORT_SEQUENCE_RSP },
+  { id: 0xa0, name: 'UPDATE_BEGIN', kind: 'request', req: UPDATE_BEGIN_REQ, rsp: UPDATE_BEGIN_RSP },
+  { id: 0xa1, name: 'UPDATE_CHUNK', kind: 'request', req: UPDATE_CHUNK_REQ, rsp: UPDATE_CHUNK_RSP },
+  { id: 0xa2, name: 'UPDATE_END', kind: 'request', req: UPDATE_END_REQ, rsp: UPDATE_END_RSP },
+  { id: 0xa3, name: 'UPDATE_ABORT', kind: 'request', req: UPDATE_ABORT_REQ, rsp: UPDATE_ABORT_RSP },
+  { id: 0xa4, name: 'BOOT_APP', kind: 'request', req: BOOT_APP_REQ, rsp: BOOT_APP_RSP },
   { id: 0xc0, name: 'EVT_BOOT', kind: 'event', body: EVT_BOOT },
   { id: 0xc1, name: 'EVT_CROSSING', kind: 'event', body: EVT_CROSSING },
   { id: 0xc2, name: 'EVT_LANE_STATE', kind: 'event', body: EVT_LANE_STATE },
   { id: 0xc3, name: 'EVT_BUTTON', kind: 'event', body: EVT_BUTTON },
+  { id: 0xc4, name: 'EVT_SEQ_STARTED', kind: 'event', body: EVT_SEQ_STARTED },
+  { id: 0xc5, name: 'EVT_LIGHTS_OUT', kind: 'event', body: EVT_LIGHTS_OUT },
+  { id: 0xc6, name: 'EVT_SEQ_ABORTED', kind: 'event', body: EVT_SEQ_ABORTED },
+  { id: 0xc7, name: 'EVT_BIND_CHANGED', kind: 'event', body: EVT_BIND_CHANGED },
+  { id: 0xc8, name: 'EVT_BLE_LINK', kind: 'event', body: EVT_BLE_LINK },
+  { id: 0xc9, name: 'EVT_FAULT', kind: 'event', body: EVT_FAULT },
   { id: 0xe0, name: 'STR_RAW_SAMPLES', kind: 'stream', body: STR_RAW_SAMPLES },
   { id: 0xf0, name: 'DBG_LOG', kind: 'stream', body: DBG_LOG },
 ];
@@ -744,6 +1838,9 @@ export const MESSAGE_BY_ID: ReadonlyMap<number, MsgDesc> = new Map(MESSAGES.map(
 export const STRUCTS: Readonly<Record<string, StructDesc>> = {
   Header: HEADER,
   NodeInfo: NODE_INFO,
+  LaneConfig: LANE_CONFIG,
+  BindEntry: BIND_ENTRY,
+  DeviceSettings: DEVICE_SETTINGS,
   HelloReq: HELLO_REQ,
   HelloRsp: HELLO_RSP,
   PingReq: PING_REQ,
@@ -752,16 +1849,62 @@ export const STRUCTS: Readonly<Record<string, StructDesc>> = {
   ResumeRsp: RESUME_RSP,
   NodeListReq: NODE_LIST_REQ,
   NodeListRsp: NODE_LIST_RSP,
+  BindListReq: BIND_LIST_REQ,
+  BindListRsp: BIND_LIST_RSP,
+  BindRemoveReq: BIND_REMOVE_REQ,
+  BindRemoveRsp: BIND_REMOVE_RSP,
   BindAllowReq: BIND_ALLOW_REQ,
   BindAllowRsp: BIND_ALLOW_RSP,
   RebootReq: REBOOT_REQ,
   RebootRsp: REBOOT_RSP,
+  StatusReq: STATUS_REQ,
+  StatusRsp: STATUS_RSP,
+  SettingsGetReq: SETTINGS_GET_REQ,
+  SettingsGetRsp: SETTINGS_GET_RSP,
+  SettingsSetReq: SETTINGS_SET_REQ,
+  SettingsSetRsp: SETTINGS_SET_RSP,
+  LaneScanReq: LANE_SCAN_REQ,
+  LaneScanRsp: LANE_SCAN_RSP,
   LanePowerReq: LANE_POWER_REQ,
   LanePowerRsp: LANE_POWER_RSP,
+  LaneConfigGetReq: LANE_CONFIG_GET_REQ,
+  LaneConfigGetRsp: LANE_CONFIG_GET_RSP,
+  LaneConfigSetReq: LANE_CONFIG_SET_REQ,
+  LaneConfigSetRsp: LANE_CONFIG_SET_RSP,
+  LaneSamplingReq: LANE_SAMPLING_REQ,
+  LaneSamplingRsp: LANE_SAMPLING_RSP,
+  LaneLedReq: LANE_LED_REQ,
+  LaneLedRsp: LANE_LED_RSP,
+  LaneStatusReq: LANE_STATUS_REQ,
+  LaneStatusRsp: LANE_STATUS_RSP,
+  LaneRawStreamReq: LANE_RAW_STREAM_REQ,
+  LaneRawStreamRsp: LANE_RAW_STREAM_RSP,
+  LaneCalibrateReq: LANE_CALIBRATE_REQ,
+  LaneCalibrateRsp: LANE_CALIBRATE_RSP,
+  StartSequenceReq: START_SEQUENCE_REQ,
+  StartSequenceRsp: START_SEQUENCE_RSP,
+  AbortSequenceReq: ABORT_SEQUENCE_REQ,
+  AbortSequenceRsp: ABORT_SEQUENCE_RSP,
+  UpdateBeginReq: UPDATE_BEGIN_REQ,
+  UpdateBeginRsp: UPDATE_BEGIN_RSP,
+  UpdateChunkReq: UPDATE_CHUNK_REQ,
+  UpdateChunkRsp: UPDATE_CHUNK_RSP,
+  UpdateEndReq: UPDATE_END_REQ,
+  UpdateEndRsp: UPDATE_END_RSP,
+  UpdateAbortReq: UPDATE_ABORT_REQ,
+  UpdateAbortRsp: UPDATE_ABORT_RSP,
+  BootAppReq: BOOT_APP_REQ,
+  BootAppRsp: BOOT_APP_RSP,
   EvtBoot: EVT_BOOT,
   EvtCrossing: EVT_CROSSING,
   EvtLaneState: EVT_LANE_STATE,
   EvtButton: EVT_BUTTON,
+  EvtSeqStarted: EVT_SEQ_STARTED,
+  EvtLightsOut: EVT_LIGHTS_OUT,
+  EvtSeqAborted: EVT_SEQ_ABORTED,
+  EvtBindChanged: EVT_BIND_CHANGED,
+  EvtBleLink: EVT_BLE_LINK,
+  EvtFault: EVT_FAULT,
   StrRawSamples: STR_RAW_SAMPLES,
   DbgLog: DBG_LOG,
 };

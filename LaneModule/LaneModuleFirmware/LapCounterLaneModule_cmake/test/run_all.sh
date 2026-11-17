@@ -31,8 +31,16 @@ suite()
     echo
 }
 
-# lane_protocol.h (guide §5) joins here as a byte-compare against the
-# mainboard's copy once both exist, like the hub's shared_config.h check.
+# lane_protocol.h (guide §5) is byte-identical in the control module's tree.
+ROOT=$(cd "$LANE/../../.." && pwd)
+echo "== lane_protocol.h copy check"
+if cmp "$LANE/app/config/lane_protocol.h" \
+       "$ROOT/ControlModule/SideModuleFirmware/LapCounterControlModule_cmake/app/config/lane_protocol.h"; then
+    echo "identical"
+else
+    failed=$((failed + 1))
+fi
+echo
 
 suite host_sync_time "$LANE/app/modules/sync_time.c"
 suite host_led       "$LANE/app/modules/led_pattern.c" "$LANE/app/modules/indicator_led.c"

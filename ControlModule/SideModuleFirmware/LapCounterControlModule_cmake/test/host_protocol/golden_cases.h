@@ -296,6 +296,53 @@ static const uint8_t goldenNodeListResponseWire[] = {
     0x01, 0x01, 0x03, 0x06, 0x59, 0x00
 };
 
+/* BIND_LIST request */
+static const hpBindListReq_t goldenBindListRequestFixed = { .start = 0U };
+static const uint8_t goldenBindListRequestPayload[] = { 0x00 };
+static const uint8_t goldenBindListRequestWire[] = { 0x02, 0x05, 0x03, 0x05, 0x10, 0x03, 0xD8, 0xDA, 0x00 };
+
+/* BIND_LIST response */
+static const hpBindListRsp_t goldenBindListResponseFixed = { .status = 0, .total = 1U, .start = 0U, .windowS = 42U };
+static const hpBindEntry_t goldenBindListResponseTail[] = {
+    { .clientId = {
+    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB,
+    0xCC, 0xDD, 0xEE, 0xFF
+}, .clientName = { 0x4C, 0x61, 0x70, 0x74, 0x6F, 0x70 }, .lastUsed = 7U }
+};
+static const uint8_t goldenBindListResponsePayload[] = {
+    0x00, 0x00, 0x01, 0x00, 0x2A, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+    0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x4C, 0x61,
+    0x70, 0x74, 0x6F, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00,
+    0x00, 0x00
+};
+static const uint8_t goldenBindListResponseWire[] = {
+    0x05, 0x05, 0x01, 0x05, 0x10, 0x01, 0x02, 0x01, 0x02, 0x2A, 0x01, 0x16,
+    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC,
+    0xDD, 0xEE, 0xFF, 0x4C, 0x61, 0x70, 0x74, 0x6F, 0x70, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x02, 0x07, 0x01, 0x01, 0x03, 0xA4, 0x59, 0x00
+};
+
+/* BIND_REMOVE request */
+static const hpBindRemoveReq_t goldenBindRemoveRequestFixed = { .clientId = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00
+} };
+static const uint8_t goldenBindRemoveRequestPayload[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenBindRemoveRequestWire[] = {
+    0x02, 0x06, 0x03, 0x06, 0x10, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x03, 0xF7, 0x55, 0x00
+};
+
+/* BIND_REMOVE response */
+static const int16_t goldenBindRemoveResponseFixed = -15;
+static const uint8_t goldenBindRemoveResponsePayload[] = { 0xF1, 0xFF };
+static const uint8_t goldenBindRemoveResponseWire[] = { 0x09, 0x06, 0x01, 0x06, 0x10, 0xF1, 0xFF, 0x5A, 0x73, 0x00 };
+
 /* BIND_ALLOW request */
 static const hpBindAllowReq_t goldenBindAllowRequestFixed = { .windowS = 60U };
 static const uint8_t goldenBindAllowRequestPayload[] = { 0x3C, 0x00 };
@@ -316,6 +363,55 @@ static const hpRebootRsp_t goldenRebootResponseFixed = { .status = 0 };
 static const uint8_t goldenRebootResponsePayload[] = { 0x00, 0x00 };
 static const uint8_t goldenRebootResponseWire[] = { 0x05, 0x11, 0x01, 0x11, 0x10, 0x01, 0x03, 0x15, 0xD5, 0x00 };
 
+/* STATUS request */
+static const uint8_t goldenStatusRequestWire[] = { 0x02, 0x12, 0x05, 0x12, 0x10, 0x2F, 0x05, 0x00 };
+
+/* SETTINGS_GET request */
+static const uint8_t goldenSettingsGetRequestWire[] = { 0x02, 0x13, 0x05, 0x13, 0x10, 0xAA, 0x40, 0x00 };
+
+/* SETTINGS_GET response */
+static const hpSettingsGetRsp_t goldenSettingsGetResponseFixed = { .status = 0, .settings = { .deviceName = { 0x54, 0x69, 0x6D, 0x65, 0x54, 0x61, 0x6B, 0x65, 0x72 }, .bleEnabled = 1U, .reserved = { 0x00, 0x00, 0x00 } } };
+static const uint8_t goldenSettingsGetResponsePayload[] = {
+    0x00, 0x00, 0x54, 0x69, 0x6D, 0x65, 0x54, 0x61, 0x6B, 0x65, 0x72, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenSettingsGetResponseWire[] = {
+    0x05, 0x13, 0x01, 0x13, 0x10, 0x01, 0x0A, 0x54, 0x69, 0x6D, 0x65, 0x54,
+    0x61, 0x6B, 0x65, 0x72, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01, 0x03, 0x9F,
+    0x0A, 0x00
+};
+
+/* SETTINGS_SET request */
+static const hpSettingsSetReq_t goldenSettingsSetRequestFixed = { .settings = { .deviceName = {
+    0x54, 0x69, 0x6D, 0x65, 0x54, 0x61, 0x6B, 0x65, 0x72, 0x20, 0x4F, 0x70,
+    0x61
+}, .bleEnabled = 1U, .reserved = { 0x00, 0x00, 0x00 } } };
+static const uint8_t goldenSettingsSetRequestPayload[] = {
+    0x54, 0x69, 0x6D, 0x65, 0x54, 0x61, 0x6B, 0x65, 0x72, 0x20, 0x4F, 0x70,
+    0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenSettingsSetRequestWire[] = {
+    0x02, 0x14, 0x10, 0x14, 0x10, 0x54, 0x69, 0x6D, 0x65, 0x54, 0x61, 0x6B,
+    0x65, 0x72, 0x20, 0x4F, 0x70, 0x61, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01, 0x03, 0x68, 0x2D, 0x00
+};
+
+/* SETTINGS_SET response */
+static const hpSettingsSetRsp_t goldenSettingsSetResponseFixed = { .status = 0 };
+static const uint8_t goldenSettingsSetResponsePayload[] = { 0x00, 0x00 };
+static const uint8_t goldenSettingsSetResponseWire[] = { 0x05, 0x14, 0x01, 0x14, 0x10, 0x01, 0x03, 0x51, 0x2A, 0x00 };
+
+/* LANE_SCAN request */
+static const uint8_t goldenLaneScanRequestWire[] = { 0x02, 0x20, 0x05, 0x20, 0x10, 0x59, 0xA7, 0x00 };
+
+/* LANE_SCAN response */
+static const hpLaneScanRsp_t goldenLaneScanResponseFixed = { .status = 0 };
+static const uint8_t goldenLaneScanResponsePayload[] = { 0x00, 0x00 };
+static const uint8_t goldenLaneScanResponseWire[] = { 0x05, 0x20, 0x01, 0x20, 0x10, 0x01, 0x03, 0x64, 0xE5, 0x00 };
+
 /* LANE_POWER request */
 static const hpLanePowerReq_t goldenLanePowerRequestFixed = { .on = 1U };
 static const uint8_t goldenLanePowerRequestPayload[] = { 0x01 };
@@ -325,6 +421,155 @@ static const uint8_t goldenLanePowerRequestWire[] = { 0x02, 0x21, 0x06, 0x21, 0x
 static const hpLanePowerRsp_t goldenLanePowerResponseFixed = { .status = 0, .powered = 0U };
 static const uint8_t goldenLanePowerResponsePayload[] = { 0x00, 0x00, 0x00 };
 static const uint8_t goldenLanePowerResponseWire[] = { 0x05, 0x21, 0x01, 0x21, 0x10, 0x01, 0x01, 0x03, 0xBB, 0xDB, 0x00 };
+
+/* LANE_CONFIG_GET request */
+static const hpLaneConfigGetReq_t goldenLaneConfigGetRequestFixed = { .lane = 2U };
+static const uint8_t goldenLaneConfigGetRequestPayload[] = { 0x02 };
+static const uint8_t goldenLaneConfigGetRequestWire[] = { 0x02, 0x22, 0x06, 0x22, 0x10, 0x02, 0xAC, 0x96, 0x00 };
+
+/* LANE_CONFIG_SET request */
+static const hpLaneConfigSetReq_t goldenLaneConfigSetRequestFixed = { .laneMask = 63U, .save = 1U, .reserved = 0U, .config = { .samplePeriodUs = 1000U, .samplePhaseUs = 0U, .mergeGapUs = 30000U, .blockTimeoutUs = 500000U, .holdoffUs = 0U, .holdoffSamplePeriodUs = 0U, .thrDropPermille = 300U, .hystPermille = 100U, .minDwell10us = 200U, .rawDecimation = 1U, .irCurrent = 7U, .psIntegration = 3U, .psMultiPulse = 0U, .reserved = 0U } };
+static const uint8_t goldenLaneConfigSetRequestPayload[] = {
+    0x3F, 0x01, 0x00, 0x00, 0xE8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x30, 0x75, 0x00, 0x00, 0x20, 0xA1, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x2C, 0x01, 0x64, 0x00, 0xC8, 0x00, 0x01, 0x00,
+    0x07, 0x03, 0x00, 0x00
+};
+static const uint8_t goldenLaneConfigSetRequestWire[] = {
+    0x02, 0x23, 0x05, 0x23, 0x10, 0x3F, 0x01, 0x01, 0x03, 0xE8, 0x03, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x03, 0x30, 0x75, 0x01, 0x04, 0x20, 0xA1, 0x07,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x04, 0x2C, 0x01, 0x64,
+    0x02, 0xC8, 0x02, 0x01, 0x03, 0x07, 0x03, 0x01, 0x03, 0xA9, 0x3C, 0x00
+};
+
+/* LANE_CONFIG_SET response */
+static const hpLaneConfigSetRsp_t goldenLaneConfigSetResponseFixed = { .status = 0 };
+static const uint8_t goldenLaneConfigSetResponsePayload[] = { 0x00, 0x00 };
+static const uint8_t goldenLaneConfigSetResponseWire[] = { 0x05, 0x23, 0x01, 0x23, 0x10, 0x01, 0x03, 0x58, 0xB0, 0x00 };
+
+/* LANE_SAMPLING request */
+static const hpLaneSamplingReq_t goldenLaneSamplingRequestFixed = { .laneMask = 63U, .mode = 1U };
+static const uint8_t goldenLaneSamplingRequestPayload[] = { 0x3F, 0x01 };
+static const uint8_t goldenLaneSamplingRequestWire[] = { 0x02, 0x24, 0x07, 0x24, 0x10, 0x3F, 0x01, 0xEF, 0x86, 0x00 };
+
+/* LANE_SAMPLING response */
+static const hpLaneSamplingRsp_t goldenLaneSamplingResponseFixed = { .status = 0 };
+static const uint8_t goldenLaneSamplingResponsePayload[] = { 0x00, 0x00 };
+static const uint8_t goldenLaneSamplingResponseWire[] = { 0x05, 0x24, 0x01, 0x24, 0x10, 0x01, 0x03, 0x34, 0x29, 0x00 };
+
+/* LANE_LED request */
+static const hpLaneLedReq_t goldenLaneLedRequestFixed = { .laneMask = 5U, .mode = 2U, .level = 1000U, .blinkPeriodMs = 500U, .blinkOnPermille = 500U, .blinkCount = 3U };
+static const uint8_t goldenLaneLedRequestPayload[] = { 0x05, 0x02, 0xE8, 0x03, 0xF4, 0x01, 0xF4, 0x01, 0x03, 0x00 };
+static const uint8_t goldenLaneLedRequestWire[] = {
+    0x02, 0x25, 0x0C, 0x25, 0x10, 0x05, 0x02, 0xE8, 0x03, 0xF4, 0x01, 0xF4,
+    0x01, 0x03, 0x03, 0xB8, 0x3F, 0x00
+};
+
+/* LANE_LED response */
+static const hpLaneLedRsp_t goldenLaneLedResponseFixed = { .status = 0 };
+static const uint8_t goldenLaneLedResponsePayload[] = { 0x00, 0x00 };
+static const uint8_t goldenLaneLedResponseWire[] = { 0x05, 0x25, 0x01, 0x25, 0x10, 0x01, 0x03, 0x20, 0x1A, 0x00 };
+
+/* LANE_STATUS request */
+static const hpLaneStatusReq_t goldenLaneStatusRequestFixed = { .lane = 4U };
+static const uint8_t goldenLaneStatusRequestPayload[] = { 0x04 };
+static const uint8_t goldenLaneStatusRequestWire[] = { 0x02, 0x26, 0x06, 0x26, 0x10, 0x04, 0xAC, 0xA3, 0x00 };
+
+/* LANE_STATUS response */
+static const int16_t goldenLaneStatusResponseFixed = -21;
+static const uint8_t goldenLaneStatusResponsePayload[] = { 0xEB, 0xFF };
+static const uint8_t goldenLaneStatusResponseWire[] = { 0x09, 0x26, 0x01, 0x26, 0x10, 0xEB, 0xFF, 0xA4, 0x9D, 0x00 };
+
+/* LANE_RAW_STREAM request */
+static const hpLaneRawStreamReq_t goldenLaneRawStreamRequestFixed = { .lane = 3U, .reserved = 0U, .decimation = 4U };
+static const uint8_t goldenLaneRawStreamRequestPayload[] = { 0x03, 0x00, 0x04, 0x00 };
+static const uint8_t goldenLaneRawStreamRequestWire[] = { 0x02, 0x27, 0x04, 0x27, 0x10, 0x03, 0x02, 0x04, 0x03, 0x45, 0x23, 0x00 };
+
+/* LANE_CALIBRATE request */
+static const hpLaneCalibrateReq_t goldenLaneCalibrateRequestFixed = { .laneMask = 1U };
+static const uint8_t goldenLaneCalibrateRequestPayload[] = { 0x01 };
+static const uint8_t goldenLaneCalibrateRequestWire[] = { 0x02, 0x28, 0x06, 0x28, 0x10, 0x01, 0xA0, 0x27, 0x00 };
+
+/* LANE_CALIBRATE response */
+static const int16_t goldenLaneCalibrateResponseFixed = -21;
+static const uint8_t goldenLaneCalibrateResponsePayload[] = { 0xEB, 0xFF };
+static const uint8_t goldenLaneCalibrateResponseWire[] = { 0x09, 0x28, 0x01, 0x28, 0x10, 0xEB, 0xFF, 0x5D, 0xBF, 0x00 };
+
+/* START_SEQUENCE request */
+static const hpStartSequenceReq_t goldenStartSequenceRequestFixed = { .lights = 6U, .armSampling = 1U, .stepMs = 1000U, .holdMinMs = 200U, .holdMaxMs = 3000U, .leadMs = 0U, .reserved = 0U };
+static const uint8_t goldenStartSequenceRequestPayload[] = { 0x06, 0x01, 0xE8, 0x03, 0xC8, 0x00, 0xB8, 0x0B, 0x00, 0x00, 0x00, 0x00 };
+static const uint8_t goldenStartSequenceRequestWire[] = {
+    0x02, 0x40, 0x08, 0x40, 0x10, 0x06, 0x01, 0xE8, 0x03, 0xC8, 0x03, 0xB8,
+    0x0B, 0x01, 0x01, 0x01, 0x03, 0xE8, 0xCF, 0x00
+};
+
+/* START_SEQUENCE response */
+static const hpStartSequenceRsp_t goldenStartSequenceResponseFixed = { .status = 0, .reserved = 0U, .t0Us = UINT64_C(60000000) };
+static const uint8_t goldenStartSequenceResponsePayload[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x87, 0x93, 0x03, 0x00, 0x00, 0x00, 0x00 };
+static const uint8_t goldenStartSequenceResponseWire[] = {
+    0x05, 0x40, 0x01, 0x40, 0x10, 0x01, 0x01, 0x01, 0x01, 0x04, 0x87, 0x93,
+    0x03, 0x01, 0x01, 0x01, 0x03, 0xFE, 0x29, 0x00
+};
+
+/* ABORT_SEQUENCE request */
+static const uint8_t goldenAbortSequenceRequestWire[] = { 0x02, 0x41, 0x05, 0x41, 0x10, 0x24, 0xB0, 0x00 };
+
+/* ABORT_SEQUENCE response */
+static const int16_t goldenAbortSequenceResponseFixed = -3;
+static const uint8_t goldenAbortSequenceResponsePayload[] = { 0xFD, 0xFF };
+static const uint8_t goldenAbortSequenceResponseWire[] = { 0x09, 0x41, 0x01, 0x41, 0x10, 0xFD, 0xFF, 0xD7, 0xAB, 0x00 };
+
+/* UPDATE_BEGIN request */
+static const hpUpdateBeginReq_t goldenUpdateBeginRequestFixed = { .boardType = 1U, .reserved = { 0x00, 0x00, 0x00 }, .size = 131072U, .crc32 = 305441741U };
+static const uint8_t goldenUpdateBeginRequestPayload[] = { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xCD, 0xAB, 0x34, 0x12 };
+static const uint8_t goldenUpdateBeginRequestWire[] = {
+    0x02, 0xA0, 0x04, 0xA0, 0x10, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02,
+    0x07, 0xCD, 0xAB, 0x34, 0x12, 0x32, 0x4C, 0x00
+};
+
+/* UPDATE_BEGIN response */
+static const hpUpdateBeginRsp_t goldenUpdateBeginResponseFixed = { .status = 0, .chunkMax = 224U, .reserved = 0U };
+static const uint8_t goldenUpdateBeginResponsePayload[] = { 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00 };
+static const uint8_t goldenUpdateBeginResponseWire[] = {
+    0x05, 0xA0, 0x01, 0xA0, 0x10, 0x01, 0x02, 0xE0, 0x01, 0x01, 0x03, 0x5B,
+    0xE2, 0x00
+};
+
+/* UPDATE_CHUNK request */
+static const hpUpdateChunkReq_t goldenUpdateChunkRequestFixed = { .offset = 224U };
+static const uint8_t goldenUpdateChunkRequestTail[] = { 0x00, 0xFF, 0x10 };
+static const uint8_t goldenUpdateChunkRequestPayload[] = { 0xE0, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x10 };
+static const uint8_t goldenUpdateChunkRequestWire[] = {
+    0x02, 0xA1, 0x04, 0xA1, 0x10, 0xE0, 0x01, 0x01, 0x01, 0x05, 0xFF, 0x10,
+    0x62, 0xE8, 0x00
+};
+
+/* UPDATE_CHUNK response */
+static const hpUpdateChunkRsp_t goldenUpdateChunkResponseFixed = { .status = 0, .nextOffset = 227U };
+static const uint8_t goldenUpdateChunkResponsePayload[] = { 0x00, 0x00, 0xE3, 0x00, 0x00, 0x00 };
+static const uint8_t goldenUpdateChunkResponseWire[] = {
+    0x05, 0xA1, 0x01, 0xA1, 0x10, 0x01, 0x02, 0xE3, 0x01, 0x01, 0x03, 0x11,
+    0x51, 0x00
+};
+
+/* UPDATE_END request */
+static const uint8_t goldenUpdateEndRequestWire[] = { 0x02, 0xA2, 0x05, 0xA2, 0x10, 0xF3, 0xEA, 0x00 };
+
+/* UPDATE_END response */
+static const int16_t goldenUpdateEndResponseFixed = -51;
+static const uint8_t goldenUpdateEndResponsePayload[] = { 0xCD, 0xFF };
+static const uint8_t goldenUpdateEndResponseWire[] = { 0x09, 0xA2, 0x01, 0xA2, 0x10, 0xCD, 0xFF, 0xAC, 0xF4, 0x00 };
+
+/* UPDATE_ABORT request */
+static const uint8_t goldenUpdateAbortRequestWire[] = { 0x02, 0xA3, 0x05, 0xA3, 0x10, 0x76, 0xAF, 0x00 };
+
+/* BOOT_APP request */
+static const uint8_t goldenBootAppRequestWire[] = { 0x02, 0xA4, 0x05, 0xA4, 0x10, 0xCC, 0x67, 0x00 };
+
+/* BOOT_APP response */
+static const hpBootAppRsp_t goldenBootAppResponseFixed = { .status = 0 };
+static const uint8_t goldenBootAppResponsePayload[] = { 0x00, 0x00 };
+static const uint8_t goldenBootAppResponseWire[] = { 0x05, 0xA4, 0x01, 0xA4, 0x10, 0x01, 0x03, 0x2C, 0x20, 0x00 };
 
 /* EVT_BOOT body */
 static const hpEvtBoot_t goldenEvtBootFixed = { .evSeq = 0U, .resetCause = 1U, .reserved = { 0x00, 0x00, 0x00 }, .bootId = 1592594996U, .sysUs = UINT64_C(1500) };
@@ -370,6 +615,73 @@ static const uint8_t goldenEvtButtonPayload[] = {
 static const uint8_t goldenEvtButtonWire[] = {
     0x03, 0xC3, 0x02, 0x01, 0x02, 0x4D, 0x01, 0x01, 0x03, 0x02, 0x02, 0x01,
     0x01, 0x04, 0x28, 0x6B, 0xEE, 0x01, 0x01, 0x01, 0x03, 0xA3, 0x55, 0x00
+};
+
+/* EVT_SEQ_STARTED body */
+static const hpEvtSeqStarted_t goldenEvtSeqStartedFixed = { .evSeq = 100U, .lights = 6U, .armSampling = 1U, .stepMs = 1000U, .t0Us = UINT64_C(60000000) };
+static const uint8_t goldenEvtSeqStartedPayload[] = {
+    0x64, 0x00, 0x00, 0x00, 0x06, 0x01, 0xE8, 0x03, 0x00, 0x87, 0x93, 0x03,
+    0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenEvtSeqStartedWire[] = {
+    0x03, 0xC4, 0x02, 0x01, 0x02, 0x64, 0x01, 0x01, 0x05, 0x06, 0x01, 0xE8,
+    0x03, 0x04, 0x87, 0x93, 0x03, 0x01, 0x01, 0x01, 0x03, 0x63, 0x56, 0x00
+};
+
+/* EVT_LIGHTS_OUT body */
+static const hpEvtLightsOut_t goldenEvtLightsOutFixed = { .evSeq = 101U, .lights = 6U, .reserved = { 0x00, 0x00, 0x00 }, .toutUs = UINT64_C(67123456) };
+static const uint8_t goldenEvtLightsOutPayload[] = {
+    0x65, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x39, 0x00, 0x04,
+    0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenEvtLightsOutWire[] = {
+    0x03, 0xC5, 0x02, 0x01, 0x02, 0x65, 0x01, 0x01, 0x02, 0x06, 0x01, 0x01,
+    0x01, 0x02, 0x39, 0x02, 0x04, 0x01, 0x01, 0x01, 0x03, 0xFD, 0x7C, 0x00
+};
+
+/* EVT_SEQ_ABORTED body */
+static const hpEvtSeqAborted_t goldenEvtSeqAbortedFixed = { .evSeq = 102U, .reason = 2U, .reserved = { 0x00, 0x00, 0x00 }, .atUs = UINT64_C(64000000) };
+static const uint8_t goldenEvtSeqAbortedPayload[] = {
+    0x66, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x90, 0xD0, 0x03,
+    0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenEvtSeqAbortedWire[] = {
+    0x03, 0xC6, 0x02, 0x01, 0x02, 0x66, 0x01, 0x01, 0x02, 0x02, 0x01, 0x01,
+    0x01, 0x04, 0x90, 0xD0, 0x03, 0x01, 0x01, 0x01, 0x03, 0x12, 0xEA, 0x00
+};
+
+/* EVT_BIND_CHANGED body */
+static const hpEvtBindChanged_t goldenEvtBindChangedFixed = { .evSeq = 7U, .change = 1U, .count = 3U, .windowS = 51U, .clientIdPrefix = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77 } };
+static const uint8_t goldenEvtBindChangedPayload[] = {
+    0x07, 0x00, 0x00, 0x00, 0x01, 0x03, 0x33, 0x00, 0x00, 0x11, 0x22, 0x33,
+    0x44, 0x55, 0x66, 0x77
+};
+static const uint8_t goldenEvtBindChangedWire[] = {
+    0x03, 0xC7, 0x02, 0x01, 0x02, 0x07, 0x01, 0x01, 0x04, 0x01, 0x03, 0x33,
+    0x01, 0x0A, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0xAD, 0x67, 0x00
+};
+
+/* EVT_BLE_LINK body */
+static const hpEvtBleLink_t goldenEvtBleLinkFixed = { .evSeq = 8U, .state = 1U, .phy = 2U, .attMtu = 247U, .intervalUnits = 24U, .reason = 0U, .reserved = 0U, .sysUs = UINT64_C(12000000) };
+static const uint8_t goldenEvtBleLinkPayload[] = {
+    0x08, 0x00, 0x00, 0x00, 0x01, 0x02, 0xF7, 0x00, 0x18, 0x00, 0x00, 0x00,
+    0x00, 0x1B, 0xB7, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenEvtBleLinkWire[] = {
+    0x03, 0xC8, 0x02, 0x01, 0x02, 0x08, 0x01, 0x01, 0x04, 0x01, 0x02, 0xF7,
+    0x02, 0x18, 0x01, 0x01, 0x01, 0x03, 0x1B, 0xB7, 0x01, 0x01, 0x01, 0x01,
+    0x03, 0xE8, 0xD2, 0x00
+};
+
+/* EVT_FAULT body */
+static const hpEvtFault_t goldenEvtFaultFixed = { .evSeq = 9U, .source = 1U, .reserved = 0U, .status = -61, .sysUs = UINT64_C(77000000) };
+static const uint8_t goldenEvtFaultPayload[] = {
+    0x09, 0x00, 0x00, 0x00, 0x01, 0x00, 0xC3, 0xFF, 0x40, 0xED, 0x96, 0x04,
+    0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenEvtFaultWire[] = {
+    0x03, 0xC9, 0x02, 0x01, 0x02, 0x09, 0x01, 0x01, 0x02, 0x01, 0x07, 0xC3,
+    0xFF, 0x40, 0xED, 0x96, 0x04, 0x01, 0x01, 0x01, 0x03, 0x49, 0xDA, 0x00
 };
 
 /* STR_RAW_SAMPLES body */
@@ -431,6 +743,18 @@ static const goldenMsgCase_t goldenMsgCases[] = {
     { "NODE_LIST response", { .msgId = 0x04U, .flags = 0x01U, .tag = 0x1004U },
       &goldenNodeListResponseFixed, HP_NODE_LIST_RSP_BYTES, goldenNodeListResponseTail, sizeof(goldenNodeListResponseTail),
       goldenNodeListResponsePayload, 34U, goldenNodeListResponseWire, 42U },
+    { "BIND_LIST request", { .msgId = 0x05U, .flags = 0x00U, .tag = 0x1005U },
+      &goldenBindListRequestFixed, HP_BIND_LIST_REQ_BYTES, NULL, 0U,
+      goldenBindListRequestPayload, 1U, goldenBindListRequestWire, 9U },
+    { "BIND_LIST response", { .msgId = 0x05U, .flags = 0x01U, .tag = 0x1005U },
+      &goldenBindListResponseFixed, HP_BIND_LIST_RSP_BYTES, goldenBindListResponseTail, sizeof(goldenBindListResponseTail),
+      goldenBindListResponsePayload, 50U, goldenBindListResponseWire, 58U },
+    { "BIND_REMOVE request", { .msgId = 0x06U, .flags = 0x00U, .tag = 0x1006U },
+      &goldenBindRemoveRequestFixed, HP_BIND_REMOVE_REQ_BYTES, NULL, 0U,
+      goldenBindRemoveRequestPayload, 16U, goldenBindRemoveRequestWire, 24U },
+    { "BIND_REMOVE response", { .msgId = 0x06U, .flags = 0x01U, .tag = 0x1006U },
+      &goldenBindRemoveResponseFixed, sizeof(int16_t), NULL, 0U,
+      goldenBindRemoveResponsePayload, 2U, goldenBindRemoveResponseWire, 10U },
     { "BIND_ALLOW request", { .msgId = 0x08U, .flags = 0x00U, .tag = 0x1008U },
       &goldenBindAllowRequestFixed, HP_BIND_ALLOW_REQ_BYTES, NULL, 0U,
       goldenBindAllowRequestPayload, 2U, goldenBindAllowRequestWire, 10U },
@@ -443,12 +767,108 @@ static const goldenMsgCase_t goldenMsgCases[] = {
     { "REBOOT response", { .msgId = 0x11U, .flags = 0x01U, .tag = 0x1011U },
       &goldenRebootResponseFixed, HP_REBOOT_RSP_BYTES, NULL, 0U,
       goldenRebootResponsePayload, 2U, goldenRebootResponseWire, 10U },
+    { "STATUS request", { .msgId = 0x12U, .flags = 0x00U, .tag = 0x1012U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenStatusRequestWire, 8U },
+    { "SETTINGS_GET request", { .msgId = 0x13U, .flags = 0x00U, .tag = 0x1013U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenSettingsGetRequestWire, 8U },
+    { "SETTINGS_GET response", { .msgId = 0x13U, .flags = 0x01U, .tag = 0x1013U },
+      &goldenSettingsGetResponseFixed, HP_SETTINGS_GET_RSP_BYTES, NULL, 0U,
+      goldenSettingsGetResponsePayload, 30U, goldenSettingsGetResponseWire, 38U },
+    { "SETTINGS_SET request", { .msgId = 0x14U, .flags = 0x00U, .tag = 0x1014U },
+      &goldenSettingsSetRequestFixed, HP_SETTINGS_SET_REQ_BYTES, NULL, 0U,
+      goldenSettingsSetRequestPayload, 28U, goldenSettingsSetRequestWire, 36U },
+    { "SETTINGS_SET response", { .msgId = 0x14U, .flags = 0x01U, .tag = 0x1014U },
+      &goldenSettingsSetResponseFixed, HP_SETTINGS_SET_RSP_BYTES, NULL, 0U,
+      goldenSettingsSetResponsePayload, 2U, goldenSettingsSetResponseWire, 10U },
+    { "LANE_SCAN request", { .msgId = 0x20U, .flags = 0x00U, .tag = 0x1020U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenLaneScanRequestWire, 8U },
+    { "LANE_SCAN response", { .msgId = 0x20U, .flags = 0x01U, .tag = 0x1020U },
+      &goldenLaneScanResponseFixed, HP_LANE_SCAN_RSP_BYTES, NULL, 0U,
+      goldenLaneScanResponsePayload, 2U, goldenLaneScanResponseWire, 10U },
     { "LANE_POWER request", { .msgId = 0x21U, .flags = 0x00U, .tag = 0x1021U },
       &goldenLanePowerRequestFixed, HP_LANE_POWER_REQ_BYTES, NULL, 0U,
       goldenLanePowerRequestPayload, 1U, goldenLanePowerRequestWire, 9U },
     { "LANE_POWER response", { .msgId = 0x21U, .flags = 0x01U, .tag = 0x1021U },
       &goldenLanePowerResponseFixed, HP_LANE_POWER_RSP_BYTES, NULL, 0U,
       goldenLanePowerResponsePayload, 3U, goldenLanePowerResponseWire, 11U },
+    { "LANE_CONFIG_GET request", { .msgId = 0x22U, .flags = 0x00U, .tag = 0x1022U },
+      &goldenLaneConfigGetRequestFixed, HP_LANE_CONFIG_GET_REQ_BYTES, NULL, 0U,
+      goldenLaneConfigGetRequestPayload, 1U, goldenLaneConfigGetRequestWire, 9U },
+    { "LANE_CONFIG_SET request", { .msgId = 0x23U, .flags = 0x00U, .tag = 0x1023U },
+      &goldenLaneConfigSetRequestFixed, HP_LANE_CONFIG_SET_REQ_BYTES, NULL, 0U,
+      goldenLaneConfigSetRequestPayload, 40U, goldenLaneConfigSetRequestWire, 48U },
+    { "LANE_CONFIG_SET response", { .msgId = 0x23U, .flags = 0x01U, .tag = 0x1023U },
+      &goldenLaneConfigSetResponseFixed, HP_LANE_CONFIG_SET_RSP_BYTES, NULL, 0U,
+      goldenLaneConfigSetResponsePayload, 2U, goldenLaneConfigSetResponseWire, 10U },
+    { "LANE_SAMPLING request", { .msgId = 0x24U, .flags = 0x00U, .tag = 0x1024U },
+      &goldenLaneSamplingRequestFixed, HP_LANE_SAMPLING_REQ_BYTES, NULL, 0U,
+      goldenLaneSamplingRequestPayload, 2U, goldenLaneSamplingRequestWire, 10U },
+    { "LANE_SAMPLING response", { .msgId = 0x24U, .flags = 0x01U, .tag = 0x1024U },
+      &goldenLaneSamplingResponseFixed, HP_LANE_SAMPLING_RSP_BYTES, NULL, 0U,
+      goldenLaneSamplingResponsePayload, 2U, goldenLaneSamplingResponseWire, 10U },
+    { "LANE_LED request", { .msgId = 0x25U, .flags = 0x00U, .tag = 0x1025U },
+      &goldenLaneLedRequestFixed, HP_LANE_LED_REQ_BYTES, NULL, 0U,
+      goldenLaneLedRequestPayload, 10U, goldenLaneLedRequestWire, 18U },
+    { "LANE_LED response", { .msgId = 0x25U, .flags = 0x01U, .tag = 0x1025U },
+      &goldenLaneLedResponseFixed, HP_LANE_LED_RSP_BYTES, NULL, 0U,
+      goldenLaneLedResponsePayload, 2U, goldenLaneLedResponseWire, 10U },
+    { "LANE_STATUS request", { .msgId = 0x26U, .flags = 0x00U, .tag = 0x1026U },
+      &goldenLaneStatusRequestFixed, HP_LANE_STATUS_REQ_BYTES, NULL, 0U,
+      goldenLaneStatusRequestPayload, 1U, goldenLaneStatusRequestWire, 9U },
+    { "LANE_STATUS response", { .msgId = 0x26U, .flags = 0x01U, .tag = 0x1026U },
+      &goldenLaneStatusResponseFixed, sizeof(int16_t), NULL, 0U,
+      goldenLaneStatusResponsePayload, 2U, goldenLaneStatusResponseWire, 10U },
+    { "LANE_RAW_STREAM request", { .msgId = 0x27U, .flags = 0x00U, .tag = 0x1027U },
+      &goldenLaneRawStreamRequestFixed, HP_LANE_RAW_STREAM_REQ_BYTES, NULL, 0U,
+      goldenLaneRawStreamRequestPayload, 4U, goldenLaneRawStreamRequestWire, 12U },
+    { "LANE_CALIBRATE request", { .msgId = 0x28U, .flags = 0x00U, .tag = 0x1028U },
+      &goldenLaneCalibrateRequestFixed, HP_LANE_CALIBRATE_REQ_BYTES, NULL, 0U,
+      goldenLaneCalibrateRequestPayload, 1U, goldenLaneCalibrateRequestWire, 9U },
+    { "LANE_CALIBRATE response", { .msgId = 0x28U, .flags = 0x01U, .tag = 0x1028U },
+      &goldenLaneCalibrateResponseFixed, sizeof(int16_t), NULL, 0U,
+      goldenLaneCalibrateResponsePayload, 2U, goldenLaneCalibrateResponseWire, 10U },
+    { "START_SEQUENCE request", { .msgId = 0x40U, .flags = 0x00U, .tag = 0x1040U },
+      &goldenStartSequenceRequestFixed, HP_START_SEQUENCE_REQ_BYTES, NULL, 0U,
+      goldenStartSequenceRequestPayload, 12U, goldenStartSequenceRequestWire, 20U },
+    { "START_SEQUENCE response", { .msgId = 0x40U, .flags = 0x01U, .tag = 0x1040U },
+      &goldenStartSequenceResponseFixed, HP_START_SEQUENCE_RSP_BYTES, NULL, 0U,
+      goldenStartSequenceResponsePayload, 12U, goldenStartSequenceResponseWire, 20U },
+    { "ABORT_SEQUENCE request", { .msgId = 0x41U, .flags = 0x00U, .tag = 0x1041U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenAbortSequenceRequestWire, 8U },
+    { "ABORT_SEQUENCE response", { .msgId = 0x41U, .flags = 0x01U, .tag = 0x1041U },
+      &goldenAbortSequenceResponseFixed, sizeof(int16_t), NULL, 0U,
+      goldenAbortSequenceResponsePayload, 2U, goldenAbortSequenceResponseWire, 10U },
+    { "UPDATE_BEGIN request", { .msgId = 0xA0U, .flags = 0x00U, .tag = 0x10A0U },
+      &goldenUpdateBeginRequestFixed, HP_UPDATE_BEGIN_REQ_BYTES, NULL, 0U,
+      goldenUpdateBeginRequestPayload, 12U, goldenUpdateBeginRequestWire, 20U },
+    { "UPDATE_BEGIN response", { .msgId = 0xA0U, .flags = 0x01U, .tag = 0x10A0U },
+      &goldenUpdateBeginResponseFixed, HP_UPDATE_BEGIN_RSP_BYTES, NULL, 0U,
+      goldenUpdateBeginResponsePayload, 6U, goldenUpdateBeginResponseWire, 14U },
+    { "UPDATE_CHUNK request", { .msgId = 0xA1U, .flags = 0x00U, .tag = 0x10A1U },
+      &goldenUpdateChunkRequestFixed, HP_UPDATE_CHUNK_REQ_BYTES, goldenUpdateChunkRequestTail, sizeof(goldenUpdateChunkRequestTail),
+      goldenUpdateChunkRequestPayload, 7U, goldenUpdateChunkRequestWire, 15U },
+    { "UPDATE_CHUNK response", { .msgId = 0xA1U, .flags = 0x01U, .tag = 0x10A1U },
+      &goldenUpdateChunkResponseFixed, HP_UPDATE_CHUNK_RSP_BYTES, NULL, 0U,
+      goldenUpdateChunkResponsePayload, 6U, goldenUpdateChunkResponseWire, 14U },
+    { "UPDATE_END request", { .msgId = 0xA2U, .flags = 0x00U, .tag = 0x10A2U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenUpdateEndRequestWire, 8U },
+    { "UPDATE_END response", { .msgId = 0xA2U, .flags = 0x01U, .tag = 0x10A2U },
+      &goldenUpdateEndResponseFixed, sizeof(int16_t), NULL, 0U,
+      goldenUpdateEndResponsePayload, 2U, goldenUpdateEndResponseWire, 10U },
+    { "UPDATE_ABORT request", { .msgId = 0xA3U, .flags = 0x00U, .tag = 0x10A3U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenUpdateAbortRequestWire, 8U },
+    { "BOOT_APP request", { .msgId = 0xA4U, .flags = 0x00U, .tag = 0x10A4U },
+      NULL, 0U, NULL, 0U,
+      NULL, 0U, goldenBootAppRequestWire, 8U },
+    { "BOOT_APP response", { .msgId = 0xA4U, .flags = 0x01U, .tag = 0x10A4U },
+      &goldenBootAppResponseFixed, HP_BOOT_APP_RSP_BYTES, NULL, 0U,
+      goldenBootAppResponsePayload, 2U, goldenBootAppResponseWire, 10U },
     { "EVT_BOOT body", { .msgId = 0xC0U, .flags = 0x02U, .tag = 0x0000U },
       &goldenEvtBootFixed, HP_EVT_BOOT_BYTES, NULL, 0U,
       goldenEvtBootPayload, 20U, goldenEvtBootWire, 28U },
@@ -461,6 +881,24 @@ static const goldenMsgCase_t goldenMsgCases[] = {
     { "EVT_BUTTON body", { .msgId = 0xC3U, .flags = 0x02U, .tag = 0x0000U },
       &goldenEvtButtonFixed, HP_EVT_BUTTON_BYTES, NULL, 0U,
       goldenEvtButtonPayload, 16U, goldenEvtButtonWire, 24U },
+    { "EVT_SEQ_STARTED body", { .msgId = 0xC4U, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtSeqStartedFixed, HP_EVT_SEQ_STARTED_BYTES, NULL, 0U,
+      goldenEvtSeqStartedPayload, 16U, goldenEvtSeqStartedWire, 24U },
+    { "EVT_LIGHTS_OUT body", { .msgId = 0xC5U, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtLightsOutFixed, HP_EVT_LIGHTS_OUT_BYTES, NULL, 0U,
+      goldenEvtLightsOutPayload, 16U, goldenEvtLightsOutWire, 24U },
+    { "EVT_SEQ_ABORTED body", { .msgId = 0xC6U, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtSeqAbortedFixed, HP_EVT_SEQ_ABORTED_BYTES, NULL, 0U,
+      goldenEvtSeqAbortedPayload, 16U, goldenEvtSeqAbortedWire, 24U },
+    { "EVT_BIND_CHANGED body", { .msgId = 0xC7U, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtBindChangedFixed, HP_EVT_BIND_CHANGED_BYTES, NULL, 0U,
+      goldenEvtBindChangedPayload, 16U, goldenEvtBindChangedWire, 24U },
+    { "EVT_BLE_LINK body", { .msgId = 0xC8U, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtBleLinkFixed, HP_EVT_BLE_LINK_BYTES, NULL, 0U,
+      goldenEvtBleLinkPayload, 20U, goldenEvtBleLinkWire, 28U },
+    { "EVT_FAULT body", { .msgId = 0xC9U, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtFaultFixed, HP_EVT_FAULT_BYTES, NULL, 0U,
+      goldenEvtFaultPayload, 16U, goldenEvtFaultWire, 24U },
     { "STR_RAW_SAMPLES body", { .msgId = 0xE0U, .flags = 0x04U, .tag = 0x0000U },
       &goldenStrRawSamplesFixed, HP_STR_RAW_SAMPLES_BYTES, goldenStrRawSamplesTail, sizeof(goldenStrRawSamplesTail),
       goldenStrRawSamplesPayload, 26U, goldenStrRawSamplesWire, 34U },

@@ -486,15 +486,25 @@ Message ID ranges (draft, grouped like the status codes, with gaps):
 | 0xE0–0xEF | Streams (device → host) |
 | 0xF0–0xFF | Debug streams |
 
-Protocol 0.1 defines these messages:
+Protocol 0.2 (2026-11-17) defines these messages:
 
-- **Session and system:** HELLO, PING, RESUME, NODE_LIST, BIND_ALLOW, REBOOT
-- **Lanes:** LANE_POWER
-- **Events:** EVT_BOOT, EVT_CROSSING, EVT_LANE_STATE, EVT_BUTTON
+- **Session:** HELLO, PING, RESUME, NODE_LIST, BIND_LIST, BIND_REMOVE,
+  BIND_ALLOW
+- **System:** REBOOT, STATUS, SETTINGS_GET/SET
+- **Lanes:** LANE_SCAN, LANE_POWER, LANE_CONFIG_GET/SET, LANE_SAMPLING,
+  LANE_LED, LANE_STATUS, LANE_RAW_STREAM, LANE_CALIBRATE
+- **Sequences:** START_SEQUENCE, ABORT_SEQUENCE
+- **Update (bootloader):** UPDATE_BEGIN/CHUNK/END/ABORT, BOOT_APP
+- **Events:** EVT_BOOT, EVT_CROSSING, EVT_LANE_STATE, EVT_BUTTON,
+  EVT_SEQ_STARTED, EVT_LIGHTS_OUT, EVT_SEQ_ABORTED, EVT_BIND_CHANGED,
+  EVT_BLE_LINK, EVT_FAULT (every event ≤ 24 B, the event-log slot; the
+  generator enforces it)
 - **Streams:** STR_RAW_SAMPLES, DBG_LOG
 
 The rest of the table is reserved. `protocol/host_protocol.toml` is the
-authority.
+authority. The lane bus contract is `lane_protocol.h` and the nRF link
+contract is `ble_link_protocol.h`, each byte-identical in two trees with a
+copy check in the host tests.
 
 ### 7.6 Versioning
 

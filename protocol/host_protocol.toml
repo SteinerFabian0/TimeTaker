@@ -52,8 +52,9 @@
 
 [protocol]
 major = 0
-minor = 1
+minor = 2
 max_payload = 240   # header 4 + payload 240 = 244 raw bytes; the nRF link adds 1 channel byte (245)
+max_event_payload = 24   # events incl. evSeq: the control module's event log slot (event_log.h)
 
 # USB identity of the control module (usb_cdc.c descriptors, the web app's
 # Web Serial port filter). pid.codes test pair: private development only.
@@ -404,6 +405,79 @@ values = [
   { name = "DEBUG", value = 4 },
 ]
 
+[[enum]]
+name = "samplingMode"
+prefix = "SAMPLING"
+doc = "Lane sampling mode (lane_protocol.h laneSamplingMode_e, same values)"
+values = [
+  { name = "OFF", value = 0, doc = "Sensor in shutdown" },
+  { name = "ON", value = 1, doc = "Detect and emit events" },
+  { name = "RAW", value = 2, doc = "ON, plus raw samples for STR_RAW_SAMPLES" },
+]
+
+[[enum]]
+name = "ledMode"
+prefix = "LED"
+values = [
+  { name = "OFF", value = 0 },
+  { name = "ON", value = 1, doc = "Steady at level" },
+  { name = "BLINK", value = 2, doc = "Period, on-share, count" },
+]
+
+[[enum]]
+name = "laneBusState"
+prefix = "LANE_BUS"
+doc = "The lane's own state machine (lane_protocol.h laneState_e, same values)"
+values = [
+  { name = "UNENUMERATED", value = 0 },
+  { name = "ENUMERATED", value = 1, doc = "Has an address, waiting for config" },
+  { name = "IDLE", value = 2, doc = "Configured, sampling off" },
+  { name = "SAMPLING", value = 3 },
+  { name = "SLEEP", value = 4 },
+  { name = "PARKED", value = 5, doc = "Boot-loop guard tripped" },
+]
+
+[[enum]]
+name = "seqAbortReason"
+prefix = "ABORT"
+values = [
+  { name = "HOST", value = 1, doc = "ABORT_SEQUENCE request" },
+  { name = "BUTTON", value = 2, doc = "BTN2 long press on the control module" },
+  { name = "LANE_FAILED", value = 3, doc = "A lane did not take its scheduled actions in time" },
+  { name = "LANE_LEFT", value = 4, doc = "A lane dropped off the bus during the sequence" },
+  { name = "POWER", value = 5, doc = "Lane power switched off" },
+]
+
+[[enum]]
+name = "bindChange"
+prefix = "BIND_CHANGE"
+values = [
+  { name = "ADDED", value = 1 },
+  { name = "REMOVED", value = 2 },
+  { name = "CLEARED", value = 3, doc = "Whole list cleared (BLE button 10 s, or BIND_REMOVE with a zero id)" },
+  { name = "WINDOW_OPENED", value = 4 },
+  { name = "WINDOW_CLOSED", value = 5 },
+  { name = "REJECTED", value = 6, doc = "An unbound BLE client was kicked after its grace time" },
+]
+
+[[enum]]
+name = "faultSource"
+prefix = "FAULT_SRC"
+values = [
+  { name = "USB", value = 1, doc = "USB-C port protector (USB_FAULT)" },
+  { name = "EXT_POWER", value = 2, doc = "External power board (EXT_PWR_FAULT)" },
+  { name = "LANE_POWER", value = 3, doc = "Lane rail did not come up or was cut" },
+]
+
+[[enum]]
+name = "bleLinkState"
+prefix = "BLE_LINK"
+values = [
+  { name = "DOWN", value = 0 },
+  { name = "UP", value = 1 },
+  { name = "VERSION_MISMATCH", value = 2, doc = "nRF link protocol MAJOR differs: BLE data refused" },
+]
+
 # ---------------------------------------------------------------------------
 # Reusable structs
 # ---------------------------------------------------------------------------
@@ -422,6 +496,44 @@ fields = [
   { name = "protoMinor", type = "u8", doc = "Lane bus / link protocol minor version of that node" },
   { name = "fwGitRev", type = "u32", doc = "Short git revision the image was built from" },
   { name = "imageCrc", type = "u32", doc = "CRC32 of the running image (0 = unknown)" },
+]
+
+[[struct]]
+name = "laneConfig"
+doc = "Detection and sampling config of one lane (lane_protocol.h laneConfig_t, same layout)"
+fields = [
+  { name = "samplePeriodUs", type = "u32", doc = "Sampling period, e.g. 1000 (1 kHz)" },
+  { name = "samplePhaseUs", type = "u32", doc = "Offset inside the period (staggers the IR pulses)" },
+  { name = "mergeGapUs", type = "u32", doc = "Re-entry within this counts as the same car" },
+  { name = "blockTimeoutUs", type = "u32", doc = "Below LOW longer than this: BLOCKED" },
+  { name = "holdoffUs", type = "u32", doc = "Holdoff after an event, 0 = off" },
+  { name = "holdoffSamplePeriodUs", type = "u32", doc = "Sampling period inside the holdoff, 0 = unchanged" },
+  { name = "thrDropPermille", type = "u16", doc = "LOW = baseline x (1000 - x) / 1000" },
+  { name = "hystPermille", type = "u16", doc = "HIGH = LOW + baseline x x / 1000" },
+  { name = "minDwell10us", type = "u16", doc = "Shorter dips are glitches" },
+  { name = "rawDecimation", type = "u16", doc = "RAW mode keeps every Nth sample (>= 1)" },
+  { name = "irCurrent", type = "u8", doc = "VCNL4040 LED_I code" },
+  { name = "psIntegration", type = "u8", doc = "VCNL4040 PS_IT code" },
+  { name = "psMultiPulse", type = "u8", doc = "VCNL4040 PS_MPS code" },
+  { name = "reserved", type = "u8" },
+]
+
+[[struct]]
+name = "bindEntry"
+doc = "One bound BLE client"
+fields = [
+  { name = "clientId", type = "u8[16]" },
+  { name = "clientName", type = "str[24]" },
+  { name = "lastUsed", type = "u32", doc = "LRU stamp: higher = used more recently" },
+]
+
+[[struct]]
+name = "deviceSettings"
+doc = "Persistent device settings (settings_store)"
+fields = [
+  { name = "deviceName", type = "str[24]", doc = "Shown in the app" },
+  { name = "bleEnabled", type = "u8", doc = "0 = the nRF stops advertising" },
+  { name = "reserved", type = "u8[3]" },
 ]
 
 # ---------------------------------------------------------------------------
@@ -523,6 +635,44 @@ fwGitRev = 0x1234567
 imageCrc = 0
 
 [[message]]
+id = 0x05
+name = "BIND_LIST"
+kind = "request"
+doc = "The BLE bind list, paged (8 entries do not fit one frame). TRUSTED or BOUND sessions only."
+request = [
+  { name = "start", type = "u8", doc = "Index of the first entry wanted" },
+]
+response = [
+  { name = "total", type = "u8", doc = "Entries on the list" },
+  { name = "start", type = "u8" },
+  { name = "windowS", type = "u16", doc = "Seconds left in the pairing window, 0 = closed" },
+  { name = "entries", type = "bindEntry[]", doc = "Up to 5 per page" },
+]
+example_request = { start = 0 }
+
+[[message.example_response.entries]]
+clientId = "00112233445566778899aabbccddeeff"
+clientName = "Laptop"
+lastUsed = 7
+
+[message.example_response]
+total = 1
+start = 0
+windowS = 42
+
+[[message]]
+id = 0x06
+name = "BIND_REMOVE"
+kind = "request"
+doc = "Removes one client from the bind list; an all-zero clientId clears the list. TRUSTED or BOUND sessions only."
+request = [
+  { name = "clientId", type = "u8[16]" },
+]
+response = []
+example_request = { clientId = "00000000000000000000000000000000" }
+example_response = { status = -15 }
+
+[[message]]
 id = 0x08
 name = "BIND_ALLOW"
 kind = "request"
@@ -550,9 +700,65 @@ response = []
 example_request = { target = 1 }
 example_response = {}
 
+[[message]]
+id = 0x12
+name = "STATUS"
+kind = "request"
+doc = "Control module health: errors, loop time, lanes, links, event log window."
+request = []
+response = [
+  { name = "lastError", type = "i16", doc = "ctrlStatus_e of the last error, 0 = none" },
+  { name = "loopMaxMs", type = "u16", doc = "Longest super-loop pass since boot" },
+  { name = "errorCount", type = "u32" },
+  { name = "uptimeMs", type = "u32" },
+  { name = "lanesPresent", type = "u8", doc = "Lanes enumerated (contiguous from 1)" },
+  { name = "lanesPowered", type = "u8", doc = "1 = lane rail settled and SYNC running" },
+  { name = "bleLink", type = "u8", enum = "bleLinkState" },
+  { name = "seqRunning", type = "u8", doc = "1 = a start sequence is running" },
+  { name = "usbFaults", type = "u16", doc = "USB_FAULT trips since boot" },
+  { name = "settingsWrites", type = "u16", doc = "Flash writes since boot" },
+  { name = "logOldestSeq", type = "u32" },
+  { name = "logNextSeq", type = "u32" },
+]
+example_request = {}
+
+[[message]]
+id = 0x13
+name = "SETTINGS_GET"
+kind = "request"
+example_request = {}
+example_response = { settings = { deviceName = "TimeTaker", bleEnabled = 1, reserved = "000000" } }
+doc = "Reads the persistent device settings."
+request = []
+response = [
+  { name = "settings", type = "deviceSettings" },
+]
+
+[[message]]
+id = 0x14
+name = "SETTINGS_SET"
+kind = "request"
+doc = "Writes the device settings. Stored to flash when no start sequence runs (deferred, at most every 10 s)."
+request = [
+  { name = "settings", type = "deviceSettings" },
+]
+response = []
+example_request = { settings = { deviceName = "TimeTaker Opa", bleEnabled = 1, reserved = "000000" } }
+example_response = {}
+
 # ---------------------------------------------------------------------------
 # Lanes (0x20 - 0x3F)
 # ---------------------------------------------------------------------------
+
+[[message]]
+id = 0x20
+name = "LANE_SCAN"
+kind = "request"
+example_request = {}
+example_response = {}
+doc = "Re-runs the lane chain enumeration: every lane LEFT, then JOINED/CONFIGURED in chain order. Needs lane power."
+request = []
+response = []
 
 [[message]]
 id = 0x21
@@ -567,6 +773,226 @@ response = [
 ]
 example_request = { on = 1 }
 example_response = { powered = 0 }
+
+[[message]]
+id = 0x22
+name = "LANE_CONFIG_GET"
+kind = "request"
+example_request = { lane = 2 }
+doc = "The control module's config table entry for one lane (pushed to the lane at every join)."
+request = [
+  { name = "lane", type = "u8", doc = "1..6" },
+]
+response = [
+  { name = "lane", type = "u8" },
+  { name = "reserved", type = "u8[3]" },
+  { name = "config", type = "laneConfig" },
+]
+
+[[message]]
+id = 0x23
+name = "LANE_CONFIG_SET"
+kind = "request"
+doc = "Writes the config table for the lanes in laneMask and pushes it to those present. save = 1 also persists the table."
+request = [
+  { name = "laneMask", type = "u8", doc = "Bit n-1 = lane n" },
+  { name = "save", type = "u8" },
+  { name = "reserved", type = "u16" },
+  { name = "config", type = "laneConfig" },
+]
+response = []
+example_request = { laneMask = 0x3f, save = 1, reserved = 0, config = { samplePeriodUs = 1000, samplePhaseUs = 0, mergeGapUs = 30000, blockTimeoutUs = 500000, holdoffUs = 0, holdoffSamplePeriodUs = 0, thrDropPermille = 300, hystPermille = 100, minDwell10us = 200, rawDecimation = 1, irCurrent = 7, psIntegration = 3, psMultiPulse = 0, reserved = 0 } }
+example_response = {}
+
+[[message]]
+id = 0x24
+name = "LANE_SAMPLING"
+kind = "request"
+example_request = { laneMask = 0x3f, mode = 1 }
+example_response = {}
+doc = "Sets the sampling mode of the lanes in laneMask (kept in the config table, restored after a re-join)."
+request = [
+  { name = "laneMask", type = "u8" },
+  { name = "mode", type = "u8", enum = "samplingMode" },
+]
+response = []
+
+[[message]]
+id = 0x25
+name = "LANE_LED"
+kind = "request"
+doc = "Sets the start light of the lanes in laneMask at once. Refused while a start sequence runs (ERR_SEQ_RUNNING)."
+request = [
+  { name = "laneMask", type = "u8" },
+  { name = "mode", type = "u8", enum = "ledMode" },
+  { name = "level", type = "u16", doc = "0..1000 perceived brightness" },
+  { name = "blinkPeriodMs", type = "u16" },
+  { name = "blinkOnPermille", type = "u16" },
+  { name = "blinkCount", type = "u16", doc = "0 = until changed" },
+]
+response = []
+example_request = { laneMask = 0x05, mode = 2, level = 1000, blinkPeriodMs = 500, blinkOnPermille = 500, blinkCount = 3 }
+example_response = {}
+
+[[message]]
+id = 0x26
+name = "LANE_STATUS"
+kind = "request"
+doc = "One lane's STATUS and SIGNAL registers, read fresh over the bus."
+request = [
+  { name = "lane", type = "u8" },
+]
+response = [
+  { name = "lane", type = "u8" },
+  { name = "state", type = "u8", enum = "laneBusState" },
+  { name = "samplingMode", type = "u8", enum = "samplingMode" },
+  { name = "fifoCount", type = "u8" },
+  { name = "flags", type = "u16", doc = "lane_protocol.h LANE_STATUS_* bits" },
+  { name = "droppedEvents", type = "u16" },
+  { name = "syncShifts", type = "u16" },
+  { name = "badWrites", type = "u16" },
+  { name = "lateActions", type = "u16" },
+  { name = "lastError", type = "i16", doc = "The lane's own status code" },
+  { name = "resetCause", type = "u8", enum = "resetCause" },
+  { name = "faultId", type = "u8" },
+  { name = "uptimeMs", type = "u32" },
+  { name = "raw", type = "u16" },
+  { name = "baseline", type = "u16" },
+  { name = "thrLow", type = "u16" },
+  { name = "thrHigh", type = "u16" },
+  { name = "noise", type = "u16" },
+  { name = "reserved", type = "u16" },
+]
+example_request = { lane = 4 }
+example_response = { status = -21 }
+
+[[message]]
+id = 0x27
+name = "LANE_RAW_STREAM"
+kind = "request"
+example_request = { lane = 3, reserved = 0, decimation = 4 }
+doc = "Streams one lane's raw samples as STR_RAW_SAMPLES (puts it in RAW mode; lane 0 stops and restores the previous mode). One lane at a time."
+request = [
+  { name = "lane", type = "u8", doc = "1..6, 0 = stop" },
+  { name = "reserved", type = "u8" },
+  { name = "decimation", type = "u16", doc = "Keep every Nth sample (>= 1)" },
+]
+response = []
+
+[[message]]
+id = 0x28
+name = "LANE_CALIBRATE"
+kind = "request"
+example_request = { laneMask = 0x01 }
+example_response = { status = -21 }
+doc = "The lanes in laneMask re-learn their baseline. Only meaningful with the lane free."
+request = [
+  { name = "laneMask", type = "u8" },
+]
+response = []
+
+# ---------------------------------------------------------------------------
+# Sequences (0x40 - 0x4F)
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0x40
+name = "START_SEQUENCE"
+kind = "request"
+doc = "F1-style start: lane k lights at T0 + k*step, all go out together at Tout = T0 + n*step + random hold. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier)."
+request = [
+  { name = "lights", type = "u8", doc = "1..6; lanes present are lit in index order" },
+  { name = "armSampling", type = "u8", doc = "1 = also switch sampling ON at T0" },
+  { name = "stepMs", type = "u16" },
+  { name = "holdMinMs", type = "u16" },
+  { name = "holdMaxMs", type = "u16" },
+  { name = "leadMs", type = "u16", doc = "Time from now to T0; 0 = default (>= 150 ms)" },
+  { name = "reserved", type = "u16" },
+]
+response = [
+  { name = "reserved", type = "u16" },
+  { name = "t0Us", type = "u64", doc = "System time the first light goes on" },
+]
+example_request = { lights = 6, armSampling = 1, stepMs = 1000, holdMinMs = 200, holdMaxMs = 3000, leadMs = 0, reserved = 0 }
+example_response = { reserved = 0, t0Us = 60000000 }
+
+[[message]]
+id = 0x41
+name = "ABORT_SEQUENCE"
+kind = "request"
+example_request = {}
+example_response = { status = -3 }
+doc = "Cancels the running start sequence: lanes' pending actions cancelled, lights blink, EVT_SEQ_ABORTED."
+request = []
+response = []
+
+# ---------------------------------------------------------------------------
+# Update (0xA0 - 0xAF). Served by the control module's bootloader
+# (boardType CONTROL_BOOT); the app answers them ERR_INVALID_STATE and the
+# host uses REBOOT{BOOTLOADER} first.
+# ---------------------------------------------------------------------------
+
+[[message]]
+id = 0xA0
+name = "UPDATE_BEGIN"
+kind = "request"
+doc = "Starts an update: erases the app region. The image must be for this board type."
+request = [
+  { name = "boardType", type = "u8", enum = "boardType" },
+  { name = "reserved", type = "u8[3]" },
+  { name = "size", type = "u32", doc = "Image bytes" },
+  { name = "crc32", type = "u32", doc = "CRC-32 (IEEE) of the whole image" },
+]
+response = [
+  { name = "chunkMax", type = "u16", doc = "Largest data tail UPDATE_CHUNK accepts" },
+  { name = "reserved", type = "u16" },
+]
+example_request = { boardType = 1, reserved = "000000", size = 131072, crc32 = 0x1234abcd }
+example_response = { chunkMax = 224, reserved = 0 }
+
+[[message]]
+id = 0xA1
+name = "UPDATE_CHUNK"
+kind = "request"
+doc = "Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe."
+request = [
+  { name = "offset", type = "u32" },
+  { name = "data", type = "u8[]" },
+]
+response = [
+  { name = "nextOffset", type = "u32" },
+]
+example_request = { offset = 224, data = "00ff10" }
+example_response = { nextOffset = 227 }
+
+[[message]]
+id = 0xA2
+name = "UPDATE_END"
+kind = "request"
+example_request = {}
+example_response = { status = -51 }
+doc = "Verifies the CRC over the written image and writes the image header last. ERR_IMAGE_CRC if it does not match."
+request = []
+response = []
+
+[[message]]
+id = 0xA3
+name = "UPDATE_ABORT"
+kind = "request"
+example_request = {}
+doc = "Abandons the update. The bootloader stays (no valid app)."
+request = []
+response = []
+
+[[message]]
+id = 0xA4
+name = "BOOT_APP"
+kind = "request"
+example_request = {}
+example_response = {}
+doc = "Leaves the bootloader and starts the app, if its header and CRC are valid. The response goes out first."
+request = []
+response = []
 
 # ---------------------------------------------------------------------------
 # Events (0xC0 - 0xDF). evSeq u32 is injected as the first field.
@@ -628,6 +1054,85 @@ fields = [
   { name = "sysUs", type = "u64" },
 ]
 example = { evSeq = 77, button = 2, press = 2, reserved = 0, sysUs = 4000000000 }
+
+[[message]]
+id = 0xC4
+name = "EVT_SEQ_STARTED"
+kind = "event"
+doc = "A start sequence was planned and written to the lanes. Tout is deliberately not in it."
+fields = [
+  { name = "lights", type = "u8" },
+  { name = "armSampling", type = "u8" },
+  { name = "stepMs", type = "u16" },
+  { name = "t0Us", type = "u64" },
+]
+example = { evSeq = 100, lights = 6, armSampling = 1, stepMs = 1000, t0Us = 60000000 }
+
+[[message]]
+id = 0xC5
+name = "EVT_LIGHTS_OUT"
+kind = "event"
+doc = "All lights went out at toutUs: the race start. False starts and reaction times are judged against it."
+fields = [
+  { name = "lights", type = "u8" },
+  { name = "reserved", type = "u8[3]" },
+  { name = "toutUs", type = "u64" },
+]
+example = { evSeq = 101, lights = 6, reserved = "000000", toutUs = 67123456 }
+
+[[message]]
+id = 0xC6
+name = "EVT_SEQ_ABORTED"
+kind = "event"
+example = { evSeq = 102, reason = 2, reserved = "000000", atUs = 64000000 }
+doc = "The start sequence was cancelled."
+fields = [
+  { name = "reason", type = "u8", enum = "seqAbortReason" },
+  { name = "reserved", type = "u8[3]" },
+  { name = "atUs", type = "u64" },
+]
+
+[[message]]
+id = 0xC7
+name = "EVT_BIND_CHANGED"
+kind = "event"
+example = { evSeq = 7, change = 1, count = 3, windowS = 51, clientIdPrefix = "0011223344556677" }
+doc = "The BLE bind list or pairing window changed."
+fields = [
+  { name = "change", type = "u8", enum = "bindChange" },
+  { name = "count", type = "u8", doc = "Entries on the list after the change" },
+  { name = "windowS", type = "u16", doc = "Pairing window seconds left" },
+  { name = "clientIdPrefix", type = "u8[8]", doc = "First 8 bytes of the client concerned (zero if none)" },
+]
+
+[[message]]
+id = 0xC8
+name = "EVT_BLE_LINK"
+kind = "event"
+example = { evSeq = 8, state = 1, phy = 2, attMtu = 247, intervalUnits = 24, reason = 0, reserved = 0, sysUs = 12000000 }
+doc = "The BLE link to a central came up, changed parameters, or went down."
+fields = [
+  { name = "state", type = "u8", enum = "bleLinkState" },
+  { name = "phy", type = "u8", doc = "1 = 1M, 2 = 2M" },
+  { name = "attMtu", type = "u16" },
+  { name = "intervalUnits", type = "u16", doc = "1.25 ms units" },
+  { name = "reason", type = "u8", doc = "HCI reason on DOWN" },
+  { name = "reserved", type = "u8" },
+  { name = "sysUs", type = "u64" },
+]
+
+[[message]]
+id = 0xC9
+name = "EVT_FAULT"
+kind = "event"
+example = { evSeq = 9, source = 1, reserved = 0, status = -61, sysUs = 77000000 }
+doc = "A hardware fault input tripped."
+fields = [
+  { name = "source", type = "u8", enum = "faultSource" },
+  { name = "reserved", type = "u8" },
+  { name = "status", type = "i16" },
+  { name = "sysUs", type = "u64" },
+]
 
 # ---------------------------------------------------------------------------
 # Streams (0xE0 - 0xEF) and debug streams (0xF0 - 0xFF)
