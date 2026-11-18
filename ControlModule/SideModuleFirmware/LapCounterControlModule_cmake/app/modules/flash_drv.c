@@ -11,6 +11,7 @@
 #include "stm32_hal.h"
 #include "ctrl_status.h"
 #include "irq_guard.h"
+#include "image_header.h"
 
 #define FLASH_DRV_BASE        0x08000000U
 #define FLASH_DRV_SIZE        0x00040000U
@@ -59,7 +60,8 @@ ctrlStatus_e flashDrvResult(void)
 
 ctrlStatus_e flashDrvEraseStart(uint32_t addr)
 {
-    if (addr < FLASH_DRV_BASE || addr >= FLASH_DRV_BASE + FLASH_DRV_SIZE) {
+    /* Never the bootloader pages: the app and the settings pages only. */
+    if (addr < IMAGE_APP_BASE || addr >= FLASH_DRV_BASE + FLASH_DRV_SIZE) {
         return CTRL_ERR_INVALID_ARG;
     }
     if (!flashDrvReady()) {
@@ -93,7 +95,7 @@ ctrlStatus_e flashDrvErasePage(uint32_t addr)
 
 ctrlStatus_e flashDrvProgram16(uint32_t addr, const uint8_t data[FLASH_DRV_QW_BYTES])
 {
-    if ((addr & (FLASH_DRV_QW_BYTES - 1U)) != 0U || addr < FLASH_DRV_BASE
+    if ((addr & (FLASH_DRV_QW_BYTES - 1U)) != 0U || addr < IMAGE_APP_BASE
         || addr + FLASH_DRV_QW_BYTES > FLASH_DRV_BASE + FLASH_DRV_SIZE) {
         return CTRL_ERR_INVALID_ARG;
     }

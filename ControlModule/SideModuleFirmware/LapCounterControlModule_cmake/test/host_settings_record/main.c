@@ -107,6 +107,19 @@ static void testSelect(void)
     settingsRecordSelect(p0, p1, PAGE, &s);
     check("select: valid + corrupt -> the valid one, not reported corrupt", s.active == 0 && !s.corrupt);
 
+    /* Power cut after the first quad-word of the new record: the old one stays. */
+    write(p0, 9, 0x99);
+    erase(p1);
+    { uint8_t pl[100]; uint8_t rec[160];
+      memset(pl, 0x77, sizeof(pl));
+      uint32_t n = settingsRecordEncode(pl, sizeof(pl), 10, rec, sizeof(rec));
+      memcpy(p1, rec, 16U);
+      settingsRecordSelect(p0, p1, PAGE, &s);
+      check("select: half-written newer record -> old stays active", n > 16U && s.active == 0 && s.sequence == 9U && s.writeTarget == 1);
+      memcpy(p1, rec, n - 16U);   /* all but the last quad-word (the CRC) */
+      settingsRecordSelect(p0, p1, PAGE, &s);
+      check("select: record missing its CRC quad-word -> old stays", s.active == 0 && !s.corrupt); }
+
     erase(p0);
     settingsRecordSelect(p0, p1, PAGE, &s);
     check("select: corrupt + empty -> none, corrupt reported", s.active == -1 && s.corrupt && s.writeTarget == 0);

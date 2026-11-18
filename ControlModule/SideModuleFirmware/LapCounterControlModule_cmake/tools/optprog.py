@@ -6,7 +6,9 @@
 
 What it sets (CONTROL_FIRMWARE_GUIDE §5.6 item 4):
 
-  BOOT_SEL   = 1   The BOOT0 PIN decides the boot source. This board has a real
+  BOOT_SEL         NOT written by default. Polarity is unverified (see below):
+                   pass --boot-sel 1 only after the bench check (BENCH_TESTS F-4).
+                   With it, BOOT_SEL = 1 means: the BOOT0 PIN decides the boot source. This board has a real
                    10 k pull-down on BOOT0 (R201) and the SW604 BOOT button, so
                    the pin must stay in charge: SW604 + SW605 (NRST) is the ROM
                    USB DFU recovery path. Value per the C5 LL/HAL headers
@@ -98,7 +100,7 @@ BOOT_SEL = 22
 BOOT0 = 23
 
 # bit -> level this board wants. Everything outside this dict is preserved.
-POLICY = {IWDG_STDBY: 0, BOOT_SEL: 1}
+POLICY = {IWDG_STDBY: 0}   # BOOT_SEL only with --boot-sel (polarity unverified)
 
 # bit -> (name, meaning at 0, meaning at 1), for the report.
 BITS = {
@@ -157,10 +159,16 @@ def main():
     parser.add_argument("--target", default=TARGET, help=f"pyocd target (default {TARGET})")
     parser.add_argument("--frequency", type=int, default=1_000_000,
                         help="SWD clock in Hz (default 1 MHz)")
+    parser.add_argument("--boot-sel", type=int, choices=(0, 1), default=None,
+                        help="also write BOOT_SEL (1 = BOOT0 pin decides). Opt-in: polarity is "
+                             "bench-verified first (BENCH_TESTS F-4)")
     args = parser.parse_args()
+    if args.boot_sel is not None:
+        POLICY[BOOT_SEL] = args.boot_sel
 
     pack = find_pack()
-    print("board  TimeTaker control module (C542) - BOOT_SEL = pin, IWDG_STDBY frozen")
+    print("board  TimeTaker control module (C542) - IWDG_STDBY frozen; BOOT_SEL "
+          + ("not managed" if args.boot_sel is None else f"-> {args.boot_sel}"))
     print(f"pack   {pack}")
     print(f"target {args.target}")
 

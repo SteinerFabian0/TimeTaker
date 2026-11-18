@@ -190,6 +190,9 @@ ctrlStatus_e settingsStoreRun(bool allowed)
         return CTRL_OK;
 
     case SETTINGS_PROGRAM:
+        if (!allowed) {
+            return CTRL_OK;   /* a start sequence began: pause between quad-words, power loss is safe */
+        }
         for (uint8_t i = 0U; i < SETTINGS_STORE_QW_PER_PASS && settingsProgramPos < settingsRecordLen; i++) {
             ctrlStatus_e st = flashDrvProgram16(settingsPageAddr(settingsTarget) + settingsProgramPos,
                                                 &settingsRecord[settingsProgramPos]);
