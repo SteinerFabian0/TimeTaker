@@ -19,13 +19,16 @@ every change to `protocol/host_protocol.toml`.
 | `host_session` | `host_session` against a fake transport, real frames both ways: HELLO gate (`ERR_NO_SESSION`), HELLO length/MAJOR checks, history not pushed on HELLO, PING, events in order with evSeq, RESUME replay and its three refusals, backpressure with the response reserve, a lagging cursor skipping overwritten events, the owner hand-off (status forced, error = status only, malformed owner reply), host frames with flags, corrupt frames, reset | SYSTEM_ARCHITECTURE §7.3–7.4 |
 | `host_protocol` | The packed structs of `host_protocol.h` against the reference bytes of every TOML example, header + payload through `frame_codec` to the reference frame and back, size limits (a full frame plus the nRF channel byte stays within 254 B on the wire) | `gen_protocol.py`'s reference packer; the web app holds `wire.ts` / `codec.ts` to the same bytes via `golden.json` |
 
-Still to come:
+| copy checks | `lane_protocol.h`, `ble_link_protocol.h` byte-identical with the lane / BLE trees | `cmp` |
+| `host_session` (2026-11-18 additions) | per-session bind state from the onHello hook, the UNBOUND gate (HELLO/PING only, ERR_NOT_BOUND, owner never called, no events, no streams), binding live, reset to the configured state; deferred responses (completion with the original tag, one at a time -> ERR_BUSY, reset voids it); streams (STREAM flag, dropped beside the reserve) | CONTROL_FIRMWARE_GUIDE §5.4 |
+| `host_bind_list` | add/touch/find, LRU eviction at 8, zero id refused, remove, clear, serialise and every deserialise refusal | §5.4 |
+| `host_seq_planner` | T0/on[k]/hold/Tout arithmetic, n = min(lights, present), every refusal (lights, step, hold order, lead -> ERR_TOO_LATE, no lane, overflow) | §5.3 |
+| `host_settings_record` | CRC-32 check value, record encode/check (magic, version, length, CRC, half-programmed page), two-page selection incl. sequence wrap and corrupt-vs-new board | §5.5 |
+| `host_nrf_link` | link frame parsing (DATA 1..244, CTRL short/long/unknown, channels), encoders, credits (reset, take, return, clamp), byte ring, stream budget and the BLE rate | BLE_FIRMWARE_GUIDE §5 |
+| `host_lane_logic` | join index + LEFT/release masks, EVENT_FIFO / RAW_FIFO early read ends, EVT_CROSSING mapping, seq gaps, health transitions, "configured", config checks, LANE_STATUS / NODE_LIST mapping | §5.1 |
+| `host_update` | image header checks, image CRC with the header skipped, vector plausibility; UPDATE_BEGIN/CHUNK/END/ABORT against a fake flash that enforces erased-only quad-word programs: repeats, overlaps, gaps, header written last, resume, wrong CRC/board, flash failure | §5.7 |
 
-- `lane_protocol.h` (byte-compare against the lane's copy), the
-  start-sequence planner, and `led_pattern` (the lane tree tests it today;
-  port its suite);
-- the shim + `HAL_OK = 0xEAEAEAEA` rule as in the lane tree, once a suite
-  needs the HAL.
+Still to come: `led_pattern` (the lane tree tests it today; port its suite).
 
 Rules the suites follow (same as the hub's and the lane's):
 
@@ -55,5 +58,17 @@ Rules the suites follow (same as the hub's and the lane's):
   - HELLO replaying history;
   - no lag skip;
   - no MAJOR check.
+
+  The suites added on 2026-11-18 were mutation-checked the same day (one
+  mutation of a rule each, all caught): LRU picks the newest (3 failing),
+  zero id accepted (3), duplicate accepted on deserialise (2); hold span
+  off by one (the suite crashes: division by zero), lead check dropped (2),
+  n = lights (2); sequence compare without wrap (2), version check dropped
+  (2), corrupt never reported (2); CTRL short-body rule dropped (2), credit
+  clamp dropped (2), empty DATA accepted (2); join index miscounted (3),
+  partial FIFO record taken (2), FAULT not re-raised on a new error (2);
+  header quad-words programmed early (5), resume re-initialises (3), Thumb
+  bit not checked (2); UNBOUND gate dropped (4), events pumped while UNBOUND
+  (3), second deferral accepted (3).
 
 - Only pure logic lives here. Drivers and timing are bench work.

@@ -48,29 +48,25 @@ reports the facts it needs.
 
 ---
 
-## 2. Where it stands (2026-11-17, after the CubeMX half of C0)
+## 2. Where it stands (2026-11-18, after C1–C7 without a board)
 
-Build order step 2 is done: it builds (debug and release, `-Werror` on
-`app/`) and the host tests pass. The CubeMX pass (§8) is applied and builds
-clean. **It has never been flashed:** no board was attached when C0 ran, so
-the bench half of C0 is still open. Run the bench checklist in
-`CONTROL_FIRMWARE_NOTES.md` ("On the bench") before you build on top of it.
-That checklist now has the flash command and what to expect at each step.
+Task cards C1–C7 are written as far as they go without hardware: everything
+builds (debug, release, bootloader-layout presets and `ctrl_boot`, 0
+warnings, `-Werror` on `app/`) and all host suites pass (mutation-checked).
+**Nothing has been flashed:** the PCBs are still in production, so the bench
+half of every card is open. `BENCH_TESTS.md` (next to this guide) has the
+numbered procedures for when boards arrive; run them in order.
 
 | Part | State |
 |---|---|
-| **Bench bring-up (C0, first half)** | **Open: never flashed.** Nothing has been verified on hardware yet. |
-| CubeMX pass §8 (C0, second half) | Done 2026-11-17: I3C1, RNG, IWDG and CRC generated only; PB4 and PB7 pull-ups. Details in the notes ("CubeMX pass 2026-11-17"). |
-| `ctrl_master`: init order, error policy, loop timing | Done |
-| `host_manager`: event log, USB session, NODE_LIST / LANE_POWER / REBOOT | Done, USB only |
-| `lane_manager`: rail + SYNC sequencing | Done; no bus yet |
-| `panel_manager`: link LEDs, buttons → EVT_BUTTON | Done; no local fallbacks yet |
-| Modules `sys_time`, `lane_chain`, `usb_cdc`, `device_id`, `indicator_led`, `led_pattern`, `button_handler`, `irq_guard` | Done |
-| Pure modules `frame_codec`, `event_log`, `host_session` | Done and host-tested (mutation-checked) |
-| `lane_protocol.h` | **Does not exist yet in either tree.** First job of task C1 (§9). |
-| `i3c_ctrl`, `nrf_link`, `settings_store`, `rng`, `bind_list`, `seq_planner`, `fault_guard`, `sys_power` | Not started. The I3C1, RNG, IWDG and CRC inits are generated and not called, so these modules call them. |
-| `sequence_manager` | Not started |
-| Bootloader | Not started |
+| Bench bring-up (C0 first half, every card's bench half) | **Open: never flashed.** BENCH_TESTS.md |
+| C1 `i3c_ctrl` + `lane_manager` (enumeration, config table + push, SYNC_ALIGN, polling, health, LEFT/rejoin, LANE_* requests, NODE_LIST lanes) | Written; pure rules in `lane_logic` (host-tested) |
+| C2 EVT_CROSSING, RAW stream, per-transport stream budget | Written; `stream_budget` host-tested |
+| C3 `seq_planner` (host-tested), `sequence_manager`, BTN2 long = abort | Written |
+| C4 `settings_store` (two 8 KB pages, bank 2), `rng` (bootId) | Written; `settings_record`, `crc32` host-tested |
+| C5 `nrf_link`, BLE session, bind gating in `host_session`, `bind_list`, bind policy, BIND_*, EVT_BIND_CHANGED / EVT_BLE_LINK, echo knob | Written; `nrf_link_proto`, `byte_ring`, `bind_list`, gating host-tested |
+| C6 `fault_guard`, IWDG, `sys_power` (WFI), fault inputs, STATUS, SETTINGS_*, `tools/optprog.py`, `docs/` | Written |
+| C7 `ctrl_boot` (32 KB, second CMake target), image header + stamp, UPDATE_*, entry conditions, second PID | Written; `image_header`, `update_writer` host-tested. Standalone app stays the default preset |
 
 **Build, flash and test** commands are in `CONTROL_FIRMWARE_NOTES.md`
 ("Build"). Flash with the ST-LINK V3 over J201.
@@ -580,6 +576,9 @@ The design is SYSTEM_ARCHITECTURE §10.1. Practical shape:
   USART1, CRC, flash. It reuses `frame_codec`, `host_session` (with a tiny
   event log and its own `onRequest`), `usb_cdc` (second PID,
   iProduct "TimeTaker (update)"), and `nrf_link`.
+- **Built 2026-11-18 at 32 KB, app at `0x0800_8000`** (24 KB did not fit
+  TinyUSB + the USART HAL + nrf_link; `app/modules/image_header.h`). The
+  lines below keep the original plan for the record.
 - **The app moves to `0x0800_6000`:** one linker-script change plus
   `SCB->VTOR` at startup, and an image header at the start of the app
   region: `{magic, boardType, version, gitRev, size, CRC32}`. A post-build
@@ -719,6 +718,8 @@ end, and this guide's §2 table.
 ## 10. Open questions
 
 Q1–Q3 block task C1; settle them first, from RM0522 and the C5 HAL sources.
+**Answers found 2026-11-18** (from the DFP headers, the C5 HAL and the
+datasheet DS15125; RM0522 is not in the tree) are under each question.
 
 1. **I3C controller device table.** The STM32 I3C controllers on other
    families (H5, U5) have only **4 device characteristics registers**
@@ -726,15 +727,46 @@ Q1–Q3 block task C1; settle them first, from RM0522 and the C5 HAL sources.
    acknowledged. With six lanes, two would have no slot. Check RM0522 for
    the C5 count and what happens to an IBI from an unlisted target. Polling
    (§5.1) works either way; this only decides how IBI is added.
+   **Answer:** 4 slots. `I3C_TypeDef.DEVRX[4]` in `stm32c542xx.h`, HAL
+   `IS_I3C_DEVICE(1..4)` / `device_index 0..3`, datasheet "simultaneous
+   support up to four targets, when controller". An IBI from a target not in
+   DEVRx (or with IBIACK = 0) is NACKed (same IP as the H5; to verify on the
+   bench). v1 configures no DEVRx: every IBI is NACKed and counted
+   (`i3cCtrlStats.ibis`), all six lanes are polled. Adding IBI later: DEVRx
+   for four lanes, or rotate the slots.
 2. **Hot-join flow on the C5 HAL:** how the controller reports a hot-join
    request, and how ENTDAA is driven with a chosen address.
+   **Answer:** CFGR.HJACK (`HAL_I3C_CTRL_EnableHotJoinAllowed`, called by the
+   generated `mx_i3c1_init`) acknowledges the hot-join; with
+   `HAL_I3C_CTRL_ActivateNotification(HJ)` the HJF event calls
+   `HAL_I3C_NotifyCallback(.., HAL_I3C_CTRL_NOTIFICATION_HJ)`. Then
+   `HAL_I3C_CTRL_DynAddrAssign_IT(ONLY_ENTDAA)`: each answering target's
+   48-bit payload arrives in `HAL_I3C_CTRL_TgtReqDynAddrCallback` (ISR),
+   which answers with `HAL_I3C_CTRL_SetDynAddr(addr)`;
+   `HAL_I3C_CTRL_DAACpltCallback` ends it, `HAL_I3C_GetDataCounter()` = targets
+   seen. Found on the way: `HAL_I3C_PRIVATE_WITH_ARB_RESTART` is defined as
+   `LL_I3C_GENERATE_STOP` alone (message type RELEASE, STOP after every
+   message), so `i3c_ctrl` builds private control words itself.
 3. **Early read end:** confirm that the C5 I3C *target* can end a private
    read early (T-bit), and that the controller HAL reports the actual
    length. If not, EVENT_FIFO reads a fixed size and carries a count.
+   **Answer:** yes on both sides, from the headers: the target preloads its
+   transmit count (`I3C_TGTTDR.TGTTDCNT`, set by `HAL_I3C_TGT_Transmit_IT`'s
+   size) and ends the read with T = 0 after it; the controller reports the
+   early end in `SR.ABT` and the bytes that arrived in `SR.XDCNT`
+   (`LL_I3C_GetXferDataCount`), which `i3c_ctrl` hands back as rxLen. The
+   frame still completes normally (FCF). `lane_protocol.h` keeps the count
+   in the header anyway, and `lane_logic` takes only fully received records.
 4. **C5 flash erase-page size** (§5.5, §5.7). Also: does a page erase stall
    execution long enough to disturb USB?
+   **Answer:** 8 KB (`FLASH_PAGE_SIZE 0x2000`, 2 banks × 16 pages), 128-bit
+   programming, erase 2.0–2.1 ms (DS15125 table 39). Settings sit in bank 2
+   (0x0803_C000/0x0803_E000), read-while-write against bank 1, so an erase
+   should not stall the code; bench check BENCH_TESTS.md P-3.
 5. **RNG on the C542:** the CubeMX clock tree lists an RNG clock, so it
    likely exists. Confirm, then `device_id` takes its bootId from it.
+   **Answer:** yes (DS15125 §3.19, NIST SP800-90B TRNG; CubeMX generates
+   `mx_rng_init`). `rng` seeds the bootId (`deviceIdMixEntropy`) and the hold.
 6. **Lane chain current** with six lanes sampling: LDO heat and PTC margin
    (HARDWARE_REFERENCE §2.3). Measure in C1.
 7. **USB VID/PID** for publication (SYSTEM_ARCHITECTURE §8).

@@ -5,9 +5,14 @@
  * Flash: 256 KB in two banks of 16 pages of 8 KB (FLASH_PAGE_SIZE in the
  * DFP; datasheet DS15125 §3.4: "Each bank contains 16 pages of 8 Kbytes").
  *
- *   0x0800_0000  ctrl_boot    24 KB  (3 pages)  bootloader, write-protected later
- *   0x0800_6000  app         216 KB  (27 pages) image header at +0x400
+ *   0x0800_0000  ctrl_boot    32 KB  (4 pages)  bootloader, write-protected later
+ *   0x0800_8000  app         208 KB  (26 pages) image header at +0x400
  *   0x0803_C000  settings     16 KB  (2 pages)  bank 2, pages 14 and 15
+ *
+ * The bootloader was planned at 24 KB (SYSTEM_ARCHITECTURE §10.1 left it
+ * open "to confirm against the erase-page size"); USB (TinyUSB + the HAL USB
+ * core), the USART1 HAL and nrf_link need about 29 KB at -Os, so it takes
+ * four 8 KB pages and the app starts at 0x0800_8000.
  *
  * The standalone bring-up image links the app at 0x0800_0000 instead (no
  * bootloader); its header sits at 0x0800_0400 and is simply never checked.
@@ -37,7 +42,7 @@
 #define IMAGE_FLASH_BASE        0x08000000U
 #define IMAGE_FLASH_SIZE        0x00040000U
 #define IMAGE_PAGE_SIZE         0x2000U
-#define IMAGE_BOOT_SIZE         0x6000U
+#define IMAGE_BOOT_SIZE         0x8000U
 #define IMAGE_SETTINGS_SIZE     (2U * IMAGE_PAGE_SIZE)
 #define IMAGE_APP_BASE          (IMAGE_FLASH_BASE + IMAGE_BOOT_SIZE)
 #define IMAGE_APP_SLOT_SIZE     (IMAGE_FLASH_SIZE - IMAGE_BOOT_SIZE - IMAGE_SETTINGS_SIZE)

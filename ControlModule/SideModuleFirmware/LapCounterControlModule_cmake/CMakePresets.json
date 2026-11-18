@@ -26,6 +26,28 @@
                 "CTRL_RELEASE": "ON"
             },
             "inherits": "default"
+        },
+        {
+            "name": "release_GCC_boot",
+            "displayName": "release_GCC_boot (app at 0x08008000 behind ctrl_boot, -O2, RELEASE)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "debug_GCC_main",
+                "TOOLCHAIN_FILE": "GCC.14.3.1.cmake",
+                "CTRL_RELEASE": "ON",
+                "CTRL_APP_WITH_BOOTLOADER": "ON"
+            },
+            "inherits": "default"
+        },
+        {
+            "name": "debug_GCC_boot",
+            "displayName": "debug_GCC_boot (app at 0x08008000 behind ctrl_boot, -Og)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "debug_GCC_main",
+                "TOOLCHAIN_FILE": "GCC.14.3.1.cmake",
+                "CTRL_RELEASE": "OFF",
+                "CTRL_APP_WITH_BOOTLOADER": "ON"
+            },
+            "inherits": "default"
         }
     ],
     "buildPresets": [
@@ -41,6 +63,14 @@
         {
             "name": "release_GCC_main",
             "configurePreset": "release_GCC_main"
+        },
+        {
+            "name": "release_GCC_boot",
+            "configurePreset": "release_GCC_boot"
+        },
+        {
+            "name": "debug_GCC_boot",
+            "configurePreset": "debug_GCC_boot"
         }
     ]
 }

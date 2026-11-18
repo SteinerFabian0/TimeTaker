@@ -19,6 +19,8 @@
 #define SETTINGS_STORE_RECORD_MAX   SETTINGS_RECORD_BYTES(sizeof(settingsData_t))
 
 _Static_assert(sizeof(settingsData_t) <= 0xFFFFU, "settings payload");
+/* boot/boot_main.c reads the bind list at this offset (BOOT_BINDS_OFFSET). */
+_Static_assert(offsetof(settingsData_t, binds) == 252U, "bind list offset shared with ctrl_boot");
 _Static_assert(SETTINGS_STORE_RECORD_MAX <= SETTINGS_STORE_PAGE_BYTES, "settings record fits a page");
 
 typedef enum {

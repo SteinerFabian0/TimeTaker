@@ -39,7 +39,7 @@
 #define HOST_MANAGER_BIND_PAGE        5U      /* BIND_LIST entries per response */
 
 static eventLogSlot_t hostManagerLogSlots[HOST_MANAGER_EVENT_LOG_CAPACITY];
-static eventLog_t     hostManagerLog;
+static eventLog_t     hostManagerEventLog;
 
 static hostSession_t  hostManagerUsb;
 static hostSession_t  hostManagerBle;
@@ -547,8 +547,8 @@ static ctrlStatus_e hostManagerStatus(uint16_t reqLen, uint8_t *rsp, uint16_t *r
     r->seqRunning     = sequenceManagerIsRunning() ? 1U : 0U;
     r->usbFaults      = (faults > 0xFFFFU) ? 0xFFFFU : (uint16_t)faults;
     r->settingsWrites = writes;
-    r->logOldestSeq   = eventLogOldest(&hostManagerLog);
-    r->logNextSeq     = eventLogNext(&hostManagerLog);
+    r->logOldestSeq   = eventLogOldest(&hostManagerEventLog);
+    r->logNextSeq     = eventLogNext(&hostManagerEventLog);
     *rspLen = HP_STATUS_RSP_BYTES;
     return CTRL_OK;
 }
@@ -766,12 +766,12 @@ static ctrlStatus_e hostManagerOnRequest(hostSession_t *session, uint8_t msgId,
 
 ctrlStatus_e hostManagerPublishEvent(uint8_t msgId, const void *event, uint16_t size)
 {
-    return eventLogAppend(&hostManagerLog, msgId, event, size, NULL);
+    return eventLogAppend(&hostManagerEventLog, msgId, event, size, NULL);
 }
 
 ctrlStatus_e hostManagerInit(void)
 {
-    eventLogInit(&hostManagerLog, hostManagerLogSlots, HOST_MANAGER_EVENT_LOG_CAPACITY);
+    eventLogInit(&hostManagerEventLog, hostManagerLogSlots, HOST_MANAGER_EVENT_LOG_CAPACITY);
     hostManagerRebootPending = false;
     hostManagerStatusWaiter  = NULL;
     streamBudgetInit(&hostManagerBleBudget, STREAM_BUDGET_BLE_MIN, STREAM_BUDGET_BLE_MAX, HAL_GetTick());
@@ -784,7 +784,7 @@ ctrlStatus_e hostManagerInit(void)
         .transport     = (uint8_t)HP_TRANSPORT_USB,
         .bindState     = (uint8_t)HP_BIND_TRUSTED,   /* a cable is physical access */
         .bootId        = deviceIdBootId(),
-        .log           = &hostManagerLog,
+        .log           = &hostManagerEventLog,
         .nowUs         = sysTimeNowUs,
         .otherSessions = hostManagerOtherSessions,
         .onRequest     = hostManagerOnRequest,
@@ -796,7 +796,7 @@ ctrlStatus_e hostManagerInit(void)
         .transport     = (uint8_t)HP_TRANSPORT_BLE,
         .bindState     = (uint8_t)HP_BIND_UNBOUND,   /* decided at HELLO by the bind list */
         .bootId        = deviceIdBootId(),
-        .log           = &hostManagerLog,
+        .log           = &hostManagerEventLog,
         .nowUs         = sysTimeNowUs,
         .otherSessions = hostManagerOtherSessions,
         .onRequest     = hostManagerOnRequest,

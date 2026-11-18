@@ -103,7 +103,7 @@ static const uint8_t usbCdcConfigDesc[] = {
 static const char *const usbCdcStrings[USB_STR_COUNT] = {
     [USB_STR_LANGID]       = NULL,          /* handled below: English (0x0409) */
     [USB_STR_MANUFACTURER] = "TimeTaker",
-    [USB_STR_PRODUCT]      = HP_USB_PRODUCT,
+    [USB_STR_PRODUCT]      = USB_CDC_PRODUCT,
     [USB_STR_SERIAL]       = NULL,          /* handled below: the MCU UID */
     [USB_STR_CDC_ITF]      = "TimeTaker Control",
 };

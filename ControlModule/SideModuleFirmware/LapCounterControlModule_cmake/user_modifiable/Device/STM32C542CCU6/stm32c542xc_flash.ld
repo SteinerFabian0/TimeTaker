@@ -27,8 +27,8 @@ STACK_SIZE = 0x1000;  /* 4 KB, raised from the CubeMX 1 KB for the control app: 
 /* MEMORY comes from ctrl_memory.ld, found on the linker search path that
  * cmake/ctrl_app.cmake sets per image (cmake/ld/<layout>/ctrl_memory.ld):
  *   app        ROM 0x0800_0000, 240 KB   standalone bring-up image (default)
- *   app_boot   ROM 0x0800_6000, 216 KB   app behind the bootloader
- *   boot       ROM 0x0800_0000,  24 KB   the bootloader (ctrl_boot)
+ *   app_boot   ROM 0x0800_8000, 208 KB   app behind the bootloader
+ *   boot       ROM 0x0800_0000,  32 KB   the bootloader (ctrl_boot)
  * The last two 8 KB pages (0x0803_C000) are the settings and belong to no
  * image (image_header.h has the map). Added for the control app. */
 INCLUDE ctrl_memory.ld

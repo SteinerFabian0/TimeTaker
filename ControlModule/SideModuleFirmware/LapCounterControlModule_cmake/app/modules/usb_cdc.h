@@ -43,7 +43,15 @@
  * Today: the pid.codes test pair (https://pid.codes/1209/0001/), fine for
  * private development, NOT for a published design (SYSTEM_ARCHITECTURE §8). */
 #define USB_CDC_VID   HP_USB_VID
+#ifdef CTRL_BOOTLOADER
+/* The bootloader shows up as a second PID ("TimeTaker (update)"). Local
+ * choice until the TOML's [usb] gets a pid_boot (contract request). */
+#define USB_CDC_PID   (HP_USB_PID + 1U)
+#define USB_CDC_PRODUCT "TimeTaker (update)"
+#else
 #define USB_CDC_PID   HP_USB_PID
+#define USB_CDC_PRODUCT HP_USB_PRODUCT
+#endif
 
 /* Starts the USB device stack. Assumes deviceIdInit() has run (serial string). */
 ctrlStatus_e usbCdcInit(void);

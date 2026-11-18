@@ -125,11 +125,37 @@ The firmware calls the "generated only" blocks when it needs them (`mx_spi2_init
 
 ## Firmware status
 
-Updated 2026-11-17 (task C0, CubeMX pass only). Step 2 of the build order
-(SYSTEM_ARCHITECTURE §14) builds (debug and release presets, `-Werror` on
-`app/`) and is host-tested. It is **still not flashed or bench-tested**: no
-board was attached on 2026-11-16 or on 2026-11-17. The bench half of C0
-("On the bench" below) is still to do.
+Updated 2026-11-18 (task cards C1–C7, no board). Everything in
+`CONTROL_FIRMWARE_GUIDE.md` §9 C1–C7 that can be written without hardware is
+written, builds and is host-tested; **nothing is flashed or bench-tested**.
+The bench procedures are in `BENCH_TESTS.md`. The older C0 checklist below
+("On the bench") is now BENCH_TESTS.md C0.
+
+**Sizes (2026-11-18):** debug app 61.4 KB flash / 43.9 KB RAM (24 KB event
+log, 4 KB stack, 3 KB nRF rings); release app 60.7 KB / 43.9 KB; `ctrl_boot`
+29.4 KB flash of 32 KB / 15.8 KB RAM.
+
+**Flash layout** (`app/modules/image_header.h`): ctrl_boot 0x0800_0000 (32 KB,
+4 pages — 24 KB did not fit), app 0x0800_8000 (208 KB, header at +0x400),
+settings 0x0803_C000 (2 pages, bank 2). The default `debug_GCC_main` /
+`release_GCC_main` presets still link a standalone app at 0x0800_0000;
+`debug_GCC_boot` / `release_GCC_boot` link it behind the bootloader.
+
+**New modules:** `i3c_ctrl`, `nrf_link`, `settings_store`, `flash_drv`
+(LL: the HAL flash program/erase are disabled in hal_conf), `rng`,
+`fault_guard`, `sys_power`, `exti_latch` (owns HAL_EXTI_TriggerCallback);
+pure and host-tested: `lane_logic`, `seq_planner`, `bind_list`,
+`settings_record`, `crc32`, `nrf_link_proto`, `byte_ring`, `stream_budget`,
+`image_header`, `update_writer`, plus `log_line`, `boot_shared.h`.
+Coordinators: `lane_manager` (rewritten), `sequence_manager` (new),
+`host_manager` (BLE session, bind policy, every 0.2 request), `panel_manager`
+(BTN2 long = abort), `ctrl_master` (init order, watchdog, fault inputs).
+`boot/boot_main.c` is the bootloader; `tools/image_stamp.py` stamps the
+header after every link; `tools/optprog.py` programs the option bytes.
+
+**Findings:** `HAL_I3C_PRIVATE_WITH_ARB_RESTART` is miscoded in the C5 HAL
+(see `i3c_ctrl.h`); the C5 LL/HAL say BOOT_SEL = 1 means "BOOT0 from the
+pin", the opposite of the hub script's docstring (BENCH_TESTS.md F-4).
 
 ### Build
 
@@ -140,8 +166,7 @@ cmake --preset debug_GCC_main && cmake --build --preset debug_GCC_main    # or r
 test/run_all.sh                                                         # host tests
 ```
 
-**Size (2026-11-17):** 32.9 KB flash (debug) / 31.1 KB (release). RAM is about
-33 KB of 64 KB, including a 24 KB event log and the 4 KB stack.
+**Size:** see "Firmware status" above.
 
 **Flash** with STM32CubeProgrammer, which comes as an STM32Cube bundle and knows
 the C5. The xPack OpenOCD in `~/.local/bin` has no C5 target. The ST-LINK V3
@@ -246,9 +271,11 @@ pull-down. PB14 BUS_INT is an input with no pull. PA8/PA9 are not touched
 
 ### Open
 
-- **RNG for the bootId** (`rng` module, task C4): the RNG is configured, and
-  `device_id` still hashes a `.noinit` counter with the UID.
-- **Not ported yet:** fault_guard + IWDG start (task C6), sys_power.
+- Everything on the bench (BENCH_TESTS.md).
+- CubeMX items for the next pass: EXTI5 (BLE_IRQ) both edges (polled today);
+  I3C1 `get_last_errors` on (error causes are read from SER after the HAL
+  cleared ERRF); optionally the HAL flash program/erase switches (flash_drv
+  uses the LL instead).
 
 ### On the bench (task C0, still to do: needs a board)
 

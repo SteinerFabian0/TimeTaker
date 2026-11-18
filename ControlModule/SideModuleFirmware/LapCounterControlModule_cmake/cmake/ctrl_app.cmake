@@ -8,7 +8,7 @@
 # "debug_GCC_main", so EVERY preset reuses that build type and the CTRL_RELEASE
 # option applies the delta on top. Same scheme as the lane module.
 option(CTRL_RELEASE "Production build: -O2 + RELEASE define" OFF)
-option(CTRL_APP_WITH_BOOTLOADER "Link the app at 0x08006000 behind ctrl_boot (else standalone at 0x08000000)" OFF)
+option(CTRL_APP_WITH_BOOTLOADER "Link the app at 0x08008000 behind ctrl_boot (else standalone at 0x08000000)" OFF)
 
 file(GLOB_RECURSE CTRL_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/app/*.c)
 
@@ -95,3 +95,68 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC ${TINYUSB_DIR})
 
 include(cmake/version.cmake)
+
+
+# --- Image header stamp ------------------------------------------------------
+#
+# size and imageCrc of the image header (image_header.h) are known only after
+# the link: tools/image_stamp.py fills them into the .elf and writes the .bin.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+find_program(CTRL_OBJCOPY arm-none-eabi-objcopy REQUIRED)
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/image_stamp.py
+          $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CTRL_OBJCOPY}
+  VERBATIM)
+
+
+# --- ctrl_boot: the bootloader, a second executable (boot/boot_main.c) -------
+#
+# Always built, always the same layout (0x0800_0000, 32 KB, cmake/ld/boot) and
+# always -Os, whatever the preset: it must fit its four pages. It reuses the
+# app's pure modules and drivers and the same generated HAL libraries.
+add_executable(ctrl_boot)
+set_target_properties(ctrl_boot PROPERTIES SUFFIX ".elf")
+target_sources(ctrl_boot PRIVATE
+  boot/boot_main.c
+  app/modules/frame_codec.c
+  app/modules/host_session.c
+  app/modules/event_log.c
+  app/modules/usb_cdc.c
+  app/modules/device_id.c
+  app/modules/nrf_link.c
+  app/modules/nrf_link_proto.c
+  app/modules/byte_ring.c
+  app/modules/flash_drv.c
+  app/modules/crc32.c
+  app/modules/image_header.c
+  app/modules/update_writer.c
+  app/modules/bind_list.c
+  app/modules/settings_record.c
+  ${TINYUSB_DIR}/tusb.c
+  ${TINYUSB_DIR}/common/tusb_fifo.c
+  ${TINYUSB_DIR}/device/usbd.c
+  ${TINYUSB_DIR}/class/cdc/cdc_device.c
+  ${TINYUSB_DIR}/portable/st/stm32_fsdev/dcd_stm32_fsdev.c
+  ${TINYUSB_DIR}/portable/st/stm32_fsdev/fsdev_common.c
+)
+set_source_files_properties(boot/boot_main.c PROPERTIES COMPILE_OPTIONS
+  "-Wextra;-Wshadow;-Wstrict-prototypes;-Wdouble-promotion;-Wpointer-arith;-Werror;-Wno-error=cpp")
+target_include_directories(ctrl_boot PRIVATE . app/config app/coordinators app/modules ${CTRL_FW_VERSION_DIR})
+target_include_directories(ctrl_boot SYSTEM PRIVATE
+  arch/cmsis/CMSIS/Core/Include generated/hal stm32c5xx_dfp/Include stm32c5xx_drivers/hal
+  stm32c5xx_drivers/ll stm32c5xx_drivers/timebases user_modifiable/_debug_GCC_main ${TINYUSB_DIR})
+target_compile_definitions(ctrl_boot PRIVATE STM32C542xx _RTE_ CTRL_BOOTLOADER RELEASE)
+target_compile_options(ctrl_boot PRIVATE ${CPU_FLAGS}
+  -g3 -Os -fdata-sections -ffunction-sections -std=gnu11 -Wall --specs=nano.specs --specs=nosys.specs)
+target_link_directories(ctrl_boot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ld/boot)
+target_link_options(ctrl_boot PRIVATE ${CPU_FLAGS} -Wl,-Map=ctrl_boot.map -Wl,--gc-sections
+  -Wl,--start-group -lc -lm -Wl,--end-group -static --specs=nano.specs --specs=nosys.specs)
+target_link_libraries(ctrl_boot generated_STMicroelectronics_stm32c5xx_hal_drivers_0_0_1
+  generated_STMicroelectronics_syscalls_2_0_0 STMicroelectronics_CMSIS_6_3_0
+  STMicroelectronics_stm32c5xx_dfp_2_1_0 STMicroelectronics_stm32c5xx_hal_drivers_2_1_0
+  STMicroelectronics_syscalls_2_0_0)
+add_dependencies(ctrl_boot ctrl_fw_version)
+set_target_properties(ctrl_boot PROPERTIES
+  LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/user_modifiable/Device/STM32C542CCU6/stm32c542xc_flash.ld)
+add_custom_command(TARGET ctrl_boot POST_BUILD
+  COMMAND ${CTRL_OBJCOPY} -O binary $<TARGET_FILE:ctrl_boot> ctrl_boot.bin VERBATIM)

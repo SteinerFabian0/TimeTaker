@@ -212,9 +212,10 @@ static void laneStep(uint8_t lane, uint8_t op, uint8_t reg, const void *payload,
 /* SYNC_ALIGN payload, measured as the transfer starts (i3c_ctrl prepare). */
 static void lanePrepareAlign(uint8_t *payload, uint8_t len)
 {
-    laneSyncAlign_t a;
-    sysTimeNowSplit(&a.tick, &a.phaseUs);
-    a.periodUs = LANE_SYNC_DEFAULT_PERIOD_US;
+    uint32_t tick;
+    uint32_t phase;
+    sysTimeNowSplit(&tick, &phase);
+    const laneSyncAlign_t a = { .tick = tick, .phaseUs = phase, .periodUs = LANE_SYNC_DEFAULT_PERIOD_US };
     if (len >= sizeof(a)) {
         memcpy(payload, &a, sizeof(a));
     }
@@ -419,10 +420,12 @@ static void laneRawResult(uint8_t lane, uint16_t rxLen)
     } str;
     _Static_assert(HP_STR_RAW_SAMPLES_BYTES + LANE_RAW_READ_MAX * 2U <= HP_MAX_PAYLOAD, "raw chunk fits a frame");
 
-    if (laneLogicParseRaw(s->rx, rxLen, &hdr, str.samples, &n) != CTRL_OK || n == 0U) {
+    uint16_t samples[LANE_RAW_READ_MAX];
+    if (laneLogicParseRaw(s->rx, rxLen, &hdr, samples, &n) != CTRL_OK || n == 0U) {
         s->rawAgain = false;
         return;
     }
+    memcpy(str.samples, samples, (size_t)n * sizeof(uint16_t));
     memset(&str.head, 0, sizeof(str.head));
     str.head.lane     = lane;
     str.head.chunkSeq = hdr.chunkSeq;
