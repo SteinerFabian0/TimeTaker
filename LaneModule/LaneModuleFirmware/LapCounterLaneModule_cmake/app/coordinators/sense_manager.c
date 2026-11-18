@@ -213,6 +213,7 @@ laneStatus_e senseManagerRun(uint32_t nowMs)
     if (senseMode != LANE_SAMPLING_OFF) {
         if (active && !laneSamplerRunning()) {
             senseHoldoffRate = false;
+            laneDetectBreak(&senseDetect);
             laneStatus_e s = laneSamplerStart(senseCurrentPeriod(), senseConfig.samplePhaseUs,
                                               senseConversionUs(), false);
             if (s != LANE_OK && result == LANE_OK) {

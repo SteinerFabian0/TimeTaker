@@ -64,6 +64,9 @@ static uint32_t laneDetectCrossFall(uint32_t t0, uint16_t v0, uint32_t t1, uint1
                                     uint16_t level)
 {
     uint64_t dt = (uint32_t)(t1 - t0);
+    if (v0 < level || level <= v1) {
+        return t1;   /* no crossing between the samples (stale prev, config change) */
+    }
     return t0 + (uint32_t)(dt * (uint32_t)(v0 - level) / (uint32_t)(v0 - v1));
 }
 
@@ -72,6 +75,9 @@ static uint32_t laneDetectCrossRise(uint32_t t0, uint16_t v0, uint32_t t1, uint1
                                     uint16_t level)
 {
     uint64_t dt = (uint32_t)(t1 - t0);
+    if (v0 > level || level >= v1) {
+        return t1;
+    }
     return t0 + (uint32_t)(dt * (uint32_t)(level - v0) / (uint32_t)(v1 - v0));
 }
 
@@ -172,6 +178,11 @@ void laneDetectCalibrate(laneDetect_t *d)
     d->learnCount = 0U;
 }
 
+void laneDetectBreak(laneDetect_t *d)
+{
+    d->hasPrev = false;
+}
+
 bool laneDetectSample(laneDetect_t *d, uint32_t t, uint16_t raw, laneDetectEvent_t *out)
 {
     bool     emitted = false;
@@ -228,8 +239,9 @@ bool laneDetectSample(laneDetect_t *d, uint32_t t, uint16_t raw, laneDetectEvent
             uint32_t reentry = laneDetectCrossFall(prevT, prevRaw, t, raw, d->thrLow);
             if ((uint32_t)(reentry - d->gapT) <= d->cfg.mergeGapUs) {
                 /* Body or wing gap: the same car. */
-                d->merged = true;
-                d->state  = DETECT_STATE_IN_CAR;
+                d->merged     = true;
+                d->saturated |= sat || prevSat;
+                d->state      = DETECT_STATE_IN_CAR;
                 if (raw < d->minRaw) {
                     d->minRaw = raw;
                 }

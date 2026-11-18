@@ -138,6 +138,10 @@ laneStatus_e laneDetectSetConfig(laneDetect_t *d, const laneDetectConfig_t *cfg)
  * abandoned without an event. */
 void laneDetectCalibrate(laneDetect_t *d);
 
+/* The sample stream was interrupted (sampler stopped/restarted): the next
+ * sample is not adjacent to the last, so no crossing is interpolated across. */
+void laneDetectBreak(laneDetect_t *d);
+
 /*
  * One sample at local time t (strictly after the previous one). Returns true
  * and fills *out when the sample completes an event.

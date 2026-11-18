@@ -453,6 +453,24 @@ static void testWrap(void)
                                 truthRise(230000U, 3200U, CAR) - truthFall(200000U, 2800U, CAR), 4U));
 }
 
+static void testBreak(void)
+{
+    /* The sampler was stopped inside a pass: no crossing is interpolated
+     * across the gap, and a rise from a stale prev cannot divide by zero. */
+    simReset(0U, BASE, NULL);
+    simWarmUp();
+    laneDetectEvent_t e;
+    uint32_t t = simT0 + simRel;
+    (void)laneDetectSample(&det, t, CAR, &e);                 /* in the car */
+    laneDetectBreak(&det);
+    int emitted = laneDetectSample(&det, t + 400000U, BASE, &e);   /* rise after the gap */
+    check("break: no event, no crash on stale prev", emitted == 0);
+    laneDetectBreak(&det);
+    (void)laneDetectSample(&det, t + 600000U, BASE, &e);
+    emitted = laneDetectSample(&det, t + 601000U, CAR, &e);
+    check("break: entry after a break is the sample time", emitted == 0 && laneDetectIsBlocked(&det));
+}
+
 static void testConfigRejects(void)
 {
     laneDetectConfig_t good;
@@ -498,6 +516,7 @@ int main(void)
     testNoBaselineUpdateUnderCar();
     testCalibrate();
     testWrap();
+    testBreak();
     testConfigRejects();
 
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);

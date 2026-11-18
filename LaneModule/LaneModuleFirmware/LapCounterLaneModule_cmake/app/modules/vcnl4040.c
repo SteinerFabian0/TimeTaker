@@ -39,6 +39,10 @@
 
 #define VCNL_SCRIPT_MAX     5U
 
+/* A transfer without a completion callback this long is dead (bus hung, ISR
+ * lost): abandoned, bus cleared. One transfer is ~100-200 us at 400 kHz. */
+#define VCNL_XFER_TIMEOUT_US 5000U
+
 typedef struct {
     uint8_t reg;
     bool    read;
@@ -54,6 +58,7 @@ typedef enum {
 
 static volatile vcnlOp_e     vcnlOp;
 static volatile bool         vcnlXferDone;
+static volatile uint32_t     vcnlOpStartUs;
 static volatile laneStatus_e vcnlXferStatus;
 static vcnl4040DoneFn_t      vcnlSampleDone;
 static bool                  vcnlSampleIsRead;
@@ -85,6 +90,7 @@ static uint32_t          vcnlRecoveries;
 static volatile uint32_t vcnlInts;
 
 static bool vcnlSettingsDiffer(void);
+static void vcnlSampleFinished(laneStatus_e status, uint16_t value);
 
 static uint8_t vcnlConf3(const vcnl4040Settings_t *s)
 {
@@ -142,8 +148,9 @@ static void vcnlStartStep(void)
     const vcnlStep_t *step = &vcnlScript[vcnlScriptIdx];
     hal_status_t      hs;
 
-    vcnlXferDone = false;
-    vcnlOp       = VCNL_OP_SCRIPT;
+    vcnlXferDone  = false;
+    vcnlOp        = VCNL_OP_SCRIPT;
+    vcnlOpStartUs = laneTimerNow();
 
     if (step->read) {
         hs = HAL_I2C_MASTER_MemRead_IT(h, VCNL4040_I2C_ADDR << 1, step->reg,
@@ -242,14 +249,39 @@ laneStatus_e vcnl4040Init(void)
 laneStatus_e vcnl4040Run(uint32_t nowMs)
 {
     if (vcnlOp == VCNL_OP_SAMPLE) {
-        return LANE_OK;   /* the sampler has the bus */
+        /* The sampler has the bus; a sample that never completes is failed
+         * here (its callback gets the error) and the bus is cleared. */
+        uint32_t guard = irqGuardEnter();
+        if (vcnlOp == VCNL_OP_SAMPLE
+            && (uint32_t)(laneTimerNow() - vcnlOpStartUs) > VCNL_XFER_TIMEOUT_US) {
+            vcnlSampleFinished(LANE_ERR_I2C_TIMEOUT, 0U);
+            vcnlRecoveryWanted = true;
+        }
+        irqGuardExit(guard);
+        return LANE_OK;
     }
 
     if (vcnlOp == VCNL_OP_SCRIPT) {
+        bool timedOut = false;
+
         if (!vcnlXferDone) {
-            return LANE_OK;
+            if ((uint32_t)(laneTimerNow() - vcnlOpStartUs) <= VCNL_XFER_TIMEOUT_US) {
+                return LANE_OK;
+            }
+            uint32_t guard = irqGuardEnter();
+            if (!vcnlXferDone) {
+                timedOut = true;       /* a late callback now finds vcnlOp idle */
+            }
+            irqGuardExit(guard);
+            if (!timedOut) {
+                return LANE_OK;
+            }
         }
         vcnlOp = VCNL_OP_NONE;
+        if (timedOut) {
+            vcnlErrors++;
+            return vcnlScriptFailed(nowMs, LANE_ERR_I2C_TIMEOUT);
+        }
 
         if (vcnlXferStatus == LANE_OK) {
             const vcnlStep_t *step = &vcnlScript[vcnlScriptIdx];
@@ -282,12 +314,12 @@ laneStatus_e vcnl4040Run(uint32_t nowMs)
     }
 
     /* Bus idle: decide the next script. */
-    bool probe = false;
+    bool probe   = false;
+    bool recover = false;
 
     if (vcnlRecoveryWanted) {
-        vcnlRecoveryWanted = false;
-        vcnlBusClear();
-        probe = true;
+        recover = true;
+        probe   = true;
     } else if (vcnlState == VCNL4040_STATE_RESET) {
         probe = true;
     } else if (vcnlState == VCNL4040_STATE_FAULT) {
@@ -295,8 +327,8 @@ laneStatus_e vcnl4040Run(uint32_t nowMs)
             return LANE_OK;
         }
         vcnlFailedScripts = 0U;
-        vcnlBusClear();
-        probe = true;
+        recover = true;
+        probe   = true;
     } else if (vcnlWantActive && vcnlState == VCNL4040_STATE_ACTIVE && vcnlSettingsDiffer()) {
         /* New settings while active. */
     } else if (vcnlWantActive == (vcnlState == VCNL4040_STATE_ACTIVE)) {
@@ -312,6 +344,12 @@ laneStatus_e vcnl4040Run(uint32_t nowMs)
     irqGuardExit(guard);
 
     if (free) {
+        /* Bus clear only after the claim: the sampler ISR cannot start a
+         * transfer on the half-reconfigured pins. */
+        if (recover) {
+            vcnlRecoveryWanted = false;
+            vcnlBusClear();
+        }
         vcnlBuildScript(probe);
         vcnlStartStep();
     }
@@ -374,6 +412,7 @@ static laneStatus_e vcnlClaimSample(vcnl4040DoneFn_t done, bool isRead)
         vcnlOp           = VCNL_OP_SAMPLE;
         vcnlSampleDone   = done;
         vcnlSampleIsRead = isRead;
+        vcnlOpStartUs    = laneTimerNow();
     }
 
     irqGuardExit(guard);
