@@ -51,5 +51,12 @@ absolute source path.
   `laneInit()` and `laneRun()`.
 - Re-check the initial GPIO levels in `generated/hal/mx_gpio_default.h`:
   CHAIN_OUT low, BUS_INT released (high), CS high.
+- **Linker script** (`user_modifiable/Device/STM32C542CCU6/stm32c542xc_flash.ld`)
+  carries two lane edits: `STACK_SIZE = 0x1000` and the `.noinit (NOLOAD)`
+  section after `.bss` (fault_guard's breadcrumb). Re-add both if it is
+  regenerated.
+- `mx_system.c` must still init I2C1 and I3C1 before the app (vcnl4040 and
+  lane_bus adopt their setup); `mx_pwr_init()` still arms WKUP1, which
+  `sysPowerInit()` disarms.
 - `mx_system.c` must still init TIM1 and TIM2 (the LED and timebase adopt their
   CubeMX setup) and must not call `mx_spi1_init()`.

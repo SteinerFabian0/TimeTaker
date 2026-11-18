@@ -708,40 +708,107 @@ Each step should end in something observable on the bench:
 
 ## 11. Firmware status
 
-Updated 2026-11-10 after the first firmware pass (bring-up steps 1–3, built
-and host-tested; **not yet flashed or bench-tested**).
+Updated 2026-11-18 after the second firmware pass (bring-up steps 4–10 as far
+as possible without hardware). **Built and host-tested; nothing flashed or
+bench-tested: no board exists yet.** The bench procedures for every step are
+in `BENCH_TESTS.md` (14 numbered tests, power-on to six lanes and lights out).
 
-The CMake project is `LapCounterLaneModule_cmake/` (generated from the
-`.ioc2` by the hardware session; unchanged by CubeMX since). Build, release
-and regeneration notes: `LapCounterLaneModule_cmake/docs/RELEASING.md`. Host
-tests: `LapCounterLaneModule_cmake/test/run_all.sh` (2 suites, all passing).
+Build: debug and release presets, 0 warnings, `-Werror` on `app/`.
+Flash/RAM (text+data / bss incl. 4 KB stack): debug 36.2 KB / 9.8 KB,
+release 32.4 KB / 8.7 KB, of 256 KB / 64 KB. Host tests: `test/run_all.sh`,
+7 suites, 358 checks, all passing, plus the `lane_protocol.h` copy check;
+`test/mutate.py`: 87 mutations, all killed.
 
 | Step | State | Where |
 |---|---|---|
-| 1 Skeleton | Done: `main.c` → `laneInit()` / `laneRun()`, `lane_status.h`, `lane_behavior.h`, version stamp, debug + release presets, strict warnings on `app/` | `app/coordinators/lane_master.c`, `cmake/lane_app.cmake` |
-| 2 LED | Done: TIM1_CH1 driver, gamma 2.2 levels 0–1000, non-blocking blink, ISR-safe on/off for scheduled actions; debug builds blink 4× at boot | `app/modules/indicator_led.*`, `led_pattern.*` |
-| 3 Timebase | Done: TIM2 owner (free-running 1 µs, SYNC capture IRQ, two one-shot compare alarms CH2/CH4, CH3 reserved for BUS_INT), SYNC mapping as above | `app/modules/lane_timer.*`, `sync_time.*` |
+| 1–3 | Done in the first pass (skeleton, LED, TIM2 + SYNC mapping) | see below |
+| 4 Sensor | Driver written: interrupt-driven I2C1, async probe/configure/shutdown script, force-mode trigger + read from the TIM2 CH2 schedule (phase-staggered on the mainboard axis), bus clear + re-init recovery, SENSOR_FAULT event | `vcnl4040.*`, `lane_sampler.*` |
+| 5 Detection + FIFOs | Pure and host-tested: interpolated entry/exit, merge gap (MERGED), minDwell glitches, BLOCKED/CLEARED, holdoff flags never drop, saturation, baseline IIR while free; event FIFO (keep oldest, seq spent on drop, partial-read pop rule), raw FIFO | `lane_detect.*`, `event_fifo.*`, `sense_manager.*` |
+| 6 I3C target | Written: register map, pointer + preloaded read with exact length (early end, no padding needed), mailbox to the main loop, IBI policy, hot-join; decode/validation pure and host-tested | `lane_bus.*`, `lane_regs.*`, `bus_manager.*` |
+| 7 CHAIN | Rule pure and host-tested (debounce, CHAIN_OUT rule, backoff, 60 ms RSTDAA hold); pins in `lane_chain` | `chain_logic.*`, `lane_chain.*` |
+| 8 Scheduled actions | Queue (8 deep, sorted, cancel-all, late fires at once and counts) host-tested; executor on TIM2 CH4 in `bus_manager` | `schedule_queue.*` |
+| 9 Sleep | IDLE: WFI every loop pass; COMMAND SLEEP 1 = sensor + LED off, addressable. WKUP1 disarmed at init (§8.1). Standby written to the hub's rules but not reachable (SLEEP 3 rejected). NAP not implemented (§9) | `sys_power.*` |
+| 10 fault_guard | Breadcrumb in `.noinit`, HardFault/unexpected-IRQ handlers, reset cause in host `resetCause` values, boot-loop guard -> PARKED (still enumerable), IWDG ~1.5 s via LL. Option-bytes script not written (needs a board) | `fault_guard.*` |
+| Debug hooks | SWO text trace (`laneTraceLevel` 0–3), TP6 scope marker, `laneBenchRequest`, `LANE_BENCH_STANDALONE` | `lane_trace.*`, `lane_behavior.h` |
 
 Decisions taken in this pass:
 
-- **Root `CMakeLists.txt` holds one added line** (`include(cmake/lane_app.cmake)`);
-  everything else lives in that file, because CubeMX2 overwrites the root
-  file and this tree is not in git (unlike the hub, where it is restored
-  from git).
-- **LED level is a compiled default (full), not the CubeMX boot duty**, which
-  is 0 by design (dark at boot). The mainboard sets the level.
-- **LED switch tracks channel and counter separately.** The hub's driver
-  flips one flag after both calls; if the channel start succeeds and the
-  counter start fails, its retry re-starts a running channel, which the C5
-  HAL traps on. The lane driver finishes the half-done switch instead.
-  Worth back-porting to the hub.
-- **Alarms use LL register access**, not the HAL channel state machine, so
-  they can be re-armed from the ISR. A due time that has already passed
-  fires at once (software compare event) instead of 71 min later.
-- **Errors** go through `laneErrorHandler()`: recorded as last error and
-  count (for STATUS) and asserted in debug. No reboot path yet:
-  `fault_guard` is step 10.
+- **I3C data path bypasses the HAL transfer API.** The C5 HAL target model is
+  one known-size Transmit_IT/Receive_IT at a time; a frame of another size
+  ends in its error path. `lane_bus` installs its own routine as the HAL
+  handle's `p_isr_func` (the generated `I3C1_EV_IRQHandler` calls it) and
+  drives the FIFOs with LL; `HAL_I3C_ErrorCallback` re-installs it after the
+  HAL's error path. Reads use TGTTDR PRELOAD with the exact byte count, so the
+  lane ends a read early (T-bit): the contract's zero-padding fallback is
+  not needed. The popped count comes from SR.XDCNT.
+- **A bare read repeats the last pointer** (the response is rebuilt after
+  each read), so a controller may poll EVENT_FIFO without rewriting the
+  pointer, and may put a STOP between pointer write and read if the ~10 µs
+  Sr turnaround proves too short.
+- **CONFIG validation includes the sensor cycle:** the period must fit
+  trigger write + conversion (PS_IT, PS_MPS) + read + margin, from bench
+  constants in `lane_regs.h`. There is no separate period floor.
+- **CLEARED** carries the same tEntry as its BLOCKED and the whole blocked
+  time as dwell. **Holdoff** is measured from the last unflagged CROSSING.
+- **Bus watchdog:** 5 s without a frame -> sampling OFF, LED off, queue
+  empty, `BUS_IDLE_SAFE`; address kept. The control module should re-push
+  the sampling mode when it sees the flag.
+- **Address loss** (CHAIN_IN fell, RSTDAA, RELEASE_CHAIN) forgets lane index
+  and CONFIG (CONFIG_VALID clears) and stops sampling.
+- **Linker script:** stack 1 KB -> 4 KB; `.noinit` section added
+  (`docs/RELEASING.md`). **ID register:** fw numbers and git rev from
+  `version_stamp.cmake`; imageCrc computed at boot (matches
+  `objcopy --gap-fill 0xFF` .bin).
 
-Next: step 4 (VCNL4040). Before relying on SENS_INT, apply §8.1: disable
-WKUP1 at init (the generated `mx_pwr_init()` arms it at boot), which belongs
-with the `sys_power` port.
+**Unverified until hardware, by risk:**
+
+1. I3C target register-level behaviour: FC at the Sr, XDCNT = bytes really
+   clocked out, PRELOAD early end, FIFO refill latency at 1 MHz, the Sr
+   turnaround, CCC flags vs FC ordering (a GET CCC must not pop events),
+   hot-join retry after a NACK, behaviour of a read with nothing preloaded.
+2. VCNL4040 bit positions (PS_HD, PS_AF, PS_TRIG, LED_I), conversion time,
+   reachable rate, IR current and levels at 15 cm, saturation.
+3. Identical provisioned IDs: the RSTDAA hold (60 ms) relies on the CHAIN
+   cascade being faster; check that two lanes never join together.
+4. Scheduled-action skew between lanes (SYNC_ALIGN latency < P/2).
+5. Sample timestamp latency (`LANE_SAMPLER_LATENCY_TRIM_US`).
+6. IWDG/LSI timing, boot-loop guard, breadcrumb survival, I2C bus clear.
+
+**CubeMX changes for the next pass** (do not edit the `.ioc2` by hand):
+
+- I3C1 target max read length 64 -> at least 96 (EVENT_FIFO 68 B, RAW_FIFO
+  80 B). `lane_bus` sets it at init until then.
+- IWDG: optional (fault_guard uses LL). If added, keep `USE_HAL_IWDG_MODULE`
+  consistent and do not let `mx_system_init()` start it.
+- Nothing else; pins unchanged.
+
+**Contract (`lane_protocol.h`) requests** (worked around locally):
+
+- Name the COMMAND SLEEP levels (local: 0 awake, 1 IDLE, 2 NAP and 3
+  STANDBY reserved and rejected) — `laneSleepLevel_e` in `lane_regs.h`.
+- Document CLEARED's tEntry/dwell meaning and the holdoff anchor (above).
+- State the CONFIG ranges (now in `lane_regs.h`) so the control module can
+  validate before sending.
+- Say that duplicates are possible: a read cut by a bus error pops nothing,
+  so the control module must drop records whose seq it already has.
+- BUS_IDLE_SAFE: the control module re-pushes the sampling mode.
+
+**Open questions:** I3C items of §9 (NAP, hot-join after RSTDAA, MRL/SETMRL
+from the controller lowering it below 68); whether the bus-watchdog timeout
+(5 s) fits the control module's health poll; the lane bootloader keeps the
+ENTER_BOOTLOADER hook rejected until it exists.
+
+### First pass (2026-11-10), kept for the record
+
+| Step | State | Where |
+|---|---|---|
+| 1 Skeleton | `main.c` → `laneInit()` / `laneRun()`, status and behavior headers, version stamp, debug + release presets, strict warnings on `app/` | `app/coordinators/lane_master.c`, `cmake/lane_app.cmake` |
+| 2 LED | TIM1_CH1 driver, gamma 2.2, non-blocking blink, ISR-safe on/off | `indicator_led.*`, `led_pattern.*` |
+| 3 Timebase | TIM2 owner (1 µs, SYNC capture, alarms CH2/CH4, CH3 reserved), SYNC mapping | `lane_timer.*`, `sync_time.*` |
+
+- Root `CMakeLists.txt` holds one added line (`include(cmake/lane_app.cmake)`).
+- LED level is a compiled default (full); the mainboard sets the level.
+- The LED switch tracks channel and counter separately (worth back-porting
+  to the hub).
+- Alarms use LL register access, so they can be re-armed from the ISR; a
+  past due time fires at once.
