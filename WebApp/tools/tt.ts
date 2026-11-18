@@ -37,7 +37,7 @@ usage: node tools/tt.ts [--port PATH | --sim [--cars]] [--seconds N] <command>
   lane raw LANE [decimation]         stream raw samples (--seconds, default 2)
   lane calibrate MASK
   watch                              print events as they come (--seconds, default forever)
-  start [lights step holdMin holdMax]
+  start [lights step holdMin holdMax pulseMs pulses]
   abort
   bind list | bind allow SECONDS | bind remove HEX32 | bind clear
   reboot                             REBOOT{APP} (no bootloader in v1: flash over SWD)
@@ -177,8 +177,9 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
         break;
       }
       case 'start': {
-        const [l, st, hmin, hmax] = rest.map(Number);
-        const t0 = await api.startSequence({ lights: l || 6, stepMs: st || 1000, holdMinMs: hmin || 200, holdMaxMs: hmax || 3000 });
+        const [l, st, hmin, hmax, pm, np] = rest.map(Number);
+        const t0 = await api.startSequence({ lights: l || 6, stepMs: st || 1000, holdMinMs: hmin || 200, holdMaxMs: hmax || 3000,
+          pulseRiseMs: pm || 1000, attentionPulses: rest[5] === undefined ? 2 : np });
         out(`T0 = ${t0} µs (lights out after the hold; watch for EVT_LIGHTS_OUT)`);
         break;
       }

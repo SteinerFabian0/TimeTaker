@@ -397,20 +397,33 @@ during a burst of crossings loses none.
 
 ### 5.3 Start sequence (build step 5)
 
-**Goal:** six red lights go on one by one and all go out together at a
+**Goal:** all lights breathe in unison, one stays lit at the far end of the
+chain, the others light one by one toward lane 1, and all go out together at a
 random time that nobody knows in advance.
 
 The design is SYSTEM_ARCHITECTURE §6.4. Split it in two:
 
-**`seq_planner` (pure, host-tested):** `plan(params, nowUs, randomU32) →
-{T0, onTimes[6], Tout}`.
+**`seq_planner` (pure, host-tested):** `plan(params, presentMask, nowUs,
+randomU32) → {T0, Tlit, Tout, per-lane action list}`.
 
+- P = `pulseRiseMs` (0 = 1000), k = `attentionPulses`, n = min(lights,
+  present); lit lanes = the first n present lanes in index order; far-end lane
+  = the highest of them.
 - `T0 = now + lead`, lead ≥ 150 ms (enough to write every lane twice at
   1 MHz, with retries).
-- Lane k on at `T0 + k·step` for the lanes present (k = 0…n−1, in index
-  order).
-- Hold `h` drawn uniformly from `[holdMin, holdMax]` with the random word.
-- `Tout = T0 + n·step + h`.
+- T0: every lit lane `LED_PULSE(P)` (lane_protocol 0.3: level(t) =
+  (1 − cos(π·t/P))/2 from atUs, same phase on all lanes). Peaks at
+  `T0 + (2i+1)·P`. At the last peak `T0 + (2k−1)·P` the far-end lane gets
+  `LED_ON`; every other lane `LED_OFF` at the trough `T0 + 2k·P` (a following ON
+  at a peak or OFF at a trough is seamless). Then lanes far−1 … 1 get `LED_ON`
+  at `T0 + 2k·P + j·step`. k = 0: no pulse, far-end ON at T0, the others every
+  step.
+- `Tlit = T0 + 2k·P + (n−1)·step`; hold `h` drawn uniformly from
+  `[holdMin, holdMax]` with the random word; `Tout = Tlit + h`; `LED_OFF` at
+  Tout on every lit lane. `armSampling` adds `SAMPLING_ON` at T0 on every
+  present lane.
+- At most 5 actions per lane (pulse, off/on, on, off, sampling), inside the
+  lane SCHEDULE queue of 8.
 - Rejects: lights 0 or > 6, step 0, holdMin > holdMax, a sum that overflows,
   and `ERR_TOO_LATE` for a requested start time already inside the lead.
 
@@ -418,8 +431,8 @@ The design is SYSTEM_ARCHITECTURE §6.4. Split it in two:
 
 1. `START_SEQUENCE` → `ERR_SEQ_RUNNING` if one runs. Otherwise plan it,
    draw the random word from `rng`, and queue to each present lane: cancel
-   any pending actions, "LED on at onTime[k]", "LED off at Tout" (the lane's
-   SCHEDULE queue, ≥ 4 deep, LANE_FIRMWARE_GUIDE §3.7). Use
+   any pending actions, the lane's action list from the planner (the lane's
+   SCHEDULE queue, 8 deep, LANE_FIRMWARE_GUIDE §3.7). Use
    `laneManagerSchedule()`.
 2. **Read the writes back** (or check the SCHEDULE status in STATUS). If a
    lane did not take its actions before T0 − 20 ms, abort the sequence with
@@ -476,6 +489,12 @@ copied here as `ble_link_protocol.h`.
   payload and sends one **only when it holds a credit** from the nRF
   (BLE guide §5.4). This is the backpressure the session's pump already
   understands.
+- **Credit resync:** a DATA frame corrupted on the wire is dropped by the
+  nRF and its credit would be lost. `STATS` (1/s while connected) carries
+  `slotsFree`; when it arrives, the link is up and no DATA frame went out in
+  the last 20 ms, the credit count is set to `slotsFree`, up or down
+  (`nrfLinkCreditsResync`, counted in `creditResyncs`). A recent DATA frame
+  blocks it, a disconnected link ignores it.
 - **CTRL frames** go to small handlers: `NRF_HELLO` (versions, address) →
   the BLE node in NODE_LIST; `LINK_UP` / `LINK_DOWN` → session reset and
   stats; `BUTTON` → bind policy; `CREDIT` → TX.

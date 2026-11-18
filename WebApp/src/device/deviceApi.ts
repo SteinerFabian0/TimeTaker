@@ -60,6 +60,10 @@ export interface StartParams {
   armSampling?: boolean;
   /** 0 = the device default (>= 150 ms). */
   leadMs?: number;
+  /** Attention pulse: off to full in this many ms; default 1000. */
+  pulseRiseMs?: number;
+  /** Off-on-off breathing cycles before the countdown; default 2, 0 = none. */
+  attentionPulses?: number;
 }
 
 export interface BindListResult {
@@ -215,7 +219,8 @@ export class DeviceApi {
   async startSequence(p: StartParams): Promise<bigint> {
     const rsp = await this.#call<{ t0Us: bigint }>(START_SEQUENCE_REQ, {
       lights: p.lights, armSampling: p.armSampling === false ? 0 : 1, stepMs: p.stepMs, holdMinMs: p.holdMinMs,
-      holdMaxMs: p.holdMaxMs, leadMs: p.leadMs ?? 0, reserved: 0,
+      holdMaxMs: p.holdMaxMs, leadMs: p.leadMs ?? 0,
+      pulseRiseMs: p.pulseRiseMs ?? 1000, attentionPulses: p.attentionPulses ?? 2, reserved: 0,
     }, MsgId.START_SEQUENCE, START_SEQUENCE_RSP, { retry: false });
     return rsp.t0Us;
   }

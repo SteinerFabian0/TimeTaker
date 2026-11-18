@@ -115,9 +115,14 @@
  *     holdMin > holdMax, armSampling > 1 → ERR_INVALID_ARG; 0 < leadMs < 150
  *     → ERR_TOO_LATE; no lane present → ERR_LANE_ABSENT; a lane that does not
  *     take its actions → ERR_LANE_NACK (nothing published). [A12]
- *   - n = min(lights, lanes present); the first n present lanes light at
- *     T0 + k·step; hold uniform in [holdMin, holdMax] (µs resolution);
- *     Tout = T0 + n·step + hold. Both events carry n as `lights`. [A13]
+ *   - n = min(lights, lanes present), the first n present lanes. P = pulseRiseMs
+ *     (0 = 1000), k = attentionPulses. From T0 every lit lane breathes
+ *     (level = (1 - cos(pi t / P)) / 2, in phase; laneLed() reports it as ON
+ *     with that level). The far-end lane (highest index of the n) goes ON at
+ *     the last peak T0 + (2k-1)P, the others OFF at the trough T0 + 2kP; then
+ *     lanes far-1 .. 1 go ON at T0 + 2kP + j·step. k = 0: far lane on at T0,
+ *     the others every step. Tlit = T0 + 2kP + (n-1)·step; hold uniform in
+ *     [holdMin, holdMax] (µs resolution); Tout = Tlit + hold, all OFF. Both events carry n as `lights`. [A13]
  *   - EVT_SEQ_STARTED{t0Us} is published before the response. EVT_LIGHTS_OUT
  *     {toutUs} is published at Tout plus up to 0.8 ms (a loop pass), never
  *     earlier. "Running" ends at Tout.
@@ -247,7 +252,11 @@ interface Link {
   budgetAtMs: number;
 }
 
-interface LedState { mode: number; level: number; blinkPeriodMs: number; blinkOnPermille: number; blinkCount: number }
+interface LedState {
+  mode: number; level: number; blinkPeriodMs: number; blinkOnPermille: number; blinkCount: number;
+  /** LANE_ACT_LED_PULSE: level(t) = (1 - cos(pi t / rise)) / 2 from startUs (sysUs); resolved by laneLed(). */
+  pulse?: { startUs: number; riseMs: number };
+}
 
 interface LaneSlot {
   readonly index: number;
@@ -293,6 +302,7 @@ const CONFIG_PUSH_MS = 4;
 const LEFT_DETECT_MS = 30;
 const POLL_MS = 10;
 const SEQ_MIN_LEAD_MS = 150;
+const SEQ_DEFAULT_PULSE_MS = 1000;
 const REBOOT_DELAY_MS = 100;
 const USB_REENUM_MS = 400;
 const BIND_WINDOW_S = 60;
@@ -402,7 +412,13 @@ export class SimDevice implements SimLinkHost<Link> {
   get bindList(): readonly { clientId: Uint8Array; clientName: string; lastUsed: number }[] { return this.#flash.binds.map((b) => ({ ...b })); }
   get pairingWindowOpen(): boolean { return this.#window !== null; }
   get cars(): boolean { return this.#cars.slice(1).some((c) => c.state !== 'off'); }
-  laneLed(lane: number): Readonly<LedState> { return { ...(this.#lanes[lane]?.led ?? LED_OFF) }; }
+  laneLed(lane: number): Readonly<LedState> {
+    const led = this.#lanes[lane]?.led ?? LED_OFF;
+    if (!led.pulse) return { ...led };
+    const t = Math.max(0, this.#sysUsNow() - led.pulse.startUs);
+    const level = Math.round(1000 * (1 - Math.cos(Math.PI * t / (led.pulse.riseMs * 1000))) / 2);
+    return { mode: LedMode.ON, level, blinkPeriodMs: 0, blinkOnPermille: 0, blinkCount: 0 };
+  }
   laneSamplingMode(lane: number): number { return this.#effectiveMode(lane); }
   laneConfig(lane: number): LaneConfig { return { ...this.#laneTable[lane]! }; }
   car(lane: number): SimCar { return this.#cars[lane]!; }
@@ -1372,6 +1388,8 @@ export class SimDevice implements SimLinkHost<Link> {
     const holdMin = req['holdMinMs'] as number;
     const holdMax = req['holdMaxMs'] as number;
     const leadMs = req['leadMs'] as number;
+    const riseMs = (req['pulseRiseMs'] as number) || SEQ_DEFAULT_PULSE_MS;
+    const pulses = req['attentionPulses'] as number;
     const arm = req['armSampling'] as number;
     if (this.#seq) { reply(Status.ERR_SEQ_RUNNING); return; }
     if (lights === 0 || lights > MAX_LANES || stepMs === 0 || holdMin > holdMax || arm > 1) { reply(Status.ERR_INVALID_ARG); return; }
@@ -1389,17 +1407,36 @@ export class SimDevice implements SimLinkHost<Link> {
 
     const holdUs = this.#rng.int(holdMin * 1000, holdMax * 1000);
     const t0Us = this.#sysUsNow() + (leadMs || SEQ_MIN_LEAD_MS) * 1000;
-    const toutUs = t0Us + n * stepMs * 1000 + holdUs;
+    const riseUs = riseMs * 1000;
+    const stepUs = stepMs * 1000;
+    const troughUs = t0Us + 2 * pulses * riseUs;
+    const tLitUs = troughUs + (n - 1) * stepUs;
+    const toutUs = tLitUs + holdUs;
     const seq: Sequence = { t0Us, toutUs, lanes: used, timers: [] };
     const at = (us: number, fn: () => void): void => {
       seq.timers.push(this.scheduler.setTimeout(fn, Math.max(0, this.#msAtUs(us) - this.scheduler.now())));
     };
-    used.forEach((lane, k) => at(t0Us + k * stepMs * 1000, () => {
+    const on = (lane: number): void => {
       this.#lanes[lane]!.led = { mode: LedMode.ON, level: 1000, blinkPeriodMs: 0, blinkOnPermille: 0, blinkCount: 0 };
-    }));
+    };
+    const off = (lane: number): void => { this.#lanes[lane]!.led = { ...LED_OFF }; };
+    // Same timeline as seq_planner.c: all lit lanes breathe from T0; the far-end lane (last of `used`) stays on at the
+    // last peak, the others go off at the next trough; then one lane per step toward lane 1; all off at Tout.
+    used.forEach((lane, idx) => {
+      const j = n - 1 - idx;   // 0 = far end
+      if (pulses > 0) {
+        at(t0Us, () => {
+          this.#lanes[lane]!.led = { ...LED_OFF, mode: LedMode.ON, pulse: { startUs: t0Us, riseMs } };
+        });
+        if (j === 0) at(troughUs - riseUs, () => on(lane));
+        else { at(troughUs, () => off(lane)); at(troughUs + j * stepUs, () => on(lane)); }
+      } else {
+        at(t0Us + j * stepUs, () => on(lane));
+      }
+    });
     if (arm) at(t0Us, () => { for (const l of present) if (this.#sampling[l] === SamplingMode.OFF) this.#sampling[l] = SamplingMode.ON; });
     at(toutUs, () => {
-      for (const l of used) this.#lanes[l]!.led = { ...LED_OFF };
+      for (const l of used) off(l);
       this.#seq = null;
       const jitterMs = this.#rng.range(0, 0.8);
       this.#later(jitterMs, () => {

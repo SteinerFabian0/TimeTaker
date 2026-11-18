@@ -52,7 +52,7 @@
 
 [protocol]
 major = 0
-minor = 4
+minor = 5
 max_payload = 240   # header 4 + payload 240 = 244 raw bytes; the nRF link adds 1 channel byte (245)
 max_event_payload = 24   # events incl. evSeq: the control module's event log slot (event_log.h)
 
@@ -902,7 +902,7 @@ response = []
 id = 0x40
 name = "START_SEQUENCE"
 kind = "request"
-doc = "F1-style start: lane k lights at T0 + k*step, all go out together at Tout = T0 + n*step + random hold. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier)."
+doc = "Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the last chain lane stays lit at the last peak, then one more lane lights every stepMs toward lane 1; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier)."
 request = [
   { name = "lights", type = "u8", doc = "1..6; lanes present are lit in index order" },
   { name = "armSampling", type = "u8", doc = "1 = also switch sampling ON at T0" },
@@ -910,13 +910,15 @@ request = [
   { name = "holdMinMs", type = "u16" },
   { name = "holdMaxMs", type = "u16" },
   { name = "leadMs", type = "u16", doc = "Time from now to T0; 0 = default (>= 150 ms)" },
-  { name = "reserved", type = "u16" },
+  { name = "pulseRiseMs", type = "u16", doc = "Attention pulse: off to full in this many ms; 0 = default 1000" },
+  { name = "attentionPulses", type = "u8", doc = "Off-on-off cycles before the countdown; 0 = none" },
+  { name = "reserved", type = "u8" },
 ]
 response = [
   { name = "reserved", type = "u16" },
   { name = "t0Us", type = "u64", doc = "System time the first light goes on" },
 ]
-example_request = { lights = 6, armSampling = 1, stepMs = 1000, holdMinMs = 200, holdMaxMs = 3000, leadMs = 0, reserved = 0 }
+example_request = { lights = 6, armSampling = 1, stepMs = 1000, holdMinMs = 200, holdMaxMs = 3000, leadMs = 0, pulseRiseMs = 1000, attentionPulses = 2, reserved = 0 }
 example_response = { reserved = 0, t0Us = 60000000 }
 
 [[message]]

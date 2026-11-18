@@ -12,7 +12,7 @@
 import { decodeStruct, encodeStruct } from './wire.ts';
 import type { StructDesc } from './wire.ts';
 
-export const PROTO = { major: 0, minor: 4, maxPayload: 240, headerBytes: 4 } as const;
+export const PROTO = { major: 0, minor: 5, maxPayload: 240, headerBytes: 4 } as const;
 
 /** USB identity of the control module: the Web Serial port filter. */
 export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker' } as const;
@@ -1221,11 +1221,11 @@ export type LaneCalibrateRsp = {
 export const encodeLaneCalibrateRsp = (v: LaneCalibrateRsp): Uint8Array => encodeStruct(LANE_CALIBRATE_RSP, v);
 export const decodeLaneCalibrateRsp = (b: Uint8Array): LaneCalibrateRsp => decodeStruct(LANE_CALIBRATE_RSP, b) as LaneCalibrateRsp;
 
-// 0x40 START_SEQUENCE (request): F1-style start: lane k lights at T0 + k*step, all go out together at Tout = T0 + n*step + random hold. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
+// 0x40 START_SEQUENCE (request): Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the last chain lane stays lit at the last peak, then one more lane lights every stepMs toward lane 1; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
 /** START_SEQUENCE request */
 export const START_SEQUENCE_REQ: StructDesc = {
   name: 'StartSequenceReq',
-  size: 12,
+  size: 14,
   fields: [
     { name: 'lights', kind: 'scalar', type: 'u8' },
     { name: 'armSampling', kind: 'scalar', type: 'u8' },
@@ -1233,7 +1233,9 @@ export const START_SEQUENCE_REQ: StructDesc = {
     { name: 'holdMinMs', kind: 'scalar', type: 'u16' },
     { name: 'holdMaxMs', kind: 'scalar', type: 'u16' },
     { name: 'leadMs', kind: 'scalar', type: 'u16' },
-    { name: 'reserved', kind: 'scalar', type: 'u16' },
+    { name: 'pulseRiseMs', kind: 'scalar', type: 'u16' },
+    { name: 'attentionPulses', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u8' },
   ],
 };
 export type StartSequenceReq = {
@@ -1246,6 +1248,10 @@ export type StartSequenceReq = {
   holdMaxMs: number;
   /** Time from now to T0; 0 = default (>= 150 ms) */
   leadMs: number;
+  /** Attention pulse: off to full in this many ms; 0 = default 1000 */
+  pulseRiseMs: number;
+  /** Off-on-off cycles before the countdown; 0 = none */
+  attentionPulses: number;
   reserved: number;
 };
 export const encodeStartSequenceReq = (v: StartSequenceReq): Uint8Array => encodeStruct(START_SEQUENCE_REQ, v);

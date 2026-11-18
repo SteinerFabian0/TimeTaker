@@ -58,7 +58,7 @@
  * ------------------------------------------------------------------------- */
 
 #define LANE_PROTO_MAJOR             0U
-#define LANE_PROTO_MINOR             2U
+#define LANE_PROTO_MINOR             3U
 
 #define LANE_MAX_LANES               6U
 
@@ -168,6 +168,14 @@ typedef enum {
     LANE_ACT_SAMPLING_OFF = 3,
     LANE_ACT_SAMPLING_ON  = 4,
     LANE_ACT_LED_BLINK    = 5,    /* param = period ms, 50 % on, until changed */
+    LANE_ACT_LED_PULSE    = 6,    /* "attention" breathing, until the next LED action:
+                                   * level(t) = (1 - cos(pi * t / param)) / 2 of full,
+                                   * t = sysUs since atUs, param = rise time in ms
+                                   * (off -> full takes param ms, full -> off takes
+                                   * param ms again). Every lane computes it from the
+                                   * shared system time, so all lanes breathe in phase.
+                                   * A following LED_ON at a peak or LED_OFF at a
+                                   * trough continues without a visible step. */
 } laneAction_e;
 
 #define LANE_SCHEDULE_DEPTH          8U   /* lane queue, >= 4 required */

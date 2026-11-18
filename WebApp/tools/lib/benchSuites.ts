@@ -184,7 +184,7 @@ export const SUITES: Record<string, Suite> = {
 
   async start(b, c, o) {
     const n = await powerUp(b, c, o.lanes ?? 6);
-    const p = { lights: 6, stepMs: 300, holdMinMs: 200, holdMaxMs: 800 };
+    const p = { lights: 6, stepMs: 300, holdMinMs: 200, holdMaxMs: 800, pulseRiseMs: 300, attentionPulses: 2 };
     for (let i = 0; i < 3; i++) {
       const mark = b.events.length;
       const nowUs = Number((await b.api.ping()).sysUs);
@@ -196,8 +196,8 @@ export const SUITES: Record<string, Suite> = {
       c.ok(`#${i + 1} no LIGHTS_OUT before the hold`, b.named('EVT_LIGHTS_OUT', mark).length === 0);
       await b.until(() => b.named('EVT_LIGHTS_OUT', mark).length === 1, 5000, 'LIGHTS_OUT').catch(() => undefined);
       const out = b.named('EVT_LIGHTS_OUT', mark)[0];
-      const hold = out ? Number(out.value!['toutUs']) - t0 - Math.min(6, n) * p.stepMs * 1000 : NaN;
-      c.ok(`#${i + 1} LIGHTS_OUT: Tout = T0 + n·step + hold, hold in range`, hold >= p.holdMinMs * 1000 && hold <= p.holdMaxMs * 1000, `hold ${(hold / 1000).toFixed(1)} ms`);
+      const hold = out ? Number(out.value!['toutUs']) - t0 - (2 * p.attentionPulses * p.pulseRiseMs + (Math.min(6, n) - 1) * p.stepMs) * 1000 : NaN;
+      c.ok(`#${i + 1} LIGHTS_OUT: Tout = T0 + 2kP + (n-1)·step + hold, hold in range`, hold >= p.holdMinMs * 1000 && hold <= p.holdMaxMs * 1000, `hold ${(hold / 1000).toFixed(1)} ms`);
     }
     await c.status('ABORT when idle → ERR_INVALID_STATE', b.api.abortSequence(), Status.ERR_INVALID_STATE);
     const mark = b.events.length;

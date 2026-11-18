@@ -24,7 +24,7 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "host protocol structs assume a little-endian target");
 
 #define HP_PROTO_MAJOR      0U
-#define HP_PROTO_MINOR      4U
+#define HP_PROTO_MINOR      5U
 #define HP_MAX_PAYLOAD      240U
 #define HP_MAX_FRAME_RAW    (4U + HP_MAX_PAYLOAD)  /* header + payload, before CRC and COBS */
 
@@ -773,21 +773,23 @@ _Static_assert(sizeof(hpLaneCalibrateRsp_t) == 2U, "hpLaneCalibrateRsp_t layout"
 #define HP_LANE_CALIBRATE_RSP_BYTES 2U
 
 /* ---- 0x40 START_SEQUENCE (request) -------------------------------
- * F1-style start: lane k lights at T0 + k*step, all go out together at Tout = T0 + n*step + random hold. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
+ * Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the last chain lane stays lit at the last peak, then one more lane lights every stepMs toward lane 1; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
  */
 
 /* START_SEQUENCE request */
 typedef struct __attribute__((packed)) {
-    uint8_t  lights;      /* 1..6; lanes present are lit in index order */
-    uint8_t  armSampling; /* 1 = also switch sampling ON at T0 */
+    uint8_t  lights;          /* 1..6; lanes present are lit in index order */
+    uint8_t  armSampling;     /* 1 = also switch sampling ON at T0 */
     uint16_t stepMs;
     uint16_t holdMinMs;
     uint16_t holdMaxMs;
-    uint16_t leadMs;      /* Time from now to T0; 0 = default (>= 150 ms) */
-    uint16_t reserved;
+    uint16_t leadMs;          /* Time from now to T0; 0 = default (>= 150 ms) */
+    uint16_t pulseRiseMs;     /* Attention pulse: off to full in this many ms; 0 = default 1000 */
+    uint8_t  attentionPulses; /* Off-on-off cycles before the countdown; 0 = none */
+    uint8_t  reserved;
 } hpStartSequenceReq_t;
-_Static_assert(sizeof(hpStartSequenceReq_t) == 12U, "hpStartSequenceReq_t layout");
-#define HP_START_SEQUENCE_REQ_BYTES 12U
+_Static_assert(sizeof(hpStartSequenceReq_t) == 14U, "hpStartSequenceReq_t layout");
+#define HP_START_SEQUENCE_REQ_BYTES 14U
 
 /* START_SEQUENCE response */
 typedef struct __attribute__((packed)) {

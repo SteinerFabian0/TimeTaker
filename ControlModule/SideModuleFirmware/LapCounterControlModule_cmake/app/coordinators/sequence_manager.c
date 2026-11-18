@@ -115,46 +115,36 @@ ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0U
     }
 
     const uint8_t lanes = laneManagerConfiguredMask();
-    uint8_t count = 0U;
-    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
-        count = (uint8_t)(count + (((lanes & LANE_LOGIC_MASK(n)) != 0U) ? 1U : 0U));
-    }
-
     uint32_t word = 0U;
     (void)rngGet(&word);   /* a fallback word on an RNG failure still makes a fair hold */
 
     const seqPlanParams_t params = {
-        .lights    = req->lights,
+        .lights          = req->lights,
+        .armSampling     = req->armSampling,
+        .attentionPulses = req->attentionPulses,
+        .pulseRiseMs     = req->pulseRiseMs,
         .stepMs    = req->stepMs,
         .holdMinMs = req->holdMinMs,
         .holdMaxMs = req->holdMaxMs,
         .leadMs    = req->leadMs,
     };
-    CTRL_RETURN_IF_ERR(seqPlannerPlan(&params, count, sysTimeNowUs(), word, &seqPlan));
+    CTRL_RETURN_IF_ERR(seqPlannerPlan(&params, lanes, sysTimeNowUs(), word, &seqPlan));
 
     laneManagerScheduleForget();
     seqLanes  = lanes;
     seqLights = seqPlan.litCount;
     seqState  = SEQ_ARMING;
 
-    uint8_t k = 0U;
     for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
         if ((lanes & LANE_LOGIC_MASK(n)) == 0U) {
             continue;
         }
-        uint8_t expect = 0U;
+        const seqPlanLane_t *pl = &seqPlan.lane[n - 1U];
         ctrlStatus_e st = seqAction(n, LANE_SCHED_CANCEL_ALL, 0U, 0U, 0U);
-        if (st == CTRL_OK && k < seqPlan.litCount) {
-            st = seqAction(n, LANE_SCHED_ADD, LANE_ACT_LED_ON, 1000U, seqPlan.onUs[k]);
-            if (st == CTRL_OK) {
-                st = seqAction(n, LANE_SCHED_ADD, LANE_ACT_LED_OFF, 0U, seqPlan.toutUs);
-            }
-            expect = 2U;
+        for (uint8_t i = 0U; st == CTRL_OK && i < pl->count; i++) {
+            st = seqAction(n, LANE_SCHED_ADD, pl->act[i].action, pl->act[i].param, pl->act[i].atUs);
         }
-        if (st == CTRL_OK && req->armSampling != 0U) {
-            st = seqAction(n, LANE_SCHED_ADD, LANE_ACT_SAMPLING_ON, 0U, seqPlan.t0Us);
-            expect++;
-        }
+        const uint8_t expect = pl->count;
         if (st == CTRL_OK) {
             st = laneManagerScheduleVerify(n, expect);
         }
@@ -162,7 +152,6 @@ ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0U
             (void)seqStop(HP_ABORT_LANE_FAILED, false);
             return (st == CTRL_ERR_BUSY) ? CTRL_ERR_BUSY : CTRL_ERR_LANE_NACK;
         }
-        k++;
     }
 
     *t0Us = seqPlan.t0Us;

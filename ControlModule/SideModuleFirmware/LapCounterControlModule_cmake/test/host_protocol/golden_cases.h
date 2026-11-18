@@ -496,11 +496,14 @@ static const uint8_t goldenLaneCalibrateResponsePayload[] = { 0xEB, 0xFF };
 static const uint8_t goldenLaneCalibrateResponseWire[] = { 0x09, 0x28, 0x01, 0x28, 0x10, 0xEB, 0xFF, 0x5D, 0xBF, 0x00 };
 
 /* START_SEQUENCE request */
-static const hpStartSequenceReq_t goldenStartSequenceRequestFixed = { .lights = 6U, .armSampling = 1U, .stepMs = 1000U, .holdMinMs = 200U, .holdMaxMs = 3000U, .leadMs = 0U, .reserved = 0U };
-static const uint8_t goldenStartSequenceRequestPayload[] = { 0x06, 0x01, 0xE8, 0x03, 0xC8, 0x00, 0xB8, 0x0B, 0x00, 0x00, 0x00, 0x00 };
+static const hpStartSequenceReq_t goldenStartSequenceRequestFixed = { .lights = 6U, .armSampling = 1U, .stepMs = 1000U, .holdMinMs = 200U, .holdMaxMs = 3000U, .leadMs = 0U, .pulseRiseMs = 1000U, .attentionPulses = 2U, .reserved = 0U };
+static const uint8_t goldenStartSequenceRequestPayload[] = {
+    0x06, 0x01, 0xE8, 0x03, 0xC8, 0x00, 0xB8, 0x0B, 0x00, 0x00, 0xE8, 0x03,
+    0x02, 0x00
+};
 static const uint8_t goldenStartSequenceRequestWire[] = {
     0x02, 0x40, 0x08, 0x40, 0x10, 0x06, 0x01, 0xE8, 0x03, 0xC8, 0x03, 0xB8,
-    0x0B, 0x01, 0x01, 0x01, 0x03, 0xE8, 0xCF, 0x00
+    0x0B, 0x01, 0x04, 0xE8, 0x03, 0x02, 0x03, 0x57, 0x44, 0x00
 };
 
 /* START_SEQUENCE response */
@@ -780,7 +783,7 @@ static const goldenMsgCase_t goldenMsgCases[] = {
       goldenLaneCalibrateResponsePayload, 2U, goldenLaneCalibrateResponseWire, 10U },
     { "START_SEQUENCE request", { .msgId = 0x40U, .flags = 0x00U, .tag = 0x1040U },
       &goldenStartSequenceRequestFixed, HP_START_SEQUENCE_REQ_BYTES, NULL, 0U,
-      goldenStartSequenceRequestPayload, 12U, goldenStartSequenceRequestWire, 20U },
+      goldenStartSequenceRequestPayload, 14U, goldenStartSequenceRequestWire, 22U },
     { "START_SEQUENCE response", { .msgId = 0x40U, .flags = 0x01U, .tag = 0x1040U },
       &goldenStartSequenceResponseFixed, HP_START_SEQUENCE_RSP_BYTES, NULL, 0U,
       goldenStartSequenceResponsePayload, 12U, goldenStartSequenceResponseWire, 20U },

@@ -4,8 +4,10 @@
  *
  *   START_SEQUENCE  plan it (seq_planner) with a TRNG word, then queue to every
  *                   configured lane through laneManagerSchedule() (priority):
- *                   CANCEL_ALL, "LED on at on[k]" and "LED off at Tout" for
- *                   the lit lanes, "sampling ON at T0" with armSampling. Then
+ *                   CANCEL_ALL, then each lane's plan: LED_PULSE (breathing) at T0,
+ *                   the far-end lane on at the last peak, the others off at
+ *                   the next trough and on one per step toward lane 1, off at
+ *                   Tout; "sampling ON at T0" with armSampling. Then
  *                   a STATUS read per lane checks the actions arrived.
  *                   EVT_SEQ_STARTED{T0, lights, step} at once. NEVER Tout.
  *   arming          every lane must confirm before T0 - SEQUENCE_MANAGER_
