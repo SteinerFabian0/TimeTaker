@@ -64,7 +64,9 @@ bool sequenceManagerIsRunning(void)
     return seqState != SEQ_IDLE;
 }
 
-ctrlStatus_e sequenceManagerAbort(uint8_t reason)
+/* Cancels every lane's actions and blinks. publish=false: START refused
+ * (ERR_LANE_NACK), nothing is published (sim A12). */
+static ctrlStatus_e seqStop(uint8_t reason, bool publish)
 {
     if (seqState == SEQ_IDLE) {
         return CTRL_ERR_INVALID_STATE;
@@ -87,10 +89,20 @@ ctrlStatus_e sequenceManagerAbort(uint8_t reason)
         (void)laneManagerSetLed(seqLanes, &blink);
     }
     laneManagerScheduleForget();
+    seqLanes  = 0U;
+    seqLights = 0U;
+    if (!publish) {
+        return CTRL_OK;
+    }
 
     const hpEvtSeqAborted_t evt = { .reason = reason, .atUs = sysTimeNowUs() };
     seqLog("ABORTED", reason);
     return hostManagerPublishEvent(HP_MSG_EVT_SEQ_ABORTED, &evt, sizeof(evt));
+}
+
+ctrlStatus_e sequenceManagerAbort(uint8_t reason)
+{
+    return seqStop(reason, true);
 }
 
 ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0Us)
@@ -147,7 +159,7 @@ ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0U
             st = laneManagerScheduleVerify(n, expect);
         }
         if (st != CTRL_OK) {
-            (void)sequenceManagerAbort(HP_ABORT_LANE_FAILED);
+            (void)seqStop(HP_ABORT_LANE_FAILED, false);
             return (st == CTRL_ERR_BUSY) ? CTRL_ERR_BUSY : CTRL_ERR_LANE_NACK;
         }
         k++;
@@ -198,10 +210,13 @@ ctrlStatus_e sequenceManagerRun(void)
     }
 
     if (now >= seqPlan.toutUs) {
-        seqState = SEQ_IDLE;
-        laneManagerScheduleForget();
         const hpEvtLightsOut_t evt = { .lights = seqLights, .toutUs = seqPlan.toutUs };
-        seqLog("LIGHTS OUT", (int32_t)seqPlan.holdUs);
+        const int32_t holdUs = (int32_t)seqPlan.holdUs;
+        seqState = SEQ_IDLE;
+        seqLanes = 0U;
+        seqLights = 0U;
+        laneManagerScheduleForget();
+        seqLog("LIGHTS OUT", holdUs);
         return hostManagerPublishEvent(HP_MSG_EVT_LIGHTS_OUT, &evt, sizeof(evt));
     }
     return CTRL_OK;

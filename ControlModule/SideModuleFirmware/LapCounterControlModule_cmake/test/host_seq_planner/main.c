@@ -50,6 +50,21 @@ static void testPlan(void)
     check("plan: explicit lead used", plan.t0Us == now + 400000ULL);
 }
 
+static void testHoldRange(void)
+{
+    seqPlanParams_t p = base();
+    seqPlan_t plan;
+    bool inRange = true;
+    for (uint32_t w = 0U; w < 100000U; w++) {
+        seqPlannerPlan(&p, 6, 0, w * 40503U, &plan);
+        inRange = inRange && plan.holdUs >= 200000U && plan.holdUs <= 3000000U;
+    }
+    check("plan: hold always within [holdMin, holdMax]", inRange);
+    p.holdMinMs = 0; p.holdMaxMs = 65535;
+    seqPlannerPlan(&p, 6, 0, 0xFFFFFFFFU, &plan);
+    check("plan: full u16 hold range fits", plan.holdUs <= 65535000U && plan.toutUs > plan.t0Us);
+}
+
 static void testReject(void)
 {
     seqPlan_t plan;
@@ -76,6 +91,7 @@ static void testReject(void)
 int main(void)
 {
     testPlan();
+    testHoldRange();
     testReject();
     return finish();
 }
