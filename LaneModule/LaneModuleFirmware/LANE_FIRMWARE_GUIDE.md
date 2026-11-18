@@ -321,8 +321,8 @@ can then be tuned at the venue without streaming everything.
 - **Event FIFO:** a ring buffer of events, ≥ 32 deep. On overflow, keep the
   oldest, count the drops and report the count in STATUS.
 - **Notification:** an **I3C In-Band Interrupt** with a 1-byte payload (event
-  type / pending count). Enabled in CubeMX: IBI, payload 1 byte. The mainboard
-  then reads the FIFO.
+  type / pending count) is implemented but **off** (`LANE_BUS_IBI_ENABLE 0`):
+  the controller NACKs IBIs from targets it has no slot for, so v1 polls.
 - **Polling:** the mainboard may also simply poll STATUS. Never depend on the
   IBI alone.
 
@@ -751,8 +751,13 @@ Decisions taken in this pass:
 - **CLEARED** carries the same tEntry as its BLOCKED and the whole blocked
   time as dwell. **Holdoff** is measured from the last unflagged CROSSING.
 - **Bus watchdog:** 5 s without a frame -> sampling OFF, LED off, queue
-  empty, `BUS_IDLE_SAFE`; address kept. The control module should re-push
+  empty, `BUS_IDLE_SAFE`; address kept. The flag stays set until a COMMAND
+  SAMPLING arrives or the address is lost. The control module should re-push
   the sampling mode when it sees the flag.
+- **I3C target enable:** the target is disabled unless the lane has an
+  address, or CHAIN_IN is stable high and the rejoin hold after an address
+  loss has passed (`chainLogicTargetEnabled`), so only the lane meant to
+  answer ENTDAA does.
 - **Address loss** (CHAIN_IN fell, RSTDAA, RELEASE_CHAIN) forgets lane index
   and CONFIG (CONFIG_VALID clears) and stops sampling.
 - **Linker script:** stack 1 KB -> 4 KB; `.noinit` section added
@@ -791,7 +796,9 @@ Decisions taken in this pass:
   validate before sending.
 - Say that duplicates are possible: a read cut by a bus error pops nothing,
   so the control module must drop records whose seq it already has.
-- BUS_IDLE_SAFE: the control module re-pushes the sampling mode.
+- BUS_IDLE_SAFE: the control module re-pushes the sampling mode. The flag
+  stays set until COMMAND SAMPLING is sampled or the address is lost (not
+  merely until the next transfer).
 
 **Open questions:** I3C items of §9 (NAP, hot-join after RSTDAA, MRL/SETMRL
 from the controller lowering it below 68); whether the bus-watchdog timeout

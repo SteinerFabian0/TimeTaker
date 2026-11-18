@@ -32,7 +32,17 @@ void sysPowerInit(void)
 
 void sysPowerIdle(void)
 {
+    /* PRIMASK set: an IRQ that became pending since the loop's last look
+     * still ends the WFI at once (a pending interrupt wakes it even when
+     * masked), and the HAL's own sequence cannot be split by an ISR whose
+     * flag the loop would then sleep through. Whatever fires before this
+     * point is picked up by SysTick (1 ms) at the latest. */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     HAL_PWR_EnterSleepMode(HAL_PWR_LOW_PWR_MODE_WFI);
+    if (primask == 0U) {
+        __enable_irq();
+    }
 }
 
 laneStatus_e sysPowerEnterStandby(void)

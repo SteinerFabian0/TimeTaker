@@ -264,9 +264,24 @@ void HardFault_Handler(void)
         "ite   eq                          \n"
         "mrseq r3, msp                     \n"
         "mrsne r3, psp                     \n"
+        /* A stack pointer outside SRAM (overflow, corrupt PSP) has no frame
+         * to read: reading it would fault again and lock up. Report zeros. */
+        "ldr   r0, =0x20000000             \n"
+        "subs  r1, r3, r0                  \n"   /* offset into SRAM        */
+        "ldr   r2, =0xFFE0                 \n"   /* 64 KB - 8 words         */
+        "cmp   r1, r2                      \n"
+        "bhi   1f                          \n"
+        "tst   r3, #3                      \n"
+        "bne   1f                          \n"
         "ldr   r0, [r3, #24]               \n"   /* stacked PC   */
         "ldr   r1, [r3, #20]               \n"   /* stacked LR   */
         "ldr   r2, [r3, #28]               \n"   /* stacked xPSR */
+        "b     2f                          \n"
+        "1:                                \n"
+        "movs  r0, #0                      \n"
+        "movs  r1, #0                      \n"
+        "movs  r2, #0                      \n"
+        "2:                                \n"
         "ldr   r3, =0xE000ED08             \n"   /* SCB->VTOR    */
         "ldr   r3, [r3]                    \n"
         "ldr   r3, [r3]                    \n"   /* initial MSP  */

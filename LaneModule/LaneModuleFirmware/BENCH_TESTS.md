@@ -179,8 +179,8 @@ I3C writes/reads/errors, sensor state (0 reset, 1 busy, 2 shutdown,
      record lost (`cccFrames` in `laneBusStatsData` counts them).
   9. COMMAND SAMPLING 2 (RAW), read RAW_FIFO (80 B): 32 samples, chunkSeq
      increments, firstUs + 32 × periodUs = next firstUs.
-  10. ENEC IBI: an event raises an IBI with payload 0x01; the controller
-      reads the FIFO.
+  10. IBI is off in v1 (`LANE_BUS_IBI_ENABLE 0`: the controller NACKs it).
+      Poll STATUS and read the FIFO instead.
 - **If not:** the first read byte wrong or late (turnaround after Sr): put a
   STOP between pointer write and read and compare; if that fixes it, the
   ISR is too slow at 1 MHz (raise its priority above TIM2 or simplify the
@@ -231,7 +231,8 @@ I3C writes/reads/errors, sensor state (0 reset, 1 busy, 2 shutdown,
      un-parks.
   3. Stop the controller for 6 s while sampling with the LED on: STATUS
      BUS_IDLE_SAFE (0x200), sampling OFF, LED off, address kept; the flag
-     clears at the next transfer.
+     stays set through ordinary transfers and clears at the next COMMAND
+     SAMPLING (or after address loss).
   4. Short SENS_SDA to GND for 1 s while sampling: one SENSOR_FAULT event,
      recovery (bus clear), sampling resumes by itself.
   5. COMMAND SLEEP 1: state 4, sensor off, LED off, still answering;

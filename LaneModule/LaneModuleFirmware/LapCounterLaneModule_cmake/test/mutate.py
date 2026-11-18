@@ -68,6 +68,10 @@ muts = [
  ('host_chain', C, 'if (c->backoffMs > CHAIN_JOIN_BACKOFF_MAX_MS) {', 'if (false) {', 'backoff capped'),
  ('host_chain', C, 'c->nextJoinMs = nowMs + CHAIN_REJOIN_HOLD_MS;', 'c->nextJoinMs = nowMs;', 'RSTDAA hold'),
 
+ ('host_chain', C, 'return c->hasAddress || (c->stableHigh && (int32_t)(nowMs - c->holdUntilMs) >= 0);', 'return (c->stableHigh && (int32_t)(nowMs - c->holdUntilMs) >= 0);', 'target stays enabled with an address'),
+ ('host_chain', C, 'return c->hasAddress || (c->stableHigh && (int32_t)', 'return c->hasAddress || ((int32_t)', 'target off while CHAIN_IN low'),
+ ('host_chain', C, '(c->stableHigh && (int32_t)(nowMs - c->holdUntilMs) >= 0);', '(c->stableHigh);', 'target off during the rejoin hold'),
+ ('host_chain', C, 'c->holdUntilMs = nowMs;   /* a fresh rise', 'c->holdUntilMs = nowMs + 100000U;   /* a fresh rise', 'rise ends the rejoin hold'),
  ('host_chain', C, '        c->nextJoinMs = nowMs;\n        return CHAIN_EVENT_ROSE;', '        return CHAIN_EVENT_ROSE;', 'join at once on rise'),
 ]
 # --- register map: every validation rule, one at a time
