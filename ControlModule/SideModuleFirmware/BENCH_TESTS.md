@@ -131,7 +131,11 @@ LEDs on 1 s apart (lit = lanes present), both go dark within a few µs of each
 other; EVT_LIGHTS_OUT{toutUs} after; holds differ every time; DBG "SEQ LIGHTS
 OUT v=<hold µs>".
 *If not:* EVT_SEQ_ABORTED{LANE_FAILED}: the lane did not show the actions in
-its STATUS.schedulePending (lane SCHEDULE queue).
+its STATUS.schedulePending (lane SCHEDULE queue) within 10 read-backs 2 ms
+apart, or not by T0 − 20 ms.
+*armSampling:* with the lanes' sampling OFF before the start, LANE_STATUS
+after T0 shows samplingMode ON; unplug and replug a lane after lights out:
+it re-joins and is still sampling (the table mode followed T0).
 
 **S-2 Abort.** Mid-sequence: BTN2 held 1 s. Again with ABORT_SEQUENCE.
 *Expect:* EVT_BUTTON{BTN2, LONG} and EVT_SEQ_ABORTED{BUTTON} (then {HOST});

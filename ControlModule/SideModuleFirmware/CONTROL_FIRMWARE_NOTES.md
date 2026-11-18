@@ -131,13 +131,14 @@ that can be written without hardware is written, builds and is host-tested;
 The bench procedures are in `BENCH_TESTS.md`. The older C0 checklist below
 ("On the bench") is now BENCH_TESTS.md C0.
 
-**Sizes (2026-11-18, after the bootloader removal):** debug app 60.8 KB
-flash / 55.4 KB RAM, release 60.1 KB / 55.4 KB, of 240 KB / 64 KB.
+**Sizes (2026-11-18, after the seam review; `arm-none-eabi-size`, text+data /
+data+bss incl. the 4 KB stack):** debug 62.7 KB flash / 56.0 KB RAM, release
+62.2 KB / 56.0 KB, of 240 KB / 64 KB.
 
 **RAM map** (release, 64 KB; stack included): event log 35.2 KB (1600 slots ×
 22 B, `HOST_MANAGER_EVENT_LOG_CAPACITY`), stack 4 KB, nRF rings 3 KB, TinyUSB
 CDC 2.6 KB, I3C queues 1.9 KB, lane slots 1.5 KB, the two host sessions
-1.4 KB, heap 0.5 KB, everything else about 5.3 KB; **8.6 KB free** (target:
+1.4 KB, heap 0.5 KB, everything else about 5.9 KB; **about 8 KB free** (target:
 about 8 KB). The event log takes what the bootloader's hand-over and the
 update path left; grow or shrink it when other RAM users change.
 
@@ -151,9 +152,10 @@ programs the settings pages only. Presets: `debug_GCC_main`,
 `fault_guard`, `sys_power`, `exti_latch` (owns HAL_EXTI_TriggerCallback);
 pure and host-tested: `lane_logic`, `seq_planner`, `bind_list`,
 `settings_record`, `crc32`, `nrf_link_proto`, `byte_ring`, `stream_budget`,
-plus `log_line`.
+`ctrl_policy` (the coordinators' decisions, seam review 2026-11-18), plus
+`log_line`.
 Coordinators: `lane_manager` (rewritten), `sequence_manager` (new),
-`host_manager` (BLE session, bind policy, every 0.4 request), `panel_manager`
+`host_manager` (BLE session, bind policy, every 0.5 request), `panel_manager`
 (BTN2 long = abort), `ctrl_master` (init order, watchdog, fault inputs).
 `tools/optprog.py` programs the option bytes.
 
@@ -194,17 +196,19 @@ That is the hub's and the lane's pattern.
 
 | File | Job |
 |---|---|
-| `ctrl_master` | Init order and the error policy |
-| `host_manager` | Event log, USB session, requests: NODE_LIST, LANE_POWER, REBOOT |
-| `lane_manager` | Lane rail + SYNC sequencing |
-| `panel_manager` | Status/activity LEDs, buttons → EVT_BUTTON |
+| `ctrl_master` | Init order, the error policy, watchdog, fault inputs |
+| `host_manager` | Event log, USB and BLE sessions, every request, BLE bind policy (decisions in `ctrl_policy`) |
+| `lane_manager` | Lane rail + SYNC, enumeration, config push, polling, health, SCHEDULE writes and read-back |
+| `sequence_manager` | Start sequence on the system clock (per-pass decision in `ctrl_policy`) |
+| `panel_manager` | Status/activity LEDs, buttons → EVT_BUTTON, BTN2 LONG abort |
 
 **Modules:**
 
 | Group | Files |
 |---|---|
 | Hardware | `sys_time` (TIM12), `indicator_led` (TIM8/TIM1), `button_handler`, `lane_chain`, `usb_cdc` (TinyUSB), `device_id` |
-| Pure, host-tested | `frame_codec`, `event_log`, `host_session` |
+| Pure, host-tested | `frame_codec`, `event_log`, `host_session`, `lane_logic`, `seq_planner`, `ctrl_policy`, `bind_list`, `settings_record`, `crc32`, `nrf_link_proto`, `byte_ring`, `stream_budget`, `button_logic`, `led_pattern` |
+| Hardware (later passes) | `i3c_ctrl`, `nrf_link`, `settings_store`, `flash_drv`, `rng`, `fault_guard`, `sys_power`, `exti_latch` |
 | Shared | `irq_guard`, `led_pattern` |
 
 ### Decisions taken in this pass
@@ -276,10 +280,8 @@ pull-down. PB14 BUS_INT is an input with no pull. PA8/PA9 are not touched
 ### Open
 
 - Everything on the bench (BENCH_TESTS.md).
-- CubeMX items for the next pass: EXTI5 (BLE_IRQ) both edges (polled today);
-  I3C1 `get_last_errors` on (error causes are read from SER after the HAL
-  cleared ERRF); optionally the HAL flash program/erase switches (flash_drv
-  uses the LL instead).
+- CubeMX items for the next pass: collected for both boards in
+  `../../BRINGUP.md` ("Next CubeMX pass").
 
 ### On the bench (task C0, still to do: needs a board)
 

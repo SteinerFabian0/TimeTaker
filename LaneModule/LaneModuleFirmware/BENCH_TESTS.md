@@ -146,7 +146,7 @@ I3C writes/reads/errors, sensor state (0 reset, 1 busy, 2 shutdown,
   raise CHAIN, accept the hot-join, ENTDAA with address 0x11.
 - **Expect:** `CHAIN_IN high`, `hot-join request (0)`, then
   `ENUMERATED addr=0x11, CHAIN_OUT high`; scope J2 pin 2 goes high.
-  Controller reads ID (28 B): boardType 2, proto 0.1, fw, CRC as in test 2,
+  Controller reads ID (28 B): boardType 2, proto 0.3, fw, CRC as in test 2,
   UID. Writes LANE_ID = 1 → `LANE_ID = 1`. Reads STATUS (24 B): state 1.
   Without the controller answering, the hot-join repeats at 20, 40, … 1000 ms.
 - **If not:** no hot-join on the bus: `LL_I3C_IsEnabledHotJoin`, DEVR0;

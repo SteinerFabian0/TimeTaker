@@ -15,22 +15,20 @@
 #include "lane_protocol.h"
 #include "lane_logic.h"
 #include "seq_planner.h"
+#include "ctrl_policy.h"
 #include "rng.h"
 #include "sys_time.h"
 #include "log_line.h"
 #include "lane_manager.h"
 #include "host_manager.h"
 
-typedef enum {
-    SEQ_IDLE = 0,
-    SEQ_ARMING,      /* actions queued, waiting for every lane to confirm */
-    SEQ_ARMED,       /* every lane confirmed, waiting for Tout */
-} seqState_e;
-
-static seqState_e seqState;
+/* States: ctrl_policy.h (IDLE, ARMING, ARMED). */
+static uint8_t    seqState;
 static seqPlan_t  seqPlan;
 static uint8_t    seqLanes;          /* participating lanes (mask) */
 static uint8_t    seqLights;
+static bool       seqArmSampling;
+static bool       seqArmApplied;
 
 static void seqLog(const char *what, int32_t v)
 {
@@ -54,24 +52,24 @@ static ctrlStatus_e seqAction(uint8_t lane, uint8_t op, uint8_t action, uint16_t
 
 ctrlStatus_e sequenceManagerInit(void)
 {
-    seqState = SEQ_IDLE;
+    seqState = CTRL_POLICY_SEQ_IDLE;
     seqLanes = 0U;
     return CTRL_OK;
 }
 
 bool sequenceManagerIsRunning(void)
 {
-    return seqState != SEQ_IDLE;
+    return seqState != (uint8_t)CTRL_POLICY_SEQ_IDLE;
 }
 
 /* Cancels every lane's actions and blinks. publish=false: START refused
  * (ERR_LANE_NACK), nothing is published (sim A12). */
 static ctrlStatus_e seqStop(uint8_t reason, bool publish)
 {
-    if (seqState == SEQ_IDLE) {
+    if (seqState == (uint8_t)CTRL_POLICY_SEQ_IDLE) {
         return CTRL_ERR_INVALID_STATE;
     }
-    seqState = SEQ_IDLE;
+    seqState = CTRL_POLICY_SEQ_IDLE;
 
     const laneLed_t blink = {
         .mode            = LANE_LED_BLINK,
@@ -107,7 +105,7 @@ ctrlStatus_e sequenceManagerAbort(uint8_t reason)
 
 ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0Us)
 {
-    if (seqState != SEQ_IDLE) {
+    if (seqState != (uint8_t)CTRL_POLICY_SEQ_IDLE) {
         return CTRL_ERR_SEQ_RUNNING;
     }
     if (req->armSampling > 1U) {
@@ -133,7 +131,9 @@ ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0U
     laneManagerScheduleForget();
     seqLanes  = lanes;
     seqLights = seqPlan.litCount;
-    seqState  = SEQ_ARMING;
+    seqState  = CTRL_POLICY_SEQ_ARMING;
+    seqArmSampling = req->armSampling != 0U;
+    seqArmApplied  = false;
 
     for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
         if ((lanes & LANE_LOGIC_MASK(n)) == 0U) {
@@ -167,42 +167,47 @@ ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0U
 
 ctrlStatus_e sequenceManagerRun(void)
 {
-    if (seqState == SEQ_IDLE) {
+    if (seqState == (uint8_t)CTRL_POLICY_SEQ_IDLE) {
         return CTRL_OK;
     }
-    const uint64_t now = sysTimeNowUs();
 
-    if (!laneManagerIsPowered()) {
-        return sequenceManagerAbort(HP_ABORT_POWER);
-    }
-    if ((laneManagerConfiguredMask() & seqLanes) != seqLanes) {
-        return sequenceManagerAbort(HP_ABORT_LANE_LEFT);
-    }
-
-    if (seqState == SEQ_ARMING) {
-        bool allOk = true;
-        for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
-            if ((seqLanes & LANE_LOGIC_MASK(n)) == 0U) {
-                continue;
-            }
-            const laneSchedResult_e r = laneManagerScheduleResult(n);
-            if (r == LANE_SCHED_RESULT_FAILED) {
-                return sequenceManagerAbort(HP_ABORT_LANE_FAILED);
-            }
-            allOk = allOk && r == LANE_SCHED_RESULT_OK;
-        }
-        if (allOk) {
-            seqState = SEQ_ARMED;
-        } else if (now + (uint64_t)SEQUENCE_MANAGER_CONFIRM_MS * 1000U >= seqPlan.t0Us) {
-            return sequenceManagerAbort(HP_ABORT_LANE_FAILED);   /* better than a dark lane */
+    ctrlPolicySeqIn_t in = {
+        .state          = seqState,
+        .powered        = laneManagerIsPowered(),
+        .configuredMask = laneManagerConfiguredMask(),
+        .seqLanes       = seqLanes,
+        .armSampling    = seqArmSampling,
+        .armApplied     = seqArmApplied,
+        .nowUs          = sysTimeNowUs(),
+        .t0Us           = seqPlan.t0Us,
+        .toutUs         = seqPlan.toutUs,
+    };
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        const laneSchedResult_e r = laneManagerScheduleResult(n);
+        if (r == LANE_SCHED_RESULT_OK) {
+            in.okMask |= LANE_LOGIC_MASK(n);
+        } else if (r == LANE_SCHED_RESULT_FAILED) {
+            in.failedMask |= LANE_LOGIC_MASK(n);
         }
     }
 
-    if (now >= seqPlan.toutUs) {
+    ctrlPolicySeqStep_t step;
+    ctrlPolicySeqStep(&in, &step);
+    if (step.abortReason != 0U) {
+        return sequenceManagerAbort(step.abortReason);
+    }
+    if (step.armed) {
+        seqState = CTRL_POLICY_SEQ_ARMED;
+    }
+    if (step.applyArmSampling) {
+        seqArmApplied = true;
+        laneManagerArmSampling(seqLanes);
+    }
+    if (step.lightsOut) {
         const hpEvtLightsOut_t evt = { .lights = seqLights, .toutUs = seqPlan.toutUs };
         const int32_t holdUs = (int32_t)seqPlan.holdUs;
-        seqState = SEQ_IDLE;
-        seqLanes = 0U;
+        seqState  = CTRL_POLICY_SEQ_IDLE;
+        seqLanes  = 0U;
         seqLights = 0U;
         laneManagerScheduleForget();
         seqLog("LIGHTS OUT", holdUs);

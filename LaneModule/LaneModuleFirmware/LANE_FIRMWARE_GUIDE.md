@@ -740,7 +740,24 @@ release 32.2 KB / 46.9 KB, of 256 KB / 64 KB (the event FIFO, 2480 deep,
 takes 38.75 KB of that on purpose: §3.6). Host tests: `test/run_all.sh`,
 7 suites, all passing, plus the `lane_protocol.h` copy check;
 `test/mutate.py`: 111 mutations, all killed. `LANE_ACT_LED_PULSE` (§3.7)
-added 2026-11-18, host-tested, not yet on the bench (BENCH_TESTS.md 11).
+added 2026-11-18 (`lane_protocol.h` 0.3), host-tested, not yet on the bench
+(BENCH_TESTS.md 11).
+
+Seam review (2026-11-18, `SYSTEM_ARCHITECTURE.md` §13):
+
+- STATUS `schedulePending` is patched live in the read response (like
+  `fifoCount`), because the control module reads it right after its
+  SCHEDULE writes to confirm the start sequence; the controller also
+  re-reads a short count every 2 ms.
+- The sample instant is the TIM2 counter when the CH2 ISR ran, not the
+  compare's due time (`lane_sampler.c`): a late or forced alarm no longer
+  stamps the sample before its IR pulse.
+- Decided, not changed: a work flag set by an ISR just before the WFI in
+  `sysPowerIdle()` waits for the next interrupt (the 1 kHz sample alarm, at
+  worst SysTick, ≤ 1 ms). Every timestamp is taken in an ISR (sample
+  instant, SYNC capture, SYNC_ALIGN `rxLocal`, scheduled actions), so this
+  delays processing only; the 64-sample ring and the ≥ 150 ms start lead
+  absorb it.
 
 | Step | State | Where |
 |---|---|---|
@@ -804,29 +821,25 @@ Decisions taken in this pass:
 
 **CubeMX changes for the next pass** (do not edit the `.ioc2` by hand):
 
+Collected with the control module's in `BRINGUP.md` ("Next CubeMX pass"):
+
 - I3C1 target max read length 64 -> at least 96 (EVENT_FIFO 68 B, RAW_FIFO
   80 B). `lane_bus` sets it at init until then.
 - IWDG: optional (fault_guard uses LL). If added, keep `USE_HAL_IWDG_MODULE`
   consistent and do not let `mx_system_init()` start it.
+- CRC block: optional (`image_crc.c` enables the clock with LL today).
 - Nothing else; pins unchanged.
 
-**Contract (`lane_protocol.h`) requests** (worked around locally):
-
-- Name the COMMAND SLEEP levels (local: 0 awake, 1 IDLE, 2 NAP and 3
-  STANDBY reserved and rejected) — `laneSleepLevel_e` in `lane_regs.h`.
-- Document CLEARED's tEntry/dwell meaning and the holdoff anchor (above).
-- State the CONFIG ranges (now in `lane_regs.h`) so the control module can
-  validate before sending.
-- Say that duplicates are possible: a read cut by a bus error pops nothing,
-  so the control module must drop records whose seq it already has.
-- BUS_IDLE_SAFE: the control module re-pushes the sampling mode. The flag
-  stays set until COMMAND SAMPLING is sampled or the address is lost (not
-  merely until the next transfer).
+**Contract (`lane_protocol.h`) requests:** all taken into `lane_protocol.h`
+0.2 (SLEEP levels, CLEARED/holdoff semantics, `LANE_CFG_*` ranges checked on
+both sides, duplicates after a cut read, BUS_IDLE_SAFE re-push); 0.3 added
+`LED_PULSE`. Nothing open.
 
 **Open questions:** I3C items of §9 (NAP, hot-join after RSTDAA, MRL/SETMRL
-from the controller lowering it below 68); whether the bus-watchdog timeout
-(5 s) fits the control module's health poll; the lane bootloader keeps the
-ENTER_BOOTLOADER hook rejected until it exists.
+from the controller lowering it below 68); the lane bootloader keeps the
+ENTER_BOOTLOADER hook rejected until it exists. (The bus watchdog's 5 s is
+far beyond the control module's 10 ms EVENT_FIFO poll, so it only trips when
+the controller is gone; its 1 s health read then re-pushes the mode.)
 
 ### First pass (2026-11-10), kept for the record
 

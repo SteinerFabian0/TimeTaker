@@ -238,8 +238,49 @@ static void testMapping(void)
           && n.fwGitRev == 0xabcU && n.imageCrc == 0xdeadU);
 }
 
+static void testSeqStart(void)
+{
+    bool     known = false;
+    uint16_t next  = 0U;
+    laneStatus_t st = { .fifoCount = 3, .nextEventSeq = 10 };
+    laneLogicSeqStart(&st, &known, &next);
+    check("seq start: no drops -> oldest queued = next - count", known && next == 7);
+    st.nextEventSeq = 1; st.fifoCount = 3;
+    laneLogicSeqStart(&st, &known, &next);
+    check("seq start: wraps below 0", known && next == 0xFFFEU);
+    st.fifoCount = LANE_FIFO_COUNT_MAX;
+    laneLogicSeqStart(&st, &known, &next);
+    check("seq start: saturated count -> unknown, first record sets it", !known);
+    /* FIFO held 0..2479, 10 dropped (seq 2480..2489 spent), drained to 100:
+     * queued 2380..2479, next 2490. next - count = 2390 would drop 2380..2389. */
+    st = (laneStatus_t){ .fifoCount = 100, .nextEventSeq = 2490, .droppedEvents = 10 };
+    laneLogicSeqStart(&st, &known, &next);
+    check("seq start: lane dropped events -> unknown (no false duplicates)", !known);
+    check("seq start: ... and the oldest record is then taken",
+          laneLogicSeqCheck(known, next, 2380) == LANE_SEQ_TAKE);
+    st = (laneStatus_t){ .fifoCount = 5, .nextEventSeq = 50, .flags = LANE_STATUS_FIFO_OVERFLOW };
+    laneLogicSeqStart(&st, &known, &next);
+    check("seq start: overflow flag alone (drop count cleared) -> unknown", !known);
+}
+
+static void testSchedVerify(void)
+{
+    check("sched verify: holds what was queued -> OK", laneLogicSchedVerify(true, 5, 5, 1) == LANE_SCHED_VERIFY_OK);
+    check("sched verify: holds more (older entries) -> OK", laneLogicSchedVerify(true, 6, 5, 1) == LANE_SCHED_VERIFY_OK);
+    check("sched verify: lane not caught up -> retry", laneLogicSchedVerify(true, 2, 5, 1) == LANE_SCHED_VERIFY_RETRY);
+    check("sched verify: still short at the last try -> FAILED",
+          laneLogicSchedVerify(true, 4, 5, LANE_LOGIC_SCHED_VERIFY_TRIES) == LANE_SCHED_VERIFY_FAILED);
+    check("sched verify: one before the last -> retry",
+          laneLogicSchedVerify(true, 4, 5, LANE_LOGIC_SCHED_VERIFY_TRIES - 1U) == LANE_SCHED_VERIFY_RETRY);
+    check("sched verify: read failed -> FAILED at once", laneLogicSchedVerify(false, 5, 5, 1) == LANE_SCHED_VERIFY_FAILED);
+    check("sched verify: tries x spacing stays far inside the 150 ms lead",
+          LANE_LOGIC_SCHED_VERIFY_TRIES * LANE_LOGIC_SCHED_VERIFY_RETRY_MS <= 50U);
+}
+
 int main(void)
 {
+    testSeqStart();
+    testSchedVerify();
     testIdleSafe();
     testJoin();
     testFifo();

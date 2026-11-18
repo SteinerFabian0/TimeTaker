@@ -67,6 +67,7 @@ suite host_settings_record "$CTRL/app/modules/settings_record.c" "$CTRL/app/modu
 suite host_nrf_link    "$CTRL/app/modules/nrf_link_proto.c" "$CTRL/app/modules/frame_codec.c" \
                        "$CTRL/app/modules/byte_ring.c" "$CTRL/app/modules/stream_budget.c"
 suite host_lane_logic  "$CTRL/app/modules/lane_logic.c"
+suite host_ctrl_policy "$CTRL/app/modules/ctrl_policy.c"
 suite host_button     "$CTRL/app/modules/button_logic.c"
 suite host_led        "$CTRL/app/modules/led_pattern.c" "$CTRL/app/modules/indicator_led.c"
 

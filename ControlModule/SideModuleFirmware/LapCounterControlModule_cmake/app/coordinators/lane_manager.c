@@ -118,6 +118,9 @@ typedef struct {
     uint8_t          schedResult;        /* laneSchedResult_e */
     uint8_t          schedExpect;
     uint8_t          schedWrites;        /* priority writes still queued */
+    uint8_t          schedVerifyTries;   /* STATUS read-backs of this verify */
+    bool             schedVerifyDue;     /* a read-back to send at schedVerifyAtMs */
+    uint32_t         schedVerifyAtMs;
 } laneSlot_t;
 
 static lanePowerState_e laneManagerPower;
@@ -308,10 +311,9 @@ static void laneConfigured(uint8_t lane, const laneStatus_t *st)
     const uint32_t  now = HAL_GetTick();
     s->state       = SLOT_CONFIGURED;
     s->failStreak  = 0U;
-    /* First record still queued, unless the count saturated (deep lane FIFO):
-     * then the first record read sets it (lane_protocol.h LANE_FIFO_COUNT_MAX). */
-    s->seqKnown    = st->fifoCount < LANE_FIFO_COUNT_MAX;
-    s->nextSeq     = (uint16_t)(st->nextEventSeq - st->fifoCount);
+    /* First record still queued, unless the count saturated or the lane
+     * dropped events: then the first record read sets it (lane_logic.h). */
+    laneLogicSeqStart(st, &s->seqKnown, &s->nextSeq);
     s->lastDropped = st->droppedEvents;
     s->lastShifts  = st->syncShifts;
     s->lastPollMs  = now;
@@ -619,8 +621,15 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
     } else if (op == OP_SCHED_VERIFY && s->schedResult == LANE_SCHED_RESULT_PENDING) {
         laneStatus_t st;
         memcpy(&st, s->sched, sizeof(st));
-        s->schedResult = (status == CTRL_OK && rxLen >= sizeof(st) && st.schedulePending >= s->schedExpect)
-                         ? LANE_SCHED_RESULT_OK : LANE_SCHED_RESULT_FAILED;
+        const laneSchedVerify_e v = laneLogicSchedVerify(status == CTRL_OK && rxLen >= sizeof(st),
+                                                         st.schedulePending, s->schedExpect,
+                                                         ++s->schedVerifyTries);
+        if (v == LANE_SCHED_VERIFY_RETRY) {
+            s->schedVerifyDue   = true;   /* the lane has not applied the writes yet */
+            s->schedVerifyAtMs  = HAL_GetTick() + LANE_LOGIC_SCHED_VERIFY_RETRY_MS;
+        } else {
+            s->schedResult = (v == LANE_SCHED_VERIFY_OK) ? LANE_SCHED_RESULT_OK : LANE_SCHED_RESULT_FAILED;
+        }
     } else if (op == OP_REQ_STATUS || op == OP_REQ_SIGNAL) {
         if (laneReqLane != lane || laneReqDone) {
             return;
@@ -700,6 +709,13 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
 static void laneService(uint8_t lane, uint32_t now)
 {
     laneSlot_t *s = &laneSlots[lane];
+    if (s->schedVerifyDue && s->state == SLOT_CONFIGURED && (int32_t)(now - s->schedVerifyAtMs) >= 0) {
+        s->schedVerifyDue = false;   /* not sequenced: goes out beside a running step */
+        if (laneSubmit(lane, OP_SCHED_VERIFY, LANE_REG_STATUS, NULL, 0U, s->sched,
+                       (uint16_t)sizeof(laneStatus_t), NULL, true) != CTRL_OK) {
+            s->schedResult = LANE_SCHED_RESULT_FAILED;
+        }
+    }
     if (s->state == SLOT_ABSENT || s->opPending) {
         return;
     }
@@ -992,6 +1008,15 @@ ctrlStatus_e laneManagerSetSampling(uint8_t laneMask, uint8_t mode)
     return CTRL_OK;
 }
 
+void laneManagerArmSampling(uint8_t laneMask)
+{
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        if ((laneMask & LANE_LOGIC_MASK(n)) != 0U && laneTableMode[n - 1U] == (uint8_t)HP_SAMPLING_OFF) {
+            laneTableMode[n - 1U] = (uint8_t)HP_SAMPLING_ON;   /* the lane switched itself at T0 */
+        }
+    }
+}
+
 ctrlStatus_e laneManagerSetLed(uint8_t laneMask, const laneLed_t *led)
 {
     CTRL_RETURN_IF_ERR(laneCheckMask(laneMask));
@@ -1115,7 +1140,9 @@ ctrlStatus_e laneManagerScheduleVerify(uint8_t lane, uint8_t expectPending)
         return CTRL_ERR_LANE_ABSENT;
     }
     laneSlot_t *s = &laneSlots[lane];
-    s->schedExpect = expectPending;
+    s->schedExpect      = expectPending;
+    s->schedVerifyTries = 0U;
+    s->schedVerifyDue   = false;
     if (s->schedResult != LANE_SCHED_RESULT_FAILED) {
         s->schedResult = LANE_SCHED_RESULT_PENDING;
     }
@@ -1137,7 +1164,8 @@ laneSchedResult_e laneManagerScheduleResult(uint8_t lane)
 void laneManagerScheduleForget(void)
 {
     for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
-        laneSlots[n].schedResult = LANE_SCHED_RESULT_NONE;
-        laneSlots[n].schedWrites = 0U;
+        laneSlots[n].schedResult    = LANE_SCHED_RESULT_NONE;
+        laneSlots[n].schedWrites    = 0U;
+        laneSlots[n].schedVerifyDue = false;
     }
 }

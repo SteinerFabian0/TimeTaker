@@ -104,10 +104,12 @@
  *     events are NOT in tEntryUs order across lanes and a crossing just
  *     before lights out can be logged after EVT_LIGHTS_OUT.
  *   - IN_HOLDOFF: holdoffUs > 0 and less than holdoffUs since the lane's
- *     previous event (every event restarts the window). [A11]
+ *     last CROSSING that was not itself flagged (lane_protocol.h: flagged
+ *     crossings and BLOCKED do not restart the window). [A11]
  *   - A car standing on the line: BLOCKED (tEntryUs = entry, dwell = the
- *     block timeout) after the block timeout, then CLEARED (tEntryUs = when
- *     it moved off, dwell = standing time, capped at 655 ms) — no CROSSING.
+ *     block timeout) after the block timeout, then CLEARED (tEntryUs = the
+ *     same entry, as lane_protocol.h says; dwell = standing time, capped at
+ *     655 ms) — no CROSSING.
  *   - After SYNC_LOST a lane's crossings carry EXTRAPOLATED until SYNC_OK.
  *
  * Start sequence (CONTROL guide §5.3)
@@ -321,6 +323,9 @@ const MAX_LANES = 6;
 export const SIM_APP_FW: Firmware = { major: 0, minor: 2, patch: 0, gitRev: 0x51d0052 };
 const SIM_LANE_FW: Firmware = { major: 0, minor: 1, patch: 0, gitRev: 0x1a9e000 };
 const SIM_BLE_FW: Firmware = { major: 0, minor: 1, patch: 0, gitRev: 0xb1e0000 };
+/** NODE_LIST protoMinor: lane_protocol.h LANE_PROTO_MINOR and ble_link_protocol.h BLE_LINK_MINOR. */
+const SIM_LANE_PROTO_MINOR = 3;
+const SIM_BLE_LINK_MINOR = 2;
 
 export function defaultLaneConfig(lane: number): LaneConfig {
   return {
@@ -1311,7 +1316,8 @@ export class SimDevice implements SimLinkHost<Link> {
     if (cfg.holdoffUs > 0 && s.lastEventUs !== null && tUs - s.lastEventUs < cfg.holdoffUs) flags |= LaneEventFlag.IN_HOLDOFF;
     if (d.merged) flags |= LaneEventFlag.MERGED;
     if (!s.syncOk) flags |= LaneEventFlag.EXTRAPOLATED;
-    s.lastEventUs = tUs;
+    // lane_protocol.h: the window runs from the last CROSSING not itself flagged IN_HOLDOFF.
+    if (kind !== 'blocked' && !(flags & LaneEventFlag.IN_HOLDOFF)) s.lastEventUs = tUs;
     const dwellUs = kind === 'blocked' ? cfg.blockTimeoutUs : Math.round(d.dwellMs * 1000);
     s.passes.push({ startUs: tUs, endUs: tUs + (kind === 'blocked' ? Math.round(d.blockMs * 1000) : dwellUs), depth: d.depth });
     if (s.passes.length > 16) s.passes.shift();
@@ -1333,7 +1339,8 @@ export class SimDevice implements SimLinkHost<Link> {
     if (kind === 'blocked') {
       emit(atMs + cfg.blockTimeoutUs / 1000 + poll(), LaneEventType.BLOCKED, tUs, cfg.blockTimeoutUs / 10, flags);
       const clearUs = tUs + Math.round(d.blockMs * 1000);
-      emit(this.#msAtUs(clearUs) + cfg.mergeGapUs / 1000 + poll(), LaneEventType.CLEARED, clearUs, d.blockMs * 100, 0);
+      // lane_protocol.h: CLEARED carries its BLOCKED event's tEntryUs; dwell is the whole blocked time.
+      emit(this.#msAtUs(clearUs) + cfg.mergeGapUs / 1000 + poll(), LaneEventType.CLEARED, tUs, d.blockMs * 100, 0);
       return;
     }
     emit(atMs + d.dwellMs + cfg.mergeGapUs / 1000 + poll(), LaneEventType.CROSSING, tUs, dwellUs / 10, flags);
@@ -1474,7 +1481,7 @@ export class SimDevice implements SimLinkHost<Link> {
     if (this.#opts.bleModule) {
       nodes.push({
         nodeClass: NodeClass.BLE, index: 0, boardType: BoardType.BLE_BRIDGE, state: NodeState.OK,
-        fwMajor: SIM_BLE_FW.major, fwMinor: SIM_BLE_FW.minor, fwPatch: SIM_BLE_FW.patch, protoMinor: 1,
+        fwMajor: SIM_BLE_FW.major, fwMinor: SIM_BLE_FW.minor, fwPatch: SIM_BLE_FW.patch, protoMinor: SIM_BLE_LINK_MINOR,
         fwGitRev: SIM_BLE_FW.gitRev, imageCrc: 0,
       });
     }
@@ -1482,8 +1489,10 @@ export class SimDevice implements SimLinkHost<Link> {
       const s = this.#lanes[lane]!;
       if (!s.present) continue;
       nodes.push({
-        nodeClass: NodeClass.LANE, index: lane, boardType: BoardType.LANE, state: s.fault ? NodeState.FAULT : NodeState.OK,
-        fwMajor: SIM_LANE_FW.major, fwMinor: SIM_LANE_FW.minor, fwPatch: SIM_LANE_FW.patch, protoMinor: 0,
+        // Like lane_manager: UPDATING while the config push runs, OK once configured.
+        nodeClass: NodeClass.LANE, index: lane, boardType: BoardType.LANE,
+        state: s.fault ? NodeState.FAULT : s.configured ? NodeState.OK : NodeState.UPDATING,
+        fwMajor: SIM_LANE_FW.major, fwMinor: SIM_LANE_FW.minor, fwPatch: SIM_LANE_FW.patch, protoMinor: SIM_LANE_PROTO_MINOR,
         fwGitRev: SIM_LANE_FW.gitRev, imageCrc: 0,
       });
     }

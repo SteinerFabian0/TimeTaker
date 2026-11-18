@@ -17,7 +17,8 @@ brief for the sessions that write it:
 - BLE: `ControlModule/BleFirmware/BLE_FIRMWARE_GUIDE.md`;
 - web app: `WebApp/README.md` and §11 here.
 
-§13 lists what this document changed in other documents. The code structure follows the Yuhka hub firmware
+§13 lists what this document changed in other documents. The first day
+with the boards follows `BRINGUP.md` (order, flashing, CubeMX items, risks). The code structure follows the Yuhka hub firmware
 (`~/Desktop/ATWU_Firmware/hub_STM32C542_MainboardV3/…_cmake/app`):
 
 - **hardware modules** with small APIs, one owner per peripheral;
@@ -194,7 +195,12 @@ Precision budget for one crossing:
 - crystal: 20 ppm.
 
 That is well inside 1/100 s. Transport latency (USB about 1 ms, BLE 7.5–50 ms)
-does not affect accuracy, because timestamps are taken at the edge.
+does not affect accuracy, because timestamps are taken at the edge. On the
+lane every time is captured in an ISR (the sample instant when the TIM2
+compare ISR runs, SYNC edges by input capture, SYNC_ALIGN at frame end,
+scheduled actions in the compare ISR), so main-loop latency, including the
+up to 1 ms a WFI can sleep past a work flag set just before it, delays
+processing only, never a timestamp.
 
 ---
 
@@ -253,7 +259,8 @@ authority.
 | dwell | u16 | Car under the sensor, in units of 10 µs (max 655 ms) |
 | depth | u16 | Signal minimum relative to baseline: a confidence measure |
 
-That is 16 B. FIFO depth is ≥ 32.
+That is 16 B. FIFO depth: 2480 events in v1 (the RAM the lane does not
+use, §10); STATUS `fifoCount` saturates at 255.
 
 **Sampling modes the lane needs.** The lane needs no race states. It does not
 need ARMED or RACE, because false starts are judged in the host against
@@ -375,9 +382,14 @@ void ctrlRun(void)
    - a TRNG hold h from [holdMin, holdMax]; `Tout = Tlit + h`, all LEDs off at
      Tout. (k = 0: no breathing, the far-end lane lights at T0.)
 3. It writes each lane's **scheduled actions** (LED pulse/on/off at T; at most 5 per lane, queue depth 8)
-   through `lane_manager`. Each lane executes them from its own TIM2 compare on
-   the mapped clock. All six go dark within a few µs of each other, whatever
-   the bus latency.
+   through `lane_manager`, then reads each lane's STATUS back
+   (`schedulePending`, retried every 2 ms while the lane's main loop has not
+   applied the writes yet; a lane short at T0 − 20 ms aborts the sequence).
+   Each lane executes them from its own TIM2 compare on the mapped clock. All
+   six go dark within a few µs of each other, whatever the bus latency.
+   With `armSampling`, the lanes' sampling mode in the control module's
+   table becomes ON at T0, so a lane that re-joins or re-pushes after
+   BUS_IDLE_SAFE mid-race keeps sampling.
 4. It emits `EVT_SEQ_STARTED{T0, plan}` at once, and `EVT_LIGHTS_OUT{Tout}`
    when Tout passes. Tout is never revealed earlier.
 5. `ABORT_SEQUENCE` (or a long press on BTN2) cancels the queued lane actions,
@@ -451,7 +463,8 @@ in the web app by comparing crossings with `Tout`.
   5. The standings come out identical.
 
   This is a required test.
-- **Log size:** compact 12–16 B records, 1024+ entries in RAM. That covers
+- **Log size:** 22 B slots (the event without its evSeq), 1600 entries in
+  RAM (`HOST_MANAGER_EVENT_LOG_CAPACITY`). That covers
   link dropouts of many minutes. Long-term history is the **app's** job
   (IndexedDB), not the device's.
 - **Two sessions at once** (a laptop on USB and a tablet on BLE): both get all
@@ -495,7 +508,7 @@ Message ID ranges (draft, grouped like the status codes, with gaps):
 | 0xE0–0xEF | Streams (device → host) |
 | 0xF0–0xFF | Debug streams |
 
-Protocol 0.4 (2026-11-18) defines these messages:
+Protocol 0.5 (2026-11-18) defines these messages:
 
 - **Session:** HELLO, PING, RESUME, NODE_LIST, BIND_LIST, BIND_REMOVE,
   BIND_ALLOW
@@ -518,6 +531,10 @@ BOOT_APP are gone (0xA0–0xAF reserved, the generator refuses them), as is
 `[usb] pid_boot`. `CONTROL_BOOT`, `LANE_BOOT`, `REBOOT_BOOTLOADER` and the
 ERR_IMAGE_*/ERR_UPDATE_SEQUENCE codes keep their values, marked reserved;
 REBOOT{BOOTLOADER} answers ERR_UNSUPPORTED.
+
+New in 0.5: START_SEQUENCE carries `pulseRiseMs` and `attentionPulses`
+(the attention breathing before the countdown, executed by the lanes'
+`LED_PULSE` of `lane_protocol.h` 0.3).
 
 The rest of the table is reserved. `protocol/host_protocol.toml` is the
 authority. The lane bus contract is `lane_protocol.h` and the nRF link
@@ -622,7 +639,9 @@ therefore never splits a host frame.
 
 - **Flow control STM → nRF is by credits:** the nRF grants one credit per
   free 244 B DATA slot and returns it when the slot's notifications are
-  sent. There are no RTS/CTS wires. The other direction needs none.
+  sent. There are no RTS/CTS wires. The other direction needs none. Since
+  link 0.2, `STATS.slotsFree` (1/s) resyncs the STM's count when it sent no
+  DATA for 20 ms, so a credit lost to a corrupted frame heals.
 - **The nRF splits a DATA frame to the current MTU,** so the STM never
   depends on the MTU for correctness.
 - **The STM owns the pairing window and every bind decision.** The nRF
@@ -831,6 +850,36 @@ message IDs.
 
 ## 13. Changes to existing documents
 
+### Seam review before bring-up (2026-11-18)
+
+A pass over the hand-overs between the four nodes (car pass, start, BLE,
+lane lifecycle). Contract versions unchanged: host protocol 0.5,
+`lane_protocol.h` 0.3, `ble_link_protocol.h` 0.2. Fixed:
+
+- **Control, seq start after a lane FIFO overflow:** `nextEventSeq −
+  fifoCount` is not the oldest queued seq once the lane dropped events (each
+  drop spends a seq), so records were dropped as "duplicates". Now unknown
+  (first record sets it) when the lane ever dropped
+  (`laneLogicSeqStart`).
+- **Start-sequence read-back:** the lane's STATUS `schedulePending` was the
+  main loop's last snapshot, and the controller judged one read final, so a
+  lane that had not yet taken its SCHEDULE writes off the mailbox aborted
+  the start (LANE_FAILED). The lane now patches `schedulePending` live; the
+  controller re-reads every 2 ms, up to 10 times (`laneLogicSchedVerify`).
+- **armSampling** now sets the lanes' table mode ON at T0 (the simulator
+  did, the firmware did not): a re-join or BUS_IDLE_SAFE re-push mid-race
+  had switched sampling back OFF.
+- **BLE disconnect:** every LINK_DOWN / BLE_IRQ fall resets the BLE session;
+  only the event is deduplicated. Before, a lost LINK_UP frame left the
+  session open (and bound) for the next central.
+- **Lane sample instant** = the TIM2 ISR time, not the compare's due time.
+- **Web node model:** a lane listed in NODE_LIST as UPDATING (config push
+  running) is `joined`, not `configured`; the simulator reports UPDATING
+  like the firmware, the lane/BLE `protoMinor` (3/2), and CLEARED with its
+  BLOCKED's tEntryUs as `lane_protocol.h` says.
+- **Decision logic of `sequence_manager`, `host_manager`, `panel_manager`**
+  moved into the pure, host-tested `ctrl_policy`.
+
 ### No field firmware update in v1 (2026-11-18)
 
 - **Decision:** every board is flashed over SWD / Tag-Connect; no
@@ -927,7 +976,7 @@ Each step ends in something you can observe:
    - golden tests on both sides.
 
    Both sides pass and are mutation-checked: the C suites, and the TS suite
-   (41 tests, `npm test` in `WebApp/`, Node 26 LTS).
+   (`npm test` in `WebApp/`, Node 26 LTS).
 2. **Control firmware skeleton.** Done 2026-11-16, built and host-tested;
    not flashed yet because no board was attached:
    - `ctrl_master`, status and behavior headers;
@@ -976,6 +1025,5 @@ Each step ends in something you can observe:
 - **VCNL4040 reachable sample rate** (bench). It sets the default sample
   period, the merge gap and the holdoff watch rate.
 - **USB VID/PID.**
-- **Git.** The TimeTaker tree is not a git repository yet. The hub-style
-  version stamp (`MAJOR.MINOR.PATCH+gitrev`) and the generated-file checks
-  both want it.
+- **Git.** Resolved: the tree is a git repository; the version stamps carry
+  the git revision (a dirty tree is flagged).

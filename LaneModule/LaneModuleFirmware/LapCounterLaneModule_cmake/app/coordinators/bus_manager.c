@@ -224,6 +224,9 @@ static uint32_t busBuildRead(uint8_t reg, uint8_t *buf, uint32_t cap, uint8_t *o
         s.fifoCount     = (queued > LANE_FIFO_COUNT_MAX) ? (uint8_t)LANE_FIFO_COUNT_MAX : (uint8_t)queued;
         s.nextEventSeq  = eventFifoNextSeq(f);
         s.droppedEvents = eventFifoDropped(f);
+        /* Live as well: the controller reads it right after its SCHEDULE
+         * writes (start-sequence read-back), before the next status publish. */
+        s.schedulePending = scheduleQueueCount(&busSched);
         memcpy(buf, &s, sizeof(s));
         return sizeof(s);
     }

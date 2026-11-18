@@ -179,7 +179,7 @@ static void samplerOnTrigger(laneStatus_e status, uint16_t value)
 /* TIM2 ISR, priority 1. */
 static void samplerAlarm(uint32_t dueLocal, uint32_t firedLocal)
 {
-    (void)firedLocal;
+    (void)dueLocal;
     if (!samplerRunning) {
         return;
     }
@@ -187,7 +187,10 @@ static void samplerAlarm(uint32_t dueLocal, uint32_t firedLocal)
     samplerOpGen = samplerGen;
 
     if (samplerPhase == SAMPLER_PHASE_TRIGGER) {
-        samplerTriggerLocal = dueLocal;
+        /* The trigger write starts now, not at the due time: a compare that
+         * fired late (ISR latency, a forced past-due alarm) must not move the
+         * sample instant earlier than the IR pulse really was. */
+        samplerTriggerLocal = firedLocal;
         samplerMarker(true);
         laneStatus_e s = vcnl4040Trigger(samplerOnTrigger);
         if (s != LANE_OK) {

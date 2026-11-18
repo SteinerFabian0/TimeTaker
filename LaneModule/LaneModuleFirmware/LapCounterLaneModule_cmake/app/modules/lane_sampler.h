@@ -20,7 +20,8 @@
  * the same period. A change of alignment, period or a fall-behind re-grids
  * from now, so a sample is skipped rather than fired twice.
  *
- * Timestamp of a sample: the trigger instant + the trigger write time + half
+ * Timestamp of a sample: the trigger instant (the TIM2 counter when the
+ * CH2 ISR ran, not the compare's due time) + the trigger write time + half
  * the conversion (BENCH: LANE_SAMPLER_LATENCY_TRIM_US corrects it once
  * measured, BENCH_TESTS.md procedure 4).
  *

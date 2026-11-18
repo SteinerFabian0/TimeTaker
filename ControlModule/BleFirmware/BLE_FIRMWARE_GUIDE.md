@@ -57,7 +57,10 @@ Details, numbers and open items: §14. Bench procedures: `BENCH_TESTS.md`.
   (31/31 mutations caught).
 - Flash: `tools/flash.sh [--recover]` (ST-LINK + OpenOCD, APPROTECT kept
   open). Bench link tool: `tools/link_tool.py` plays the STM.
-- The STM side of the link (`nrf_link`, control task C5) is not built yet.
+- The STM side of the link (`nrf_link`, control task C5) is written and
+  host-tested (`nrf_link_proto`), not run either. Seam review 2026-11-18: the
+  STM now resets its BLE session on every LINK_DOWN / BLE_IRQ fall, even
+  when the matching LINK_UP was lost (SYSTEM_ARCHITECTURE §13).
 
 ---
 
@@ -91,7 +94,7 @@ disconnected inputs then.
 | P0.12 | BOOT0 | → STM BOOT0 (recovery into the ST ROM only) | **Never driven in v1**: disconnected input | R201 10 k pull-down on the STM side holds it low |
 | P0.14 | NRST | → STM NRST | Output **open drain** (S0D1), inactive = released. Never push-pull, not even for one instruction. | Floats; the STM's own NRST pull-up holds it |
 | P0.16 | UART1_TX net | nRF **RX** ← STM PB6 | UARTE RXD, input with **pull-up** | Pull-up keeps the line idle while the STM is in reset |
-| P0.18 | UART1_RX net | nRF **TX** → STM PB7 | UARTE TXD | STM side gets a pull-up at the next CubeMX pass (control guide §8) |
+| P0.18 | UART1_RX net | nRF **TX** → STM PB7 | UARTE TXD | STM side has a pull-up since the CubeMX pass of 2026-11-17 (control guide §8) |
 | P0.20 | BLE_LED | D603 via R603 1 k to GND | Output push-pull, **active high**, low at boot | Off |
 | P0.21 | BLE_NRST | J501 reset | Keep `gpio-as-nreset` in UICR | — |
 
@@ -279,7 +282,8 @@ STM → nRF direction needs flow control.
 
 ### 5.5 Versions and resync
 
-- **Link protocol 0.1** (`linkMajor` 0, `linkMinor` 1).
+- **Link protocol 0.2** (`linkMajor` 0, `linkMinor` 2; 0.2 added
+  `STATS.slotsFree`, §5.4).
 - **MAJOR mismatch:** the STM refuses DATA (drops it, counts it) and keeps
   CTRL working, so the nRF still advertises and the app can still read the
   versions in NODE_LIST and report "BLE module needs a reflash"

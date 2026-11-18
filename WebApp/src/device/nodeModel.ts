@@ -10,7 +10,9 @@
  *   EVT_LANE_STATE  JOINED / CONFIGURED / LEFT / FAULT / SYNC_LOST / SYNC_OK
  *   EVT_BLE_LINK    the BLE link to a central
  *   EVT_SEQ_*       whether a start sequence runs
- *   NODE_LIST       versions and board types (lanes listed are present)
+ *   NODE_LIST       versions and board types (lanes listed are present; a
+ *                   lane the model had as absent becomes 'joined' if listed
+ *                   UPDATING (config push running), 'configured' if OK)
  */
 
 import {
@@ -78,7 +80,10 @@ export function applyNodeList(m: NodeModel, nodes: readonly NodeInfo[]): NodeMod
     else if (n.nodeClass === NodeClass.BLE) ble = n;
     else if (n.nodeClass === NodeClass.LANE && n.index >= 1 && n.index <= 6) {
       const cur = lanes[n.index]!;
-      const phase: LanePhase = n.state === NodeState.FAULT ? 'fault' : cur.phase === 'absent' ? 'configured' : cur.phase;
+      // The firmware lists a lane from its join on: UPDATING while the config push runs,
+      // OK once configured, FAULT when the push gave up or the protocol differs.
+      const listed: LanePhase = n.state === NodeState.UPDATING ? 'joined' : 'configured';
+      const phase: LanePhase = n.state === NodeState.FAULT ? 'fault' : cur.phase === 'absent' ? listed : cur.phase;
       lanes[n.index] = { ...cur, info: n, phase };
     }
   }

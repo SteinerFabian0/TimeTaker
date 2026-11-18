@@ -105,6 +105,11 @@ ctrlStatus_e laneManagerGetConfig(uint8_t lane, hpLaneConfig_t *cfg);
 ctrlStatus_e laneManagerSetConfig(uint8_t laneMask, const hpLaneConfig_t *cfg, bool save);
 ctrlStatus_e laneManagerSetSampling(uint8_t laneMask, uint8_t mode);
 
+/* START_SEQUENCE armSampling reached T0: the lanes ran their scheduled
+ * SAMPLING_ON, so their table mode becomes ON where it was OFF (no bus
+ * write). A re-join or a BUS_IDLE_SAFE re-push then keeps them sampling. */
+void         laneManagerArmSampling(uint8_t laneMask);
+
 /* Immediate lane requests. CTRL_ERR_LANE_ABSENT if no lane of the mask is on
  * the bus; the writes to the others still go out. */
 ctrlStatus_e laneManagerSetLed(uint8_t laneMask, const laneLed_t *led);

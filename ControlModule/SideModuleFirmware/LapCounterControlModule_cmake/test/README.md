@@ -25,7 +25,8 @@ every change to `protocol/host_protocol.toml`.
 | `host_seq_planner` | T0/on[k]/hold/Tout arithmetic, n = min(lights, present), every refusal (lights, step, hold order, lead -> ERR_TOO_LATE, no lane, overflow) | §5.3 |
 | `host_settings_record` | CRC-32 check value, record encode/check (magic, version, length, CRC, half-programmed page), two-page selection incl. sequence wrap and corrupt-vs-new board | §5.5 |
 | `host_nrf_link` | link frame parsing (DATA 1..244, CTRL short/long/unknown, channels), encoders, credits (reset, take, return, clamp), byte ring, stream budget and the BLE rate | BLE_FIRMWARE_GUIDE §5 |
-| `host_lane_logic` | join index + LEFT/release masks, EVENT_FIFO / RAW_FIFO early read ends, EVT_CROSSING mapping, seq gaps, health transitions, "configured", config checks, LANE_STATUS / NODE_LIST mapping | §5.1 |
+| `host_lane_logic` | join index + LEFT/release masks, EVENT_FIFO / RAW_FIFO early read ends, EVT_CROSSING mapping, seq gaps, where seq checking starts (unknown after a lane dropped events), the SCHEDULE read-back (OK / retry / FAILED), health transitions, "configured", config checks, LANE_STATUS / NODE_LIST mapping | §5.1, §5.3 |
+| `host_ctrl_policy` | the coordinators' decisions: start-sequence step (abort order POWER > LANE_LEFT > LANE_FAILED, confirm deadline T0 − 20 ms, armSampling table mode at T0 once, lights out at Tout), BLE bind policy at HELLO (listed / window / zero id, grace start kept across repeated HELLOs), grace kick incl. tick wrap, disconnect dedupe (reset always, event once), window seconds, BIND_ALLOW clamp, panel LED state, BTN2 LONG abort | §5.3, §5.4 |
 
 Still to come: `led_pattern` (the lane tree tests it today; port its suite).
 
@@ -67,6 +68,10 @@ Rules the suites follow (same as the hub's and the lane's):
   clamp dropped (2), empty DATA accepted (2); join index miscounted (3),
   partial FIFO record taken (2), FAULT not re-raised on a new error (2);
   UNBOUND gate dropped (4), events pumped while UNBOUND
-  (3), second deferral accepted (3).
+  (3), second deferral accepted (3). Seam review (same day): drop-aware seq
+  start, verify retry bound, verify read failure, and nine `ctrl_policy`
+  rules (arm once, BLE reset always, grace start kept, failed mask scoped to
+  the sequence, power abort, zero id on both bind paths, BTN2 only while
+  running, lights out only when armed): all caught, 2–5 failing checks each.
 
 - Only pure logic lives here. Drivers and timing are bench work.

@@ -76,6 +76,30 @@ describe('node model', () => {
   });
 });
 
+describe('node model from NODE_LIST alone', () => {
+  // The firmware lists a lane from its join on (lane_manager laneManagerNodeInfo):
+  // UPDATING while the config push runs, OK once configured, FAULT when the push gave up.
+  const lane = (index: number, state: number) =>
+    ({ nodeClass: NodeClass.LANE, index, boardType: BoardType.LANE, state, fwMajor: 0, fwMinor: 1, fwPatch: 0, protoMinor: 3, fwGitRev: 0, imageCrc: 0 });
+
+  test('a lane listed UPDATING is joined, not ready; OK is configured', () => {
+    let m = applyNodeList(emptyNodeModel(), [lane(1, NodeState.OK), lane(2, NodeState.UPDATING), lane(3, NodeState.FAULT)]);
+    assert.equal(m.lanes[1]?.phase, 'configured');
+    assert.equal(m.lanes[2]?.phase, 'joined');
+    assert.equal(m.lanes[3]?.phase, 'fault');
+    assert.deepEqual(readyLanes(m), [1]);
+    assert.deepEqual(presentLanes(m), [1, 2, 3]);
+    m = applyNodeEvent(m, ev(MsgId.EVT_LANE_STATE, { lane: 2, state: LaneState.CONFIGURED, status: 0, sysUs: 20n }));
+    assert.deepEqual(readyLanes(m), [1, 2]);
+  });
+
+  test('a later NODE_LIST does not move a lane the events already placed', () => {
+    let m = applyNodeEvent(emptyNodeModel(), ev(MsgId.EVT_LANE_STATE, { lane: 1, state: LaneState.JOINED, status: 0, sysUs: 1n }));
+    m = applyNodeList(m, [lane(1, NodeState.OK)]);   // snapshot ahead of the CONFIGURED event still in the pump
+    assert.equal(m.lanes[1]?.phase, 'joined');
+  });
+});
+
 function manager(t: Rig, dev: SimDevice, events: DeviceEvent[], states: string[]): DeviceManager {
   const m = new DeviceManager({
     clientId: new Uint8Array(16).fill(4), clientName: 'mgr', clientKind: ClientKind.WEBAPP, scheduler: t.clock,

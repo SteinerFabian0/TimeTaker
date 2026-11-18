@@ -60,7 +60,8 @@ this file whenever you hit a new one.
   CK48 = HSIDIV3 (C531, no USB); control keeps PSIDIV3, which `mx_rcc.c`
   already enables for USB, so that is correct here. **CubeMX change:** enable
   auto-reset and clock error detection in the RNG config so `mx_rng.c`
-  matches the hub, then drop the two calls in `rng.c`.
+  matches the hub, then drop the two calls in `rng.c` (collected in
+  `BRINGUP.md` "Next CubeMX pass").
 
 ## Chip facts
 
@@ -69,6 +70,9 @@ this file whenever you hit a new one.
   bank 2 can be written while code runs from bank 1. Flash ECC errors raise
   an NMI. (control `flash_drv.c`, `fault_guard.c`)
 - **TRNG** exists on the C542. (control `rng.c`)
+- **SWD: the M33 AHB-AP is access port 1.** STM32CubeProgrammer needs
+  `-c port=SWD ap=1`, ST-LINK_gdbserver `-m 1`; the ST-LINK V3 adapter needs
+  its 0R jumpers. (lane `.vscode/launch.json`, Yuhka hub; `BRINGUP.md`)
 - **WKUP pins shadow GPIO:** an armed WKUP pin breaks the GPIO/EXTI read of
   that pin. The generated `mx_pwr_init()` arms WKUP1 at boot: disarm it at
   init, arm only at Standby entry. (hub `sys_power.c`, lane guide §8.1)

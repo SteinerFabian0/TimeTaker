@@ -10,9 +10,11 @@
  *                   Tout; "sampling ON at T0" with armSampling. Then
  *                   a STATUS read per lane checks the actions arrived.
  *                   EVT_SEQ_STARTED{T0, lights, step} at once. NEVER Tout.
- *   arming          every lane must confirm before T0 - SEQUENCE_MANAGER_
+ *   arming          every lane must confirm before T0 - CTRL_POLICY_SEQ_
  *                   CONFIRM_MS, or the sequence is aborted (LANE_FAILED)
  *                   rather than started with a dark lane.
+ *   armSampling     at T0 the lanes' table mode becomes ON (lane_manager),
+ *                   so a re-join or BUS_IDLE_SAFE re-push keeps them sampling.
  *   lights out      the lanes go dark on their own timers. When sysUs passes
  *                   Tout in the loop, EVT_LIGHTS_OUT{Tout} is published; a loop
  *                   pass late does not matter, the event carries Tout.
@@ -23,6 +25,8 @@
  *
  * False starts, reaction times and "the first crossing is not a lap" are the
  * web app's, judged against Tout. Nothing here.
+ *
+ * The per-pass decisions are ctrl_policy's ctrlPolicySeqStep (host-tested).
  *
  * Owns: the start-sequence state. Uses lane_manager's schedule API and rng.
  * Context: main loop only.
@@ -36,7 +40,7 @@
 #include "ctrl_status.h"
 #include "host_protocol.h"
 
-#define SEQUENCE_MANAGER_CONFIRM_MS     20U    /* lanes confirm by T0 - this */
+/* Lanes confirm by T0 - CTRL_POLICY_SEQ_CONFIRM_MS (ctrl_policy.h). */
 #define SEQUENCE_MANAGER_ABORT_BLINK_MS 400U
 
 ctrlStatus_e sequenceManagerInit(void);

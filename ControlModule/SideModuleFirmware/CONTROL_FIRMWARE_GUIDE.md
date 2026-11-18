@@ -69,7 +69,8 @@ numbered procedures for when boards arrive; run them in order.
 | C4 `settings_store` (two 8 KB pages, bank 2), `rng` (bootId) | Written; `settings_record`, `crc32` host-tested |
 | C5 `nrf_link`, BLE session, bind gating in `host_session`, `bind_list`, bind policy, BIND_*, EVT_BIND_CHANGED / EVT_BLE_LINK, echo knob | Written; `nrf_link_proto`, `byte_ring`, `bind_list`, gating host-tested |
 | C6 `fault_guard`, IWDG, `sys_power` (WFI), fault inputs, STATUS, SETTINGS_*, `tools/optprog.py`, `docs/` | Written |
-| C7 bootloader + update path | **Removed 2026-11-18** (no field update in v1). App at 0x0800_0000 is the only layout; the freed RAM went to the event log (1600 events, 8.6 KB RAM left free) |
+| Coordinator decisions (`sequence_manager`, `host_manager` bind policy, `panel_manager`) | In the pure `ctrl_policy` (host-tested, seam review 2026-11-18); the coordinators keep only HAL calls and side effects |
+| C7 bootloader + update path | **Removed 2026-11-18** (no field update in v1). App at 0x0800_0000 is the only layout; the freed RAM went to the event log (1600 events, about 8 KB RAM left free) |
 
 **Build, flash and test** commands are in `CONTROL_FIRMWARE_NOTES.md`
 ("Build"). Flash with the ST-LINK V3 over J201.
@@ -336,6 +337,11 @@ net. LANE_FIRMWARE_GUIDE §3.6 already says: never depend on IBI alone.
 
 - **Per-lane sequence gaps:** count them and log a `DBG_LOG` line. Publish
   nothing extra. The host sees the gap in `laneSeq` itself.
+- **Duplicates and where checking starts:** a record whose seq was already
+  taken (a cut read re-sends it) is dropped. At CONFIGURED the expected seq
+  is STATUS `nextEventSeq − fifoCount`, unless `fifoCount` saturated or the
+  lane ever dropped events (each drop spends a seq, so the queue holds a
+  gap): then the first record read sets it (`laneLogicSeqStart`).
 - **Order:** publish records in the order read. Across lanes the host orders
   by `tEntryUs`, never by `evSeq`.
 
@@ -434,9 +440,12 @@ randomU32) → {T0, Tlit, Tout, per-lane action list}`.
    any pending actions, the lane's action list from the planner (the lane's
    SCHEDULE queue, 8 deep, LANE_FIRMWARE_GUIDE §3.7). Use
    `laneManagerSchedule()`.
-2. **Read the writes back** (or check the SCHEDULE status in STATUS). If a
-   lane did not take its actions before T0 − 20 ms, abort the sequence with
-   `ERR_LANE_NACK`, rather than start with a dark lane.
+2. **Read the writes back:** STATUS `schedulePending` per lane (the lane
+   patches it live). A short count means the lane's main loop has not taken
+   the writes off its mailbox yet: re-read every 2 ms, up to 10 times
+   (`laneLogicSchedVerify`). If a lane did not confirm by T0 − 20 ms, abort
+   with LANE_FAILED rather than start with a dark lane (a lane refusing a
+   write at START time answers `ERR_LANE_NACK`).
 3. Publish `EVT_SEQ_STARTED{T0, lights, stepMs}` at once. **Never put Tout
    in it.** The host must not know the hold before it ends.
 4. When `sysTimeNowUs() ≥ Tout` in the loop, publish
@@ -451,7 +460,9 @@ randomU32) → {T0, Tlit, Tout, per-lane action list}`.
   compare, armed in the tick ISR for the last ms) when the power board
   arrives (SYSTEM_ARCHITECTURE §12.1).
 - **`armSampling`:** if set, also queue "sampling ON at T0" so a lane that
-  was off is watching before the lights go out.
+  was off is watching before the lights go out. At T0 the lanes' mode in the
+  config table becomes ON as well (`laneManagerArmSampling`), so a re-join
+  or a BUS_IDLE_SAFE re-push mid-race keeps the lane sampling.
 - **False starts, reaction times, the first crossing** are decided in the web
   app against Tout. Nothing here.
 
@@ -501,9 +512,13 @@ copied here as `ble_link_protocol.h`.
 - **Link version check:** if `NRF_HELLO` reports another link MAJOR, refuse
   DATA (drop it, count it) and keep CTRL working (SYSTEM_ARCHITECTURE §10.3).
   NODE_LIST then shows the BLE node as `FAULT`.
-- **BLE_IRQ** high = a central is connected. Its falling edge (EXTI5 latch)
-  resets the BLE session, like `usbCdcTakeLinkReset()` does for USB. The pin
-  is authoritative; `LINK_DOWN` is the backup.
+- **BLE_IRQ** high = a central is connected. It is polled every loop pass
+  (EXTI5 is rising-only until the next CubeMX pass); its fall resets the BLE
+  session, like `usbCdcTakeLinkReset()` does for USB. The pin is
+  authoritative; `LINK_DOWN` is the backup. **Every** report resets the
+  session (idempotent); only the first after an UP publishes
+  `EVT_BLE_LINK{DOWN}` (`ctrlPolicyBleDown`), so a lost `LINK_UP` frame can
+  never leave a session open for the next central.
 - At boot, send `STM_HELLO` so an nRF that booted earlier re-announces
   itself.
 
@@ -681,8 +696,9 @@ tree's file directly.
 
 **Done** in task C0. Items 1–6 are applied; for item 6, the CRC unit is
 enabled with its default settings, because the CLI refused the reversal
-settings (see the notes). The next pass should collect new items here. The
-list below is kept as the record:
+settings (see the notes). **The items for the next pass (both boards) are
+collected in `BRINGUP.md` at the repo root.** The list below is kept as the
+record:
 
 1. **I3C1 init "generated only"**, so SCL is never driven before
    `lane_chain` parks it (today it can sit high for a few ms at boot).

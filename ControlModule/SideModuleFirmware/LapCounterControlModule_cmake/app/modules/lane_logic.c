@@ -105,6 +105,24 @@ laneSeqVerdict_e laneLogicSeqCheck(bool known, uint16_t expected, uint16_t got)
     return (ahead < 0x8000U) ? LANE_SEQ_GAP : LANE_SEQ_RESYNC;
 }
 
+void laneLogicSeqStart(const laneStatus_t *st, bool *known, uint16_t *nextSeq)
+{
+    const bool dropped = st->droppedEvents != 0U || (st->flags & LANE_STATUS_FIFO_OVERFLOW) != 0U;
+    *known   = st->fifoCount < LANE_FIFO_COUNT_MAX && !dropped;
+    *nextSeq = (uint16_t)(st->nextEventSeq - st->fifoCount);
+}
+
+laneSchedVerify_e laneLogicSchedVerify(bool readOk, uint8_t schedulePending, uint8_t expect, uint8_t tries)
+{
+    if (!readOk) {
+        return LANE_SCHED_VERIFY_FAILED;
+    }
+    if (schedulePending >= expect) {
+        return LANE_SCHED_VERIFY_OK;
+    }
+    return (tries < LANE_LOGIC_SCHED_VERIFY_TRIES) ? LANE_SCHED_VERIFY_RETRY : LANE_SCHED_VERIFY_FAILED;
+}
+
 bool laneLogicNeedsModePush(const laneStatus_t *st)
 {
     return (st->flags & LANE_STATUS_BUS_IDLE_SAFE) != 0U;

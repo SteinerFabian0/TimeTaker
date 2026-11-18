@@ -22,6 +22,7 @@
 #include "event_log.h"
 #include "bind_list.h"
 #include "stream_budget.h"
+#include "ctrl_policy.h"
 #include "log_line.h"
 #include "usb_cdc.h"
 #include "nrf_link.h"
@@ -131,11 +132,7 @@ static void hostManagerLogKv(uint8_t level, const char *head, const char *key, i
 
 static uint16_t hostManagerWindowLeftS(void)
 {
-    if (!hostManagerWindowOpen) {
-        return 0U;
-    }
-    const int32_t leftMs = (int32_t)(hostManagerWindowEndMs - HAL_GetTick());
-    return (leftMs <= 0) ? 0U : (uint16_t)(((uint32_t)leftMs + 999U) / 1000U);
+    return ctrlPolicyWindowLeftS(hostManagerWindowOpen, hostManagerWindowEndMs, HAL_GetTick());
 }
 
 static void hostManagerPublishBind(uint8_t change, const uint8_t *clientId)
@@ -280,21 +277,19 @@ static uint8_t hostManagerBleHello(hostSession_t *self, const hpHelloReq_t *hell
     memcpy(hostManagerBleClientName, hello->clientName, sizeof(hostManagerBleClientName));
     /* The grace timer starts at the FIRST unbound HELLO of a connection and is
      * not restarted by the app's repeated HELLOs (it polls while it waits). */
-    const bool        timerRunning = hostManagerBleUnbound;
-    const uint32_t    timerSince   = hostManagerBleUnboundSinceMs;
-    hostManagerBleUnbound = false;
-
-    uint8_t state = (uint8_t)HP_BIND_UNBOUND;
-    if (bindListFind(&hostManagerBinds, hello->clientId) >= 0
-        && hostManagerBindAdd(hello->clientId, hello->clientName)) {   /* TOUCHED: stamp and name */
-        state = (uint8_t)HP_BIND_BOUND;
-    } else if (hostManagerWindowOpen && hostManagerBindAdd(hello->clientId, hello->clientName)) {
-        hostManagerSendCue(BLE_CUE_BIND_ACCEPTED);
-        state = (uint8_t)HP_BIND_BOUND;
-    } else {
-        hostManagerBleUnbound        = true;
-        hostManagerBleUnboundSinceMs = timerRunning ? timerSince : HAL_GetTick();
+    ctrlPolicyHello_t d;
+    ctrlPolicyBleHello(bindListFind(&hostManagerBinds, hello->clientId) >= 0,
+                       !bindListIsZeroId(hello->clientId), hostManagerWindowOpen,
+                       hostManagerBleUnbound, hostManagerBleUnboundSinceMs, HAL_GetTick(), &d);
+    if (d.add) {
+        (void)hostManagerBindAdd(hello->clientId, hello->clientName);   /* cannot refuse: bindable */
     }
+    if (d.cueAccepted) {
+        hostManagerSendCue(BLE_CUE_BIND_ACCEPTED);
+    }
+    hostManagerBleUnbound        = d.unbound;
+    hostManagerBleUnboundSinceMs = d.unboundSinceMs;
+    const uint8_t state = d.bindState;
 
     /* The session is open once this returns; UI_STATE goes out after it. */
     const bleCtrlUiState_t ui = {
@@ -314,8 +309,8 @@ static void hostManagerBindRun(void)
     if (hostManagerBleUnbound && !hostSessionIsOpen(&hostManagerBle)) {
         hostManagerBleUnbound = false;   /* HELLO refused (MAJOR): the grace belongs to the next HELLO */
     }
-    if (hostManagerBleUnbound && hostSessionIsOpen(&hostManagerBle)
-        && HAL_GetTick() - hostManagerBleUnboundSinceMs >= HOST_MANAGER_UNBOUND_GRACE_MS) {
+    if (ctrlPolicyKickDue(hostManagerBleUnbound, hostSessionIsOpen(&hostManagerBle),
+                          hostManagerBleUnboundSinceMs, HAL_GetTick(), HOST_MANAGER_UNBOUND_GRACE_MS)) {
         hostManagerBleUnbound = false;
         const bleCtrlKick_t kick = { .reason = HOST_MANAGER_KICK_REASON };
         (void)nrfLinkSendCtrl(BLE_CTRL_KICK, &kick, sizeof(kick));
@@ -342,22 +337,26 @@ static void hostManagerPublishBleLink(uint8_t state, const bleCtrlLinkUp_t *up, 
 }
 
 /* One disconnect reaches us twice (BLE_IRQ fall and CTRL LINK_DOWN, either
- * order). The first one publishes and resets the session; the second finds
- * the link already down and does nothing. */
+ * order). Every report resets the session (idempotent), so a lost LINK_UP
+ * frame cannot leave a session open for the next central; only the first
+ * report after an UP publishes (ctrl_policy.h "down"). */
 static bool hostManagerBleUp;
 
 static void hostManagerBleDown(uint8_t reason)
 {
-    if (!hostManagerBleUp) {
-        return;
-    }
+    ctrlPolicyBleDown_t d;
+    ctrlPolicyBleDown(hostManagerBleUp, &d);
     hostManagerBleUp = false;
-    hostSessionReset(&hostManagerBle);
-    hostManagerBleUnbound = false;
-    if (hostManagerStatusWaiter == &hostManagerBle) {
-        hostManagerStatusWaiter = NULL;
+    if (d.resetSession) {
+        hostSessionReset(&hostManagerBle);
+        hostManagerBleUnbound = false;
+        if (hostManagerStatusWaiter == &hostManagerBle) {
+            hostManagerStatusWaiter = NULL;
+        }
     }
-    hostManagerPublishBleLink(HP_BLE_LINK_DOWN, NULL, reason);
+    if (d.publishDown) {
+        hostManagerPublishBleLink(HP_BLE_LINK_DOWN, NULL, reason);
+    }
 }
 
 static void hostManagerBleEvents(void)
@@ -544,8 +543,7 @@ static ctrlStatus_e hostManagerBindAllow(const uint8_t *req, uint16_t reqLen, ui
     HOST_MANAGER_NEED(reqLen, HP_BIND_ALLOW_REQ_BYTES);
     hpBindAllowReq_t r;
     memcpy(&r, req, sizeof(r));
-    const uint32_t s = (r.windowS > HOST_MANAGER_BIND_WINDOW_MAX_S) ? HOST_MANAGER_BIND_WINDOW_MAX_S : r.windowS;
-    hostManagerWindowSet(s);
+    hostManagerWindowSet(ctrlPolicyBindAllowS(r.windowS, HOST_MANAGER_BIND_WINDOW_MAX_S));
     *rspLen = HP_BIND_ALLOW_RSP_BYTES;
     return CTRL_OK;
 }
@@ -853,7 +851,7 @@ ctrlStatus_e hostManagerRun(void)
 
     hostManagerBleEvents();
     if (nrfLinkTakeLinkReset()) {
-        hostManagerBleDown(0U);   /* no-op: the event above already did it */
+        hostManagerBleDown(0U);   /* the event above already did it: a second reset is harmless */
     }
 #if !CTRL_ENABLE_NRF_LINK_ECHO
     hostSessionRun(&hostManagerBle);

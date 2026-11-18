@@ -70,7 +70,8 @@ void laneLogicCrossing(uint8_t lane, const laneEvent_t *ev, hpEvtCrossing_t *out
  * backwards (a reset the bus did not notice): the caller resyncs. */
 uint16_t laneLogicSeqGap(uint16_t expected, uint16_t got);
 
-/* How far back a repeated seq may lie: the lane FIFO (>= 32) plus one read. */
+/* How far back a repeated seq may lie: a cut read re-sends at most
+ * LANE_FIFO_READ_MAX records; the rest is margin. */
 #define LANE_LOGIC_SEQ_DUP_WINDOW  64U
 
 typedef enum {
@@ -84,6 +85,37 @@ typedef enum {
  * false: nothing expected yet, always LANE_SEQ_TAKE). After a take, gap or
  * resync the caller expects got + 1; after a duplicate, nothing changes. */
 laneSeqVerdict_e laneLogicSeqCheck(bool known, uint16_t expected, uint16_t got);
+
+/*
+ * Where seq checking starts when a lane becomes CONFIGURED. Normally the
+ * oldest queued record is STATUS.nextEventSeq - fifoCount. That only holds
+ * while the lane never dropped an event: a full lane FIFO spends the seq of
+ * every dropped event (lane event_fifo.h), so after an overflow the queue
+ * holds a seq gap and the subtraction lands past the oldest record, which
+ * would then be dropped as a "duplicate". Unknown (the first record read
+ * sets it) when fifoCount saturated (LANE_FIFO_COUNT_MAX) or the lane ever
+ * dropped events (droppedEvents != 0 or LANE_STATUS_FIFO_OVERFLOW).
+ */
+void laneLogicSeqStart(const laneStatus_t *st, bool *known, uint16_t *nextSeq);
+
+/* SCHEDULE read-back (start sequence): the lane's STATUS.schedulePending
+ * against the actions just queued. The lane may not have taken the writes
+ * off its bus mailbox when the read arrives (its main loop applies them), so
+ * a short count is retried until LANE_LOGIC_SCHED_VERIFY_TRIES reads, spaced
+ * by LANE_LOGIC_SCHED_VERIFY_RETRY_MS; the sequence's own T0 deadline still
+ * aborts first. A failed read or a write that failed is final. */
+#define LANE_LOGIC_SCHED_VERIFY_TRIES     10U
+#define LANE_LOGIC_SCHED_VERIFY_RETRY_MS  2U
+
+typedef enum {
+    LANE_SCHED_VERIFY_OK = 0,
+    LANE_SCHED_VERIFY_RETRY,
+    LANE_SCHED_VERIFY_FAILED,
+} laneSchedVerify_e;
+
+/* readOk: the STATUS read completed with a whole laneStatus_t. tries: reads
+ * done so far for this verify, this one included. */
+laneSchedVerify_e laneLogicSchedVerify(bool readOk, uint8_t schedulePending, uint8_t expect, uint8_t tries);
 
 /* The lane's bus watchdog put it to safe defaults: re-push the mode. */
 bool laneLogicNeedsModePush(const laneStatus_t *st);
