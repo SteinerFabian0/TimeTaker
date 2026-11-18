@@ -28,8 +28,50 @@ static void write(uint8_t *p, uint32_t seq, uint8_t fill)
     settingsRecordEncode(payload, sizeof(payload), seq, p, PAGE);
 }
 
+/* Bit-exact model of the C5 CRC unit as crc32.c configures it (POLYSIZE 32,
+ * POL 0x04C11DB7, REV_IN byte, REV_OUT bit, INIT = rbit32(crc)), written from
+ * the reference manual semantics: shift left, MSB first. Must equal the
+ * software path, which is what the target's hardware path is built to match. */
+static uint32_t rbit32(uint32_t v)
+{
+    uint32_t r = 0U;
+    for (int i = 0; i < 32; i++) {
+        r = (r << 1) | ((v >> i) & 1U);
+    }
+    return r;
+}
+
+static uint32_t hwModelUpdate(uint32_t crc, const uint8_t *d, uint32_t len)
+{
+    uint32_t dr = rbit32(crc);                        /* INIT, then reset */
+    for (uint32_t i = 0U; i < len; i++) {
+        uint32_t in = 0U;
+        for (int b = 0; b < 8; b++) {
+            in = (in << 1) | (((uint32_t)d[i] >> b) & 1U);   /* REV_IN byte */
+        }
+        dr ^= in << 24;
+        for (int b = 0; b < 8; b++) {
+            dr = ((dr & 0x80000000U) != 0U) ? ((dr << 1) ^ 0x04C11DB7U) : (dr << 1);
+        }
+    }
+    return rbit32(dr);                                /* REV_OUT bit */
+}
+
 static void testCrc(void)
 {
+    uint8_t buf[300];
+    for (uint32_t i = 0U; i < sizeof(buf); i++) {
+        buf[i] = (uint8_t)(i * 37U + 11U);
+    }
+    check("crc model: \"123456789\" = 0xCBF43926",
+          (hwModelUpdate(CRC32_INIT, (const uint8_t *)"123456789", 9) ^ 0xFFFFFFFFU) == 0xCBF43926U);
+    check("crc model: equals software, whole buffer",
+          hwModelUpdate(CRC32_INIT, buf, sizeof(buf)) == crc32Update(CRC32_INIT, buf, sizeof(buf)));
+    check("crc model: equals software, chunked streaming",
+          hwModelUpdate(hwModelUpdate(CRC32_INIT, buf, 123), buf + 123, 177U) ==
+          crc32Update(crc32Update(CRC32_INIT, buf, 123), buf + 123, 177U));
+    check("crc32: empty input = 0", crc32Compute(buf, 0U) == 0U);
+
     check("crc32: check value of \"123456789\"", crc32Compute((const uint8_t *)"123456789", 9) == 0xCBF43926U);
     uint32_t c = crc32Update(CRC32_INIT, (const uint8_t *)"1234", 4);
     c = crc32Update(c, (const uint8_t *)"56789", 5);

@@ -6,12 +6,16 @@
  * The one CRC-32 of the system: the settings records (settings_record) use
  * this exact variant, so a `zlib.crc32()` on the laptop matches.
  *
- * Bitwise, no table: 1 KB of flash saved; a settings record is a few hundred
- * bytes, so speed does not matter. The C5 CRC unit could do it in
- * hardware (CONTROL_FIRMWARE_NOTES "CRC"), but then the host tests would test
- * something else than the target runs.
+ * On the target this runs on the C5 hardware CRC unit (initialised on first
+ * use); the host tests build the bitwise software version (no table), and a
+ * test checks a model of the unit's register settings against it. See
+ * crc32.c for the unit settings. -DCRC32_SOFTWARE forces software on the
+ * target. The CRC-16/CCITT in frame_codec.c stays software on purpose: that
+ * file is shared byte-identically with the nRF build and the host tests (and
+ * is also a different CRC, over frames of a few bytes, where setting up the
+ * unit would cost more than it saves).
  *
- * Pure logic: no HAL, no state. Host-tested (test/host_settings_record).
+ * Host-tested (test/host_settings_record). Main loop only.
  */
 
 #pragma once

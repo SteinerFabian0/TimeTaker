@@ -37,6 +37,31 @@ this file whenever you hit a new one.
   handler for the HAL PCD driver. With TinyUSB, exclude that file in CMake
   and supply `mx_usb_drd_fs_device_init()` yourself. (control `usb_cdc.c`)
 
+- **CRC unit as CRC-32 (IEEE):** POLYSIZE 32, POL 0x04C11DB7, REV_IN byte,
+  REV_OUT bit, 8-bit writes, INIT = rbit32(state) before each chunk, final
+  XOR in software (the unit has none). The generated `mx_crc.c` only sets
+  poly/init defaults (no reversal): set the rest after `mx_crc_init()`.
+  Word writes would need REV_IN = word, so byte writes are used. Control
+  `crc32.c` (hardware on any ARM build, software on host, `-DCRC32_SOFTWARE`
+  forces software); lane `image_crc.c` (LL registers; **the lane CubeMX
+  project has no CRC block, and `stm32_hal.h` there does not pull in the LL
+  CRC header, so it includes `stm32c5xx_ll_crc.h` itself and enables the AHB1
+  clock with LL. CubeMX change, optional: add CRC to the lane project**).
+  Host tests check a bit-exact model of the register semantics against the
+  software path. The CRC-16 in `frame_codec.c` stays software: the file is
+  shared byte-identically with the nRF build and the host tests.
+- **RNG (reviewed 2026-11-18):** `HAL_RNG_RecoverSeedError()` asserts unless
+  the HAL state is ERROR, which only a HAL_ERROR (seed error) leaves; a
+  HAL_TIMEOUT returns to IDLE. `rng.c` now recovers only after HAL_ERROR and
+  retries once; the timeout is 10 ms (1 ms tick granularity made 2 ms fragile).
+  The Yuhka hub's fixed `mx_rng.c` additionally calls
+  `HAL_RNG_EnableAutoReset()` and `HAL_RNG_EnableClockErrorDetection()` after
+  the NIST config; ours does not, so `rngInit()` calls both. Clock: hub uses
+  CK48 = HSIDIV3 (C531, no USB); control keeps PSIDIV3, which `mx_rcc.c`
+  already enables for USB, so that is correct here. **CubeMX change:** enable
+  auto-reset and clock error detection in the RNG config so `mx_rng.c`
+  matches the hub, then drop the two calls in `rng.c`.
+
 ## Chip facts
 
 - **Flash:** 8 KB erase pages, 128-bit (quad-word) programming, about 2.1 ms
