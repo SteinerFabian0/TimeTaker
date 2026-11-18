@@ -1,0 +1,14 @@
+# TimeTaker BLE bridge (nRF52805) board defaults.
+
+# Low-frequency clock: there is no 32 kHz crystal on the MDBT42T-P.
+# LFRC with periodic calibration; the controller then assumes 500 ppm.
+CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y
+CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION=y
+
+CONFIG_ARM_MPU=y
+CONFIG_GPIO=y
+
+# UARTE0 belongs to the STM link; there is no console UART.
+CONFIG_SERIAL=y
+CONFIG_CONSOLE=n
+CONFIG_UART_CONSOLE=n

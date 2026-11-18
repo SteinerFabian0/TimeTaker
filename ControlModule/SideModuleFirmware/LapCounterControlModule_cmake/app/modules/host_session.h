@@ -15,6 +15,25 @@
  *   other   before HELLO: ERR_NO_SESSION. After: the owner's hostRequestFn_t,
  *           or ERR_UNSUPPORTED.
  *
+ * Bind state (CONTROL_FIRMWARE_GUIDE §5.4): every session has its own, mutable
+ * bind state. It starts at the configured one (TRUSTED on USB, UNBOUND on
+ * BLE). At HELLO the owner's onHello() decides it (the bind policy lives in
+ * host_manager, not here), and hostSessionSetBindState() changes it later
+ * (pairing window opened, list cleared). While UNBOUND the session serves
+ * HELLO and PING only: every other request gets ERR_NOT_BOUND without
+ * reaching the owner, and no events or streams are sent, so an unbound phone
+ * sees nothing of the race.
+ *
+ * Deferred responses: a request whose answer needs a bus round trip (for
+ * example LANE_STATUS) may call hostSessionDefer() inside onRequest. No
+ * response goes out then; the owner sends it later with
+ * hostSessionCompleteDeferred(), same msgId and tag. One at a time per
+ * session; a second defer is answered ERR_BUSY at once.
+ *
+ * Streams (STR_*, DBG_LOG): best effort. hostSessionSendStream() sends one
+ * only if the transport has room for it AND the response reserve, and drops
+ * it otherwise. Never logged, never retried.
+ *
  * Responses: one per request, same msgId and tag, RESPONSE flag, payload =
  * status i16 (+ body on OK). On error the payload is the status alone.
  *
@@ -74,6 +93,10 @@ typedef struct {
     uint64_t      (*nowUs)(void);
     uint8_t       (*otherSessions)(const hostSession_t *self);   /* may be NULL */
     hostRequestFn_t onRequest;      /* may be NULL: everything else unsupported */
+    /* Bind policy hook, called on every accepted HELLO before the response is
+     * built. Returns the hpBindState_e the session gets. May be NULL: the
+     * session keeps the configured bindState. */
+    uint8_t       (*onHello)(hostSession_t *self, const hpHelloReq_t *hello);
 } hostSessionConfig_t;
 
 /* Diagnostics. Free-running; only hostSessionInit() clears them. */
@@ -84,6 +107,9 @@ typedef struct {
     uint32_t responsesDropped;      /* response did not fit the transport */
     uint32_t eventsSent;
     uint32_t opens;                 /* successful HELLOs */
+    uint32_t notBound;              /* requests refused with ERR_NOT_BOUND */
+    uint32_t streamsSent;
+    uint32_t streamsDropped;        /* no room beside the response reserve */
 } hostSessionStats_t;
 
 struct hostSession_s {
@@ -95,6 +121,11 @@ struct hostSession_s {
     bool                   open;
     uint32_t               cursor;  /* next evSeq to send */
     uint8_t                clientId[16];
+    uint8_t                bindState;      /* hpBindState_e, mutable */
+    bool                   deferRequested; /* set by hostSessionDefer() inside onRequest */
+    bool                   deferActive;    /* a deferred response is owed */
+    uint8_t                deferMsgId;
+    uint16_t               deferTag;
     hostSessionStats_t     stats;
 };
 
@@ -108,3 +139,32 @@ void hostSessionReset(hostSession_t *s);
 void hostSessionRun(hostSession_t *s);
 
 bool hostSessionIsOpen(const hostSession_t *s);
+
+/* Bind state of this session (hpBindState_e). Setting it on a closed session
+ * is allowed and lasts until the next HELLO or reset. */
+void    hostSessionSetBindState(hostSession_t *s, uint8_t bindState);
+uint8_t hostSessionGetBindState(const hostSession_t *s);
+
+/* clientId of the last accepted HELLO (all zero before). */
+const uint8_t *hostSessionClientId(const hostSession_t *s);
+
+/* Inside onRequest only: send no response now, the owner completes it. */
+void hostSessionDefer(hostSession_t *s);
+
+/* Whether a deferred response is owed (the owner refuses a second one). */
+bool hostSessionHasDeferred(const hostSession_t *s);
+
+/*
+ * Sends the owed response: status, and on CTRL_OK the full payload struct
+ * (status field included, forced to OK). Returns false if none was owed (the
+ * session was reset or re-opened meanwhile: the answer is dropped).
+ */
+bool hostSessionCompleteDeferred(hostSession_t *s, ctrlStatus_e status, uint8_t *payload,
+                                 uint16_t payloadLen);
+
+/*
+ * Sends one stream frame (STREAM flag, tag 0) if the session is open, not
+ * UNBOUND, and the transport has room for it plus the response reserve.
+ * Returns whether it went out.
+ */
+bool hostSessionSendStream(hostSession_t *s, uint8_t msgId, const void *payload, uint16_t len);

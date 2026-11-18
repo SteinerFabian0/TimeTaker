@@ -1,0 +1,79 @@
+/*
+ * nRF link protocol, pure part: link frame parsing, CTRL length rules, credit
+ * accounting and frame building (BLE_FIRMWARE_GUIDE §5, ble_link_protocol.h).
+ *
+ *   link frame = COBS( channel u8 | body | crc16 ) 0x00     (frame_codec)
+ *
+ * The rules this module holds:
+ *   - DATA carries 1..BLE_LINK_DATA_MAX opaque bytes. An empty or longer one
+ *     is dropped and counted.
+ *   - CTRL body = type u8 + fixed struct. Unknown type: ignored, counted. Body
+ *     shorter than the type needs: dropped, counted. Longer: accepted, the
+ *     extra bytes (fields of a newer MINOR) ignored.
+ *   - Credits (STM -> nRF DATA only): NRF_HELLO sets the count to its value,
+ *     each DATA frame takes one, CREDIT returns some. More returned than were
+ *     granted is clamped and counted (a desync the bench should see).
+ *   - Link MAJOR must match BLE_LINK_MAJOR, or DATA is refused (CTRL keeps
+ *     working).
+ *
+ * Pure logic: no HAL, no globals. nrf_link.c does the UART and the rings.
+ * Host-tested (test/host_nrf_link).
+ */
+
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "ble_link_protocol.h"
+#include "frame_codec.h"
+
+/* Largest encoded link frame (wire bytes, delimiter included). */
+#define NRF_LINK_WIRE_MAX  FRAME_CODEC_WIRE_BOUND(BLE_LINK_RAW_MAX - FRAME_CODEC_CRC_BYTES)
+
+typedef enum {
+    NRF_LINK_PARSE_DATA = 0,       /* msg->data / dataLen valid             */
+    NRF_LINK_PARSE_CTRL,           /* msg->ctrlType + the matching union    */
+    NRF_LINK_PARSE_UNKNOWN_CTRL,   /* ignore, count                          */
+    NRF_LINK_PARSE_SHORT_CTRL,     /* drop, count                            */
+    NRF_LINK_PARSE_BAD_DATA,       /* empty or longer than BLE_LINK_DATA_MAX */
+    NRF_LINK_PARSE_BAD_CHANNEL,    /* neither DATA nor CTRL, or no channel   */
+} nrfLinkParse_e;
+
+typedef struct {
+    uint8_t        ctrlType;       /* bleCtrlType_e (CTRL only) */
+    const uint8_t *data;           /* DATA only: points into the raw frame */
+    uint16_t       dataLen;
+    union {
+        bleCtrlNrfHello_t hello;
+        bleCtrlLinkUp_t   linkUp;
+        bleCtrlLinkDown_t linkDown;
+        bleCtrlButton_t   button;
+        bleCtrlCredit_t   credit;
+        bleCtrlStats_t    stats;
+    } ctrl;
+} nrfLinkMsg_t;
+
+typedef struct {
+    uint8_t  credits;       /* DATA frames the STM may send now */
+    uint8_t  granted;       /* the nRF's slot count from NRF_HELLO */
+    uint32_t overReturned;  /* CREDITs beyond what was granted */
+} nrfLinkCredits_t;
+
+/* Classifies one decoded link frame (the raw bytes frame_codec handed over). */
+nrfLinkParse_e nrfLinkProtoParse(const uint8_t *raw, uint16_t len, nrfLinkMsg_t *msg);
+
+/* Whether the nRF speaks our link MAJOR. */
+bool nrfLinkProtoVersionOk(const bleCtrlNrfHello_t *hello);
+
+void nrfLinkCreditsReset(nrfLinkCredits_t *c, uint8_t granted);
+void nrfLinkCreditsReturn(nrfLinkCredits_t *c, uint8_t count);
+bool nrfLinkCreditsTake(nrfLinkCredits_t *c);
+
+/* Builds a DATA frame of 1..BLE_LINK_DATA_MAX bytes. Returns the wire bytes,
+ * 0 on a bad length or a short out buffer. */
+uint16_t nrfLinkProtoEncodeData(const uint8_t *data, uint16_t len, uint8_t *out, uint16_t cap);
+
+/* Builds a CTRL frame: type + body (bodyLen may be 0). Same return rule. */
+uint16_t nrfLinkProtoEncodeCtrl(uint8_t type, const void *body, uint16_t bodyLen,
+                                uint8_t *out, uint16_t cap);

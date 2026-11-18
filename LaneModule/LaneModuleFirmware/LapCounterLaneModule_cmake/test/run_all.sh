@@ -11,7 +11,7 @@ LANE=$(cd "$TEST/.." && pwd)
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
-CFLAGS="-std=gnu11 -O1 -Wall -Wextra -Werror -DRELEASE"
+CFLAGS="-std=gnu11 -O1 -Wall -Wextra -Werror -DRELEASE -DLANE_HOST_TEST"
 INC="-I$TEST/shim -I$LANE/app/config -I$LANE/app/modules"
 
 failed=0
@@ -44,6 +44,11 @@ echo
 
 suite host_sync_time "$LANE/app/modules/sync_time.c"
 suite host_led       "$LANE/app/modules/led_pattern.c" "$LANE/app/modules/indicator_led.c"
+suite host_detect    "$LANE/app/modules/lane_detect.c"
+suite host_event_fifo "$LANE/app/modules/event_fifo.c"
+suite host_schedule  "$LANE/app/modules/schedule_queue.c"
+suite host_regs      "$LANE/app/modules/lane_regs.c" "$LANE/app/modules/image_crc.c"
+suite host_chain     "$LANE/app/modules/chain_logic.c"
 
 if [ "$failed" -eq 0 ]; then
     echo "ALL SUITES PASSED"

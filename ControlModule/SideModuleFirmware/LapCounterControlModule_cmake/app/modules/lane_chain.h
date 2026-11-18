@@ -41,3 +41,8 @@ ctrlStatus_e laneChainParkBusPins(void);
 
 /* I3C pins back to their I3C alternate function (step 3, rail up only). */
 ctrlStatus_e laneChainReleaseBusPins(void);
+
+/* CHAIN_OUT to lane 1: high starts the chain enumeration (lane 1 hot-joins),
+ * low makes every lane drop its address (a cascade down the chain). High is
+ * refused while the rail is off. */
+ctrlStatus_e laneChainSetChainOut(bool high);

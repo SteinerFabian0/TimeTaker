@@ -1,32 +1,79 @@
 /*
- * Lane manager: the lane chain's lifecycle.
+ * Lane manager: the lane chain's whole lifecycle (CONTROL_FIRMWARE_GUIDE §5.1,
+ * §5.2; lane side: LANE_FIRMWARE_GUIDE §3, lane_protocol.h).
  *
- * Step 2 scope: the lane rail and SYNC, sequenced so that no signal is ever
- * driven into unpowered lanes (HARDWARE_REFERENCE §2.7):
+ *   power on:   rail on -> LANE_MANAGER_SETTLE_MS -> SYNC on -> bus pins to
+ *               I3C, controller up, RSTDAA -> CHAIN_OUT high. Lane 1 hot-joins.
+ *   power off:  every present lane LEFT, controller down, SYNC off, pins
+ *               parked, CHAIN_OUT low -> rail off. Signals first.
+ *   join:       on every hot-join, every known lane is probed (one STATUS
+ *               read); the joiner gets index = lanes answering from 1 upward
+ *               + 1 (lane_logic). Lanes from the first gap on are LEFT; lanes
+ *               behind the gap that still answer get COMMAND RELEASE_CHAIN.
+ *               ENTDAA gives LANE_DYN_ADDR(index). JOINED is published.
+ *   push:       ID read, LANE_ID, CONFIG (from the table), SYNC_ALIGN
+ *               (measured at the transfer start), COMMAND sampling mode, then
+ *               STATUS until it shows config applied and SYNC aligned:
+ *               CONFIGURED. A lane that resets mid-race comes back configured
+ *               and sampling without the host doing anything.
+ *   running:    every LANE_MANAGER_POLL_MS one EVENT_FIFO read per lane
+ *               (polling first: IBIs are not used in v1), again at once while
+ *               the lane says more are waiting. Each record -> EVT_CROSSING,
+ *               in the order read. Per-lane seq gaps are counted and logged.
+ *               Every second a STATUS read (health: SYNC_LOST/SYNC_OK/FAULT
+ *               changes only, re-push a lane that lost its config) and a
+ *               SYNC_ALIGN (consistency check; the lane counts shifts).
+ *   failures:   three failed transfers in a row to a lane -> LEFT. Nobody is
+ *               re-addressed: the lane's hot-join brings it back.
+ *   scan:       LANE_SCAN: CHAIN_OUT low, every lane LEFT, RSTDAA, CHAIN_OUT
+ *               high again: the chain enumerates from lane 1.
+ *   raw:        LANE_RAW_STREAM puts one lane in RAW mode (with the requested
+ *               decimation) and turns its RAW_FIFO into STR_RAW_SAMPLES.
  *
- *   power on:   rail on → wait LANE_MANAGER_SETTLE_MS (U403 ramps in ~16 ms)
- *               → SYNC on.
- *   power off:  SYNC off, bus pins parked, CHAIN_OUT low → rail off. All at
- *               once, signals first.
+ * The control module keeps the lane config table (one entry per index plus
+ * the sampling mode); the lanes keep nothing across a reset. It starts from
+ * settings_store and is written back there on LANE_CONFIG_SET{save = 1}.
  *
- * Step 3 adds the rest of the lifecycle: hand the bus pins to I3C, CHAIN
- * enumeration, config push, SYNC alignment, event collection and lane health.
- * Lanes start unpowered at boot. Powering them is the host's decision (the
- * LANE_POWER request), until step 3 decides when to do it automatically.
+ * sequence_manager queues its start-light actions through
+ * laneManagerSchedule(): they go to the controller's priority queue, ahead of
+ * polling, in their own order.
  *
- * Owns: the policy over lane_chain and the SYNC output of sys_time.
+ * Owns: the policy over lane_chain, i3c_ctrl (its only user) and the SYNC
+ * output of sys_time. Publishes EVT_LANE_STATE, EVT_CROSSING, STR_RAW_SAMPLES.
  * Context: main loop only.
  */
 
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "ctrl_status.h"
+#include "host_protocol.h"
+#include "lane_protocol.h"
 
 /* U403 TPS22917 with CT = 10 nF ramps in about 16 ms into ~600 µF of lane
  * capacitance; the lanes' own boot needs a few ms more before SYNC matters. */
-#define LANE_MANAGER_SETTLE_MS  30U
+#define LANE_MANAGER_SETTLE_MS        30U
+
+#define LANE_MANAGER_POLL_MS          10U     /* EVENT_FIFO per lane */
+#define LANE_MANAGER_RAW_POLL_MS      10U
+#define LANE_MANAGER_HEALTH_MS        1000U   /* STATUS per lane */
+#define LANE_MANAGER_ALIGN_MS         1000U   /* SYNC_ALIGN per lane */
+#define LANE_MANAGER_FAIL_LIMIT       3U      /* failed transfers in a row -> LEFT */
+#define LANE_MANAGER_ENUM_FIRST_MS    500U    /* end-of-chain timeout, lane 1 (still booting) */
+#define LANE_MANAGER_ENUM_NEXT_MS     200U    /* ... after each join (bench values) */
+#define LANE_MANAGER_CHAIN_LOW_MS     20U     /* CHAIN_OUT low before high again (lanes debounce) */
+#define LANE_MANAGER_VERIFY_RETRY_MS  20U
+#define LANE_MANAGER_VERIFY_TRIES     5U
+#define LANE_MANAGER_PUSH_TRIES       3U
+
+typedef enum {
+    LANE_SCHED_RESULT_NONE = 0,     /* nothing asked */
+    LANE_SCHED_RESULT_PENDING,      /* writes or the verify read still queued */
+    LANE_SCHED_RESULT_OK,           /* the lane holds at least the expected actions */
+    LANE_SCHED_RESULT_FAILED,       /* a write failed or the lane holds fewer */
+} laneSchedResult_e;
 
 ctrlStatus_e laneManagerInit(void);
 
@@ -40,3 +87,39 @@ bool laneManagerIsPowered(void);
 
 /* Rail on, settled or not. */
 bool laneManagerIsRailOn(void);
+
+/* LANE_SCAN. CTRL_ERR_LANE_POWER without lane power. */
+ctrlStatus_e laneManagerScan(void);
+
+/* Bit n-1 = lane n CONFIGURED (polled, ready for a start sequence). */
+uint8_t laneManagerConfiguredMask(void);
+
+/* Lanes enumerated contiguously from lane 1 (JOINED or later). */
+uint8_t laneManagerPresentCount(void);
+
+/* NODE_LIST entry for lane n; false if it is not on the bus. */
+bool laneManagerNodeInfo(uint8_t lane, hpNodeInfo_t *info);
+
+/* Config table. */
+ctrlStatus_e laneManagerGetConfig(uint8_t lane, hpLaneConfig_t *cfg);
+ctrlStatus_e laneManagerSetConfig(uint8_t laneMask, const hpLaneConfig_t *cfg, bool save);
+ctrlStatus_e laneManagerSetSampling(uint8_t laneMask, uint8_t mode);
+
+/* Immediate lane requests. CTRL_ERR_LANE_ABSENT if no lane of the mask is on
+ * the bus; the writes to the others still go out. */
+ctrlStatus_e laneManagerSetLed(uint8_t laneMask, const laneLed_t *led);
+ctrlStatus_e laneManagerCalibrate(uint8_t laneMask);
+
+/* LANE_RAW_STREAM: lane 1..6 starts (one at a time), 0 stops. */
+ctrlStatus_e laneManagerRawStream(uint8_t lane, uint16_t decimation);
+
+/* LANE_STATUS, read fresh: start, then poll until it returns true. */
+ctrlStatus_e laneManagerStatusRequest(uint8_t lane);
+bool         laneManagerStatusPoll(hpLaneStatusRsp_t *rsp, ctrlStatus_e *status);
+
+/* Start-sequence support: priority writes to the SCHEDULE register, and a
+ * STATUS read that checks the lane's queue holds at least expectPending. */
+ctrlStatus_e      laneManagerSchedule(uint8_t lane, const laneSchedule_t *action);
+ctrlStatus_e      laneManagerScheduleVerify(uint8_t lane, uint8_t expectPending);
+laneSchedResult_e laneManagerScheduleResult(uint8_t lane);
+void              laneManagerScheduleForget(void);

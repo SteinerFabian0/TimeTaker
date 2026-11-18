@@ -24,11 +24,14 @@ STACK_SIZE = 0x1000;  /* 4 KB, raised from the CubeMX 1 KB for the control app: 
                          (FPU frames are 104 B each). */
 
 
-MEMORY
-{
-  ROM (rx) : org = 0x8000000, len = 0x40000
-  RAM (xrw) : org = 0x20000000, len = 0x10000
-}
+/* MEMORY comes from ctrl_memory.ld, found on the linker search path that
+ * cmake/ctrl_app.cmake sets per image (cmake/ld/<layout>/ctrl_memory.ld):
+ *   app        ROM 0x0800_0000, 240 KB   standalone bring-up image (default)
+ *   app_boot   ROM 0x0800_6000, 216 KB   app behind the bootloader
+ *   boot       ROM 0x0800_0000,  24 KB   the bootloader (ctrl_boot)
+ * The last two 8 KB pages (0x0803_C000) are the settings and belong to no
+ * image (image_header.h has the map). Added for the control app. */
+INCLUDE ctrl_memory.ld
 
 SECTIONS
 {
@@ -38,6 +41,17 @@ SECTIONS
     KEEP(*(.vectors));
     . = ALIGN(8);
   } > ROM
+
+  /* Firmware image header at a fixed +0x400 (image_header.h): the vector
+   * table stays at the image base for VTOR, the header follows it. Filled by
+   * tools/image_stamp.py after the link. Empty in the bootloader. */
+  .image_header (ORIGIN(ROM) + 0x400) :
+  {
+    KEEP(*(.image_header))
+    . = ALIGN(16);
+  } > ROM
+
+  ASSERT(SIZEOF(.vectors) <= 0x400, "vector table runs into the image header")
 
   .text :
   {
@@ -124,6 +138,14 @@ SECTIONS
     LONG (SIZEOF(.bss) / 4);
     __zero_table_end__ = .;
   } > ROM
+
+  /* First in RAM in every image: the app/bootloader hand-over block
+   * (boot_shared.h). Never zeroed, never loaded. Added for the control app. */
+  .boot_shared (NOLOAD) :
+  {
+    KEEP(*(.boot_shared))
+    . = ORIGIN(RAM) + 16;
+  } > RAM
 
   .data :
   {

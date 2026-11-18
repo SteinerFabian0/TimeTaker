@@ -9,8 +9,12 @@
  *
  * Buttons: every classified press of BTN1..BTN3 becomes an EVT_BUTTON. What a
  * press MEANS is the web app's decision, for example "BTN1 = start sequence"
- * (SYSTEM_ARCHITECTURE §1). Local fallbacks that must work without a host,
- * like BTN2 long = abort the start, arrive with sequence_manager.
+ * (SYSTEM_ARCHITECTURE §1). One local fallback works without a host:
+ * BTN2 LONG while a start sequence runs aborts it (reason BUTTON,
+ * SYSTEM_ARCHITECTURE §12.2 "Abort"). The EVT_BUTTON still goes out.
+ *
+ * Bench only (CTRL_ENABLE_FAULT_INJECT): BTN1 VERY_LONG = HardFault,
+ * BTN3 VERY_LONG = hung loop (BENCH_TESTS.md F-1/F-2).
  *
  * Owns: the policy over indicator_led and button_handler.
  * Context: main loop only.

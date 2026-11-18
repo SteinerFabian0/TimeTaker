@@ -89,6 +89,12 @@ ctrlStatus_e deviceIdInit(void)
     return status;
 }
 
+void deviceIdMixEntropy(uint32_t entropy)
+{
+    uint32_t h = deviceIdMix(deviceIdBoot ^ entropy);
+    deviceIdBoot = (h == 0U) ? 1U : h;
+}
+
 uint32_t deviceIdBootId(void)
 {
     return deviceIdBoot;
@@ -97,6 +103,11 @@ uint32_t deviceIdBootId(void)
 uint8_t deviceIdResetCause(void)
 {
     return deviceIdReset;
+}
+
+void deviceIdOverrideResetCause(uint8_t cause)
+{
+    deviceIdReset = cause;
 }
 
 const char *deviceIdSerial(void)

@@ -61,6 +61,13 @@ suite host_frame_codec "$CTRL/app/modules/frame_codec.c"
 suite host_protocol    "$CTRL/app/modules/frame_codec.c"
 suite host_event_log   "$CTRL/app/modules/event_log.c"
 suite host_session     "$CTRL/app/modules/host_session.c" "$CTRL/app/modules/frame_codec.c" "$CTRL/app/modules/event_log.c"
+suite host_bind_list   "$CTRL/app/modules/bind_list.c"
+suite host_seq_planner "$CTRL/app/modules/seq_planner.c"
+suite host_settings_record "$CTRL/app/modules/settings_record.c" "$CTRL/app/modules/crc32.c"
+suite host_nrf_link    "$CTRL/app/modules/nrf_link_proto.c" "$CTRL/app/modules/frame_codec.c" \
+                       "$CTRL/app/modules/byte_ring.c" "$CTRL/app/modules/stream_budget.c"
+suite host_lane_logic  "$CTRL/app/modules/lane_logic.c"
+suite host_update      "$CTRL/app/modules/image_header.c" "$CTRL/app/modules/update_writer.c" "$CTRL/app/modules/crc32.c"
 
 if [ "$failed" -eq 0 ]; then
     echo "ALL SUITES PASSED"

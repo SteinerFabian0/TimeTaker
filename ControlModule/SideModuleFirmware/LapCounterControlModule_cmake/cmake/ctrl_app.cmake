@@ -8,6 +8,7 @@
 # "debug_GCC_main", so EVERY preset reuses that build type and the CTRL_RELEASE
 # option applies the delta on top. Same scheme as the lane module.
 option(CTRL_RELEASE "Production build: -O2 + RELEASE define" OFF)
+option(CTRL_APP_WITH_BOOTLOADER "Link the app at 0x08006000 behind ctrl_boot (else standalone at 0x08000000)" OFF)
 
 file(GLOB_RECURSE CTRL_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/app/*.c)
 
@@ -42,7 +43,15 @@ set_source_files_properties(${CTRL_APP_SOURCES} PROPERTIES COMPILE_OPTIONS
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC
   $<$<BOOL:${CTRL_RELEASE}>:RELEASE>
+  $<$<BOOL:${CTRL_APP_WITH_BOOTLOADER}>:CTRL_APP_WITH_BOOTLOADER>
 )
+
+# Flash layout: the linker script INCLUDEs ctrl_memory.ld from this directory.
+if(CTRL_APP_WITH_BOOTLOADER)
+  target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ld/app_boot)
+else()
+  target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ld/app)
+endif()
 
 # Last -O flag on the command line wins; these come after the generated
 # flags.cmake (-O0), so they are the effective optimization level.

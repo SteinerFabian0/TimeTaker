@@ -1,0 +1,38 @@
+# TimeTaker BLE bridge application options.
+
+source "Kconfig.zephyr"
+
+menu "TimeTaker BLE bridge"
+
+config TT_DATA_SLOTS
+	int "DATA slots (credits) for STM -> BLE"
+	range 1 8
+	default 4
+	help
+	  Each slot holds one DATA frame of up to 244 bytes (BLE_FIRMWARE_GUIDE
+	  §5.4). The first knob to turn if RAM runs out.
+
+config TT_UART_RX_RING
+	int "UART RX ring size (power of two)"
+	default 512
+
+config TT_UART_TX_RING
+	int "UART TX ring size (power of two)"
+	default 512
+
+config TT_UART_RX_DMA_BUF
+	int "UARTE RX DMA buffer size (two of them)"
+	default 64
+
+config TT_WDT_TIMEOUT_MS
+	int "Watchdog timeout"
+	default 4000
+
+config TT_WDT_SELFTEST
+	bool "Watchdog self-test (bench only)"
+	help
+	  A VERY_LONG button press (10-30 s) hangs the main loop on purpose, so
+	  the watchdog must reset the chip (BENCH_TESTS.md T10). Never in a
+	  release image: use the wdt_selftest.conf fragment.
+
+endmenu

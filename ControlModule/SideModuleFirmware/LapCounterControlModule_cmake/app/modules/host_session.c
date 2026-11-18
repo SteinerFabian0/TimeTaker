@@ -65,17 +65,19 @@ static ctrlStatus_e hostSessionHello(hostSession_t *s, const uint8_t *req, uint1
         return CTRL_ERR_PROTO_MISMATCH;
     }
 
-    s->open   = true;
-    s->cursor = eventLogNext(s->cfg.log);
+    s->open        = true;
+    s->cursor      = eventLogNext(s->cfg.log);
+    s->deferActive = false;                 /* an answer owed to the previous host is void */
     memcpy(s->clientId, hello.clientId, sizeof(s->clientId));
     s->stats.opens++;
+    s->bindState = (s->cfg.onHello != NULL) ? s->cfg.onHello(s, &hello) : s->cfg.bindState;
 
     hpHelloRsp_t *r = (hpHelloRsp_t *)rsp;
     memset(r, 0, sizeof(*r));
     r->protoMajor    = HP_PROTO_MAJOR;
     r->protoMinor    = HP_PROTO_MINOR;
     r->transport     = s->cfg.transport;
-    r->bindState     = s->cfg.bindState;
+    r->bindState     = s->bindState;
     r->bootId        = s->cfg.bootId;
     r->sysUs         = s->cfg.nowUs();
     r->logOldestSeq  = eventLogOldest(s->cfg.log);
@@ -162,11 +164,25 @@ static void hostSessionHandleFrame(hostSession_t *s, const uint8_t *raw, uint16_
         status = CTRL_ERR_NO_SESSION;
     } else if (hdr.msgId == HP_MSG_PING) {
         status = hostSessionPing(s, req, reqLen, rsp, &rspLen);
+    } else if (s->bindState == (uint8_t)HP_BIND_UNBOUND) {
+        s->stats.notBound++;
+        status = CTRL_ERR_NOT_BOUND;
     } else if (hdr.msgId == HP_MSG_RESUME) {
         status = hostSessionResume(s, req, reqLen, rsp, &rspLen);
     } else if (s->cfg.onRequest != NULL) {
+        const bool owedBefore = s->deferActive;
+        s->deferRequested = false;
         status = s->cfg.onRequest(s, hdr.msgId, req, reqLen, rsp, (uint16_t)sizeof(rsp), &rspLen);
-        if (status == CTRL_OK && (rspLen < HOST_SESSION_STATUS_BYTES || rspLen > sizeof(rsp))) {
+        if (s->deferRequested) {
+            s->deferRequested = false;
+            if (!owedBefore) {
+                s->deferActive = true;           /* the owner answers later */
+                s->deferMsgId  = hdr.msgId;
+                s->deferTag    = hdr.tag;
+                return;
+            }
+            status = CTRL_ERR_BUSY;              /* one deferred answer at a time */
+        } else if (status == CTRL_OK && (rspLen < HOST_SESSION_STATUS_BYTES || rspLen > sizeof(rsp))) {
             status = CTRL_ERR_INVALID_STATE;   /* owner bug: never send garbage */
         }
     } else {
@@ -209,7 +225,7 @@ static bool hostSessionPump(hostSession_t *s)
 {
     bool any = false;
 
-    while (s->open && s->cursor < eventLogNext(s->cfg.log)) {
+    while (s->open && s->bindState != (uint8_t)HP_BIND_UNBOUND && s->cursor < eventLogNext(s->cfg.log)) {
         const eventLogSlot_t *slot = eventLogGet(s->cfg.log, s->cursor);
         if (slot == NULL) {
             /* Overwritten while we lagged: jump to the oldest held event. The
@@ -241,14 +257,17 @@ static bool hostSessionPump(hostSession_t *s)
 void hostSessionInit(hostSession_t *s, const hostTransport_t *io, const hostSessionConfig_t *cfg)
 {
     memset(s, 0, sizeof(*s));
-    s->io  = io;
-    s->cfg = *cfg;
+    s->io        = io;
+    s->cfg       = *cfg;
+    s->bindState = cfg->bindState;
     frameDecoderInit(&s->dec, s->rxBuf, (uint16_t)sizeof(s->rxBuf));
 }
 
 void hostSessionReset(hostSession_t *s)
 {
-    s->open = false;
+    s->open        = false;
+    s->deferActive = false;
+    s->bindState   = s->cfg.bindState;
     frameDecoderReset(&s->dec);
 }
 
@@ -264,4 +283,57 @@ void hostSessionRun(hostSession_t *s)
 bool hostSessionIsOpen(const hostSession_t *s)
 {
     return s->open;
+}
+
+void hostSessionSetBindState(hostSession_t *s, uint8_t bindState)
+{
+    s->bindState = bindState;
+}
+
+uint8_t hostSessionGetBindState(const hostSession_t *s)
+{
+    return s->bindState;
+}
+
+const uint8_t *hostSessionClientId(const hostSession_t *s)
+{
+    return s->clientId;
+}
+
+void hostSessionDefer(hostSession_t *s)
+{
+    s->deferRequested = true;
+}
+
+bool hostSessionHasDeferred(const hostSession_t *s)
+{
+    return s->deferActive;
+}
+
+bool hostSessionCompleteDeferred(hostSession_t *s, ctrlStatus_e status, uint8_t *payload,
+                                 uint16_t payloadLen)
+{
+    if (!s->deferActive) {
+        return false;
+    }
+    s->deferActive = false;
+    hostSessionRespond(s, s->deferMsgId, s->deferTag, status, payload, payloadLen);
+    s->io->flush();
+    return true;
+}
+
+bool hostSessionSendStream(hostSession_t *s, uint8_t msgId, const void *payload, uint16_t len)
+{
+    if (!s->open || s->bindState == (uint8_t)HP_BIND_UNBOUND || len > HP_MAX_PAYLOAD) {
+        return false;
+    }
+    const hpHeader_t hdr = { .msgId = msgId, .flags = HP_FLAG_STREAM, .tag = 0U };
+    if (!hostSessionSend(s, (const uint8_t *)&hdr, HP_HEADER_BYTES, (const uint8_t *)payload, len,
+                         HOST_SESSION_RESPONSE_RESERVE)) {
+        s->stats.streamsDropped++;
+        return false;
+    }
+    s->stats.streamsSent++;
+    s->io->flush();
+    return true;
 }

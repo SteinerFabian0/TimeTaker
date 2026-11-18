@@ -80,13 +80,20 @@ static uint8_t      ownerLastMsg;
 static uint16_t     ownerLastLen;
 static ctrlStatus_e ownerReturn = CTRL_OK;
 static int          ownerShortBody;
+static int          ownerDefers;
+static int          ownerCalls;
 
 static ctrlStatus_e fakeOwner(hostSession_t *s, uint8_t msgId, const uint8_t *req, uint16_t reqLen,
                               uint8_t *rsp, uint16_t rspCap, uint16_t *rspLen)
 {
-    (void)s; (void)req; (void)rspCap;
+    (void)req; (void)rspCap;
     ownerLastMsg = msgId;
     ownerLastLen = reqLen;
+    ownerCalls++;
+    if (ownerDefers) {
+        hostSessionDefer(s);
+        return CTRL_OK;
+    }
     if (ownerShortBody) {
         *rspLen = 1U;
         return CTRL_OK;
@@ -107,6 +114,16 @@ static eventLogSlot_t slots[CAP];
 static eventLog_t     elog;
 static hostSession_t  sess;
 
+/* Bind policy hook: what the owner's onHello() decides. */
+static uint8_t helloDecides = (uint8_t)HP_BIND_TRUSTED;
+static uint8_t helloSawKind;
+static uint8_t fakeOnHello(hostSession_t *s, const hpHelloReq_t *hello)
+{
+    (void)s;
+    helloSawKind = hello->clientKind;
+    return helloDecides;
+}
+
 typedef struct {
     hpHeader_t hdr;
     uint8_t    payload[HP_MAX_PAYLOAD];
@@ -116,22 +133,31 @@ typedef struct {
 static frame_t  outFrames[64];
 static int      outCount;
 
-static void setup(void)
+static void setupWith(uint8_t transport, uint8_t bindState, bool withHello)
 {
     rxHead = rxTail = 0U;
     txLen = 0U;
     txSpace = 100000U;
+    ownerDefers = 0;
+    ownerCalls = 0;
+    ownerLastMsg = 0U;
     eventLogInit(&elog, slots, CAP);
     const hostSessionConfig_t cfg = {
-        .transport = (uint8_t)HP_TRANSPORT_USB,
-        .bindState = (uint8_t)HP_BIND_TRUSTED,
+        .transport = transport,
+        .bindState = bindState,
         .bootId    = BOOT_ID,
         .log       = &elog,
         .nowUs     = fakeClock,
         .otherSessions = NULL,
         .onRequest = fakeOwner,
+        .onHello   = withHello ? fakeOnHello : NULL,
     };
     hostSessionInit(&sess, &fakeIo, &cfg);
+}
+
+static void setup(void)
+{
+    setupWith((uint8_t)HP_TRANSPORT_USB, (uint8_t)HP_BIND_TRUSTED, false);
 }
 
 static void sendRaw(const uint8_t *wire, uint16_t n)
@@ -450,6 +476,155 @@ static void testReset(void)
           && isStatusOnly(&outFrames[0], HP_MSG_PING, 1U, CTRL_ERR_NO_SESSION));
 }
 
+/* --- Bind gating (CONTROL_FIRMWARE_GUIDE §5.4) ------------------------------- */
+
+static void testBindGate(void)
+{
+    /* A BLE session: configured UNBOUND, the owner's hook decides at HELLO. */
+    setupWith((uint8_t)HP_TRANSPORT_BLE, (uint8_t)HP_BIND_UNBOUND, true);
+    helloDecides = (uint8_t)HP_BIND_UNBOUND;
+    openSession();
+    hpHelloRsp_t r;
+    memcpy(&r, outFrames[0].payload, sizeof(r));
+    check("bind: HELLO is answered OK while UNBOUND, reporting UNBOUND",
+          outCount == 1 && r.status == 0 && r.bindState == HP_BIND_UNBOUND && r.transport == HP_TRANSPORT_BLE
+          && helloSawKind == HP_CLIENT_WEBAPP && hostSessionGetBindState(&sess) == HP_BIND_UNBOUND);
+
+    hpPingReq_t ping = { .hostMs = 5U };
+    sendRequest(HP_MSG_PING, 0U, 0x10U, &ping, sizeof(ping));
+    run();
+    check("bind: PING is served while UNBOUND",
+          outCount == 1 && outFrames[0].hdr.tag == 0x10U && statusOf(&outFrames[0]) == 0
+          && outFrames[0].len == HP_PING_RSP_BYTES);
+
+    hpResumeReq_t res = { .bootId = BOOT_ID, .fromSeq = 0U };
+    sendRequest(HP_MSG_RESUME, 0U, 0x11U, &res, sizeof(res));
+    run();
+    check("bind: RESUME while UNBOUND -> ERR_NOT_BOUND",
+          outCount == 1 && isStatusOnly(&outFrames[0], HP_MSG_RESUME, 0x11U, CTRL_ERR_NOT_BOUND));
+
+    sendRequest(HP_MSG_LANE_POWER, 0U, 0x12U, "\x01", 1U);
+    run();
+    check("bind: owner request while UNBOUND -> ERR_NOT_BOUND, owner never called",
+          outCount == 1 && isStatusOnly(&outFrames[0], HP_MSG_LANE_POWER, 0x12U, CTRL_ERR_NOT_BOUND)
+          && ownerCalls == 0);
+
+    publish(1);
+    publish(2);
+    run();
+    check("bind: no events are pumped while UNBOUND", outCount == 0);
+
+    hpStrRawSamples_t raw = { .lane = 1U };
+    check("bind: no streams while UNBOUND",
+          !hostSessionSendStream(&sess, HP_MSG_STR_RAW_SAMPLES, &raw, sizeof(raw)));
+
+    hostSessionSetBindState(&sess, (uint8_t)HP_BIND_BOUND);
+    run();
+    check("bind: bound live -> the events since HELLO follow in order",
+          outCount == 2 && evSeqOf(&outFrames[0]) == 0 && evSeqOf(&outFrames[1]) == 1);
+    sendRequest(HP_MSG_LANE_POWER, 0U, 0x13U, "\x01", 1U);
+    run();
+    check("bind: bound live -> owner requests are served",
+          outCount == 1 && outFrames[0].hdr.tag == 0x13U && statusOf(&outFrames[0]) == 0 && ownerCalls == 1);
+
+    hostSessionReset(&sess);
+    check("bind: reset returns to the configured bind state",
+          hostSessionGetBindState(&sess) == HP_BIND_UNBOUND);
+
+    /* Without a hook the configured state stands (USB: TRUSTED). */
+    setupWith((uint8_t)HP_TRANSPORT_USB, (uint8_t)HP_BIND_TRUSTED, false);
+    hostSessionSetBindState(&sess, (uint8_t)HP_BIND_UNBOUND);
+    openSession();
+    memcpy(&r, outFrames[0].payload, sizeof(r));
+    check("bind: HELLO without a hook re-applies the configured state",
+          r.bindState == HP_BIND_TRUSTED && hostSessionGetBindState(&sess) == HP_BIND_TRUSTED);
+}
+
+/* --- Deferred responses ---------------------------------------------------------- */
+
+static void testDefer(void)
+{
+    setup();
+    openSession();
+    ownerDefers = 1;
+    sendRequest(HP_MSG_LANE_STATUS, 0U, 0x3131U, "\x02", 1U);
+    run();
+    check("defer: no response while the owner works on it",
+          outCount == 0 && hostSessionHasDeferred(&sess) && ownerLastMsg == HP_MSG_LANE_STATUS);
+
+    sendRequest(HP_MSG_LANE_STATUS, 0U, 0x3232U, "\x03", 1U);
+    run();
+    check("defer: a second deferral while one is owed -> ERR_BUSY",
+          outCount == 1 && isStatusOnly(&outFrames[0], HP_MSG_LANE_STATUS, 0x3232U, CTRL_ERR_BUSY));
+
+    hpLaneStatusRsp_t body;
+    memset(&body, 0x5A, sizeof(body));
+    body.lane = 2U;
+    txLen = 0U;
+    bool done = hostSessionCompleteDeferred(&sess, CTRL_OK, (uint8_t *)&body, sizeof(body));
+    frameDecoder_t dec;
+    static uint8_t rx[FRAME_CODEC_RX_BUF_BYTES(HP_MAX_FRAME_RAW)];
+    frameDecoderInit(&dec, rx, sizeof(rx));
+    int got = 0;
+    hpHeader_t hdr = { 0 };
+    hpLaneStatusRsp_t back;
+    memset(&back, 0, sizeof(back));
+    for (uint16_t i = 0U; i < txLen; i++) {
+        if (frameDecoderPush(&dec, txQ[i]) == FRAME_READY) {
+            got++;
+            memcpy(&hdr, dec.frame, HP_HEADER_BYTES);
+            memcpy(&back, dec.frame + HP_HEADER_BYTES, sizeof(back));
+        }
+    }
+    check("defer: completion answers with the original msgId and tag, status forced OK",
+          done && got == 1 && hdr.msgId == HP_MSG_LANE_STATUS && hdr.tag == 0x3131U
+          && hdr.flags == HP_FLAG_RESPONSE && back.status == 0 && back.lane == 2U);
+    check("defer: nothing owed after completion",
+          !hostSessionHasDeferred(&sess)
+          && !hostSessionCompleteDeferred(&sess, CTRL_OK, (uint8_t *)&body, sizeof(body)));
+
+    sendRequest(HP_MSG_LANE_STATUS, 0U, 0x3333U, "\x04", 1U);
+    run();
+    hostSessionReset(&sess);
+    check("defer: a reset voids the owed answer",
+          !hostSessionHasDeferred(&sess)
+          && !hostSessionCompleteDeferred(&sess, CTRL_ERR_LANE_ABSENT, NULL, 0U));
+    ownerDefers = 0;
+}
+
+/* --- Streams ----------------------------------------------------------------------- */
+
+static void testStreams(void)
+{
+    setup();
+    hpDbgLog_t line = { .level = 3U, .sysUs = 9U };
+    check("stream: nothing before HELLO",
+          !hostSessionSendStream(&sess, HP_MSG_DBG_LOG, &line, sizeof(line)));
+
+    openSession();
+    txLen = 0U;
+    bool sent = hostSessionSendStream(&sess, HP_MSG_DBG_LOG, &line, sizeof(line));
+    frameDecoder_t dec;
+    static uint8_t rx[FRAME_CODEC_RX_BUF_BYTES(HP_MAX_FRAME_RAW)];
+    frameDecoderInit(&dec, rx, sizeof(rx));
+    hpHeader_t hdr = { 0 };
+    int got = 0;
+    for (uint16_t i = 0U; i < txLen; i++) {
+        if (frameDecoderPush(&dec, txQ[i]) == FRAME_READY) {
+            got++;
+            memcpy(&hdr, dec.frame, HP_HEADER_BYTES);
+        }
+    }
+    check("stream: sent with the STREAM flag and tag 0 when there is room",
+          sent && got == 1 && hdr.flags == HP_FLAG_STREAM && hdr.tag == 0U && hdr.msgId == HP_MSG_DBG_LOG);
+
+    txSpace = HOST_SESSION_RESPONSE_RESERVE + 4U;
+    check("stream: dropped when only the response reserve is left",
+          !hostSessionSendStream(&sess, HP_MSG_DBG_LOG, &line, sizeof(line))
+          && sess.stats.streamsDropped == 1U);
+    txSpace = 100000U;
+}
+
 int main(void)
 {
     testGate();
@@ -461,6 +636,9 @@ int main(void)
     testOwner();
     testBadInput();
     testReset();
+    testBindGate();
+    testDefer();
+    testStreams();
 
     printf("%s\n", failures ? "FAILED" : "all passed");
     return failures ? 1 : 0;

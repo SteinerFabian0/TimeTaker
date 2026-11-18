@@ -1,0 +1,4 @@
+# TimeTaker BLE bridge: U501 on the control module (Raytac MDBT42T-P).
+
+config BOARD_TT_BLE
+	select SOC_NRF52805_CAAA

@@ -46,11 +46,17 @@ typedef enum {
 
     /* Hardware / peripheral (-10 .. -19) */
     LANE_ERR_TIMER             = -10,   /* TIM1/TIM2 refused a start, stop or channel switch */
+    LANE_ERR_CLOCK             = -11,   /* A clock tap did not come back after a low-power exit */
+    LANE_ERR_OPTION_BYTES      = -12,   /* Option bytes do not freeze the IWDG in Standby; Standby refused */
 
     /* Sensor I2C bus, VCNL4040 (-20 .. -29) */
     LANE_ERR_I2C               = -20,   /* Transfer failed (NACK or bus error) */
     LANE_ERR_I2C_TIMEOUT       = -21,   /* Transfer did not complete within the timeout */
     LANE_ERR_I2C_BUSY          = -22,   /* Peripheral was not idle when the transfer was requested */
+    LANE_ERR_SENSOR_ID         = -23,   /* VCNL4040 answered, but its ID register is not 0x0186 */
+    LANE_ERR_SENSOR_NOT_READY  = -24,   /* Sensor not probed/configured yet, or in fault */
+    LANE_ERR_SAMPLE_OVERRUN    = -25,   /* A sample trigger came while the previous sample was still on the bus */
+    LANE_ERR_SENSOR_FAULT      = -26,   /* Sensor failed repeatedly; recovery (bus clear, re-init) in progress */
 
     /* Timebase: SYNC mapping and TIM2 alarms (-30 .. -39) */
     LANE_ERR_SYNC_NO_LOCK      = -30,   /* No SYNC period measured yet; mainboard time unknown */
@@ -58,9 +64,29 @@ typedef enum {
     LANE_ERR_ALARM_BUSY        = -32,   /* TIM2 alarm already armed; cancel it first */
     LANE_ERR_ALARM_RANGE       = -33,   /* Alarm target too far from now to be unambiguous */
 
-    /* I3C target / register map (-40 .. -49): step 6 of the bring-up order. */
+    /* I3C target / register map (-40 .. -49). A rejected bus write counts in
+     * laneStatus_t.badWrites and its code becomes STATUS lastError. */
+    LANE_ERR_REG_UNKNOWN       = -40,   /* Register pointer not in laneReg_e */
+    LANE_ERR_REG_LENGTH        = -41,   /* Payload length does not match the register's struct */
+    LANE_ERR_REG_VALUE         = -42,   /* A field is out of range; the write was not applied */
+    LANE_ERR_REG_READ_ONLY     = -43,   /* Payload written to a read-only register */
+    LANE_ERR_I3C               = -44,   /* I3C peripheral reported a bus/protocol error */
+    LANE_ERR_RX_OVERFLOW       = -45,   /* A write arrived while the receive mailbox was full; dropped */
+    LANE_ERR_CMD_UNSUPPORTED   = -46,   /* Valid command this image does not implement (ENTER_BOOTLOADER, deep sleep) */
 
-    /* CHAIN enumeration (-50 .. -59): step 7 of the bring-up order. */
+    /* CHAIN enumeration (-50 .. -59) */
+    LANE_ERR_NO_ADDRESS        = -50,   /* Needs a dynamic address the lane does not have */
+    LANE_ERR_HOTJOIN           = -51,   /* Hot-join request refused by the peripheral */
+    LANE_ERR_IBI               = -52,   /* IBI request refused (not enabled by the controller, or busy) */
+
+    /* Events and scheduled actions (-60 .. -69) */
+    LANE_ERR_FIFO_FULL         = -60,   /* Event FIFO full: the new event was dropped (oldest kept) */
+    LANE_ERR_SCHED_FULL        = -61,   /* SCHEDULE queue full: the action was rejected */
+    LANE_ERR_SCHED_TIME        = -62,   /* Scheduled time cannot be mapped to local time (yet) */
+
+    /* Lane state / power / faults (-70 .. -79) */
+    LANE_ERR_PARKED            = -70,   /* Boot-loop guard parked the lane: sensing and LED refused */
+    LANE_ERR_LOW_POWER_REFUSED = -71,   /* Low-power entry refused: a wake line was already asserted */
 } laneStatus_e;
 
 

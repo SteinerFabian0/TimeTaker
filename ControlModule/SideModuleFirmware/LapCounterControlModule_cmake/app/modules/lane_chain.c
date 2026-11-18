@@ -46,6 +46,15 @@ ctrlStatus_e laneChainReleaseBusPins(void)
     return ctrlStatusFromHal(HAL_GPIO_Init(BUS_SCL_PORT, BUS_SCL_PIN | BUS_SDA_PIN, &cfg));
 }
 
+ctrlStatus_e laneChainSetChainOut(bool high)
+{
+    if (high && !laneChainRailOn) {
+        return CTRL_ERR_INVALID_STATE;
+    }
+    HAL_GPIO_WritePin(CHAIN_OUT_PORT, CHAIN_OUT_PIN, high ? HAL_GPIO_PIN_SET : HAL_GPIO_PIN_RESET);
+    return CTRL_OK;
+}
+
 void laneChainSetRail(bool on)
 {
     HAL_GPIO_WritePin(LANE_PWR_EN_PORT, LANE_PWR_EN_PIN, on ? HAL_GPIO_PIN_SET : HAL_GPIO_PIN_RESET);

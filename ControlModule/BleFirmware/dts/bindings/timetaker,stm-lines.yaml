@@ -1,0 +1,27 @@
+# The nRF52805's control lines to the control module STM32.
+# BLE_FIRMWARE_GUIDE.md §3.2 and §7.3.
+
+description: TimeTaker BLE bridge lines to the STM32
+
+compatible: "timetaker,stm-lines"
+
+properties:
+  ble-irq-gpios:
+    type: phandle-array
+    required: true
+    description: High while a BLE central is connected (STM PB5).
+
+  boot-req-gpios:
+    type: phandle-array
+    required: true
+    description: BOOT_REQ to the STM bootloader, active low (STM PB4).
+
+  nrst-gpios:
+    type: phandle-array
+    required: true
+    description: STM NRST, open drain, active low. Never driven high.
+
+  boot0-gpios:
+    type: phandle-array
+    required: true
+    description: STM BOOT0. Never driven in v1.

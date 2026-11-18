@@ -50,6 +50,14 @@ uint64_t sysTimeNowUs(void);
 uint64_t sysTimeTicks(void);
 
 /*
+ * The SYNC_ALIGN measurement (lane_protocol.h laneSyncAlign_t): the tick of
+ * the last SYNC edge (low 32 bits) and the µs since it, read together under
+ * one guard with the same pending-UIF care as sysTimeNowUs(). Because the
+ * SYNC period equals the TIM12 period, the tick IS the SYNC edge index.
+ */
+void sysTimeNowSplit(uint32_t *tick, uint32_t *phaseUs);
+
+/*
  * Starts (true) or stops (false) driving SYNC on PB15. Only lane_manager calls
  * this, after the lane rail has settled. Idempotent.
  */

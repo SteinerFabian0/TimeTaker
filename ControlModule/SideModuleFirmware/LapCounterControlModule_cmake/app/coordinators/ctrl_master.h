@@ -7,9 +7,14 @@
  * the other coordinators. Owns the error policy. Same shape as the Yuhka hub's
  * hub_master and the lane's lane_master.
  *
- * Init order matters in one place: lane_chain parks the lane bus pins first,
- * before anything else runs, so the unpowered lanes are back-powered for as
- * short a time as possible after mx_system_init() configured them.
+ * Init order matters in two places: fault_guard reads the reset cause and the
+ * breadcrumb before anything can change them, and lane_chain parks the lane
+ * bus pins right after, so the unpowered lanes are back-powered for as short
+ * a time as possible after mx_system_init() configured them.
+ *
+ * It also owns the fault inputs (USB_FAULT, EXT_PWR_FAULT): the EXTI latches
+ * them, the loop publishes EVT_FAULT (at most one per source per
+ * CTRL_MASTER_FAULT_HOLDOFF_MS) and counts them for STATUS.
  */
 
 #pragma once
@@ -35,3 +40,9 @@ uint32_t     ctrlMasterGetErrorCount(void);
 
 /* Longest super-loop iteration since boot, in ms (target: < 1 ms). */
 uint32_t ctrlMasterGetLoopMaxMs(void);
+
+/* USB_FAULT trips since boot (STATUS.usbFaults). */
+uint32_t ctrlMasterGetUsbFaults(void);
+
+/* imageCrc from this image's header (image_header.h), 0 if not stamped. */
+uint32_t ctrlMasterImageCrc(void);

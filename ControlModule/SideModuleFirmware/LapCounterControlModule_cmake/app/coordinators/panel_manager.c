@@ -16,6 +16,9 @@
 #include "button_handler.h"
 #include "sys_time.h"
 #include "host_manager.h"
+#include "sequence_manager.h"
+#include "ctrl_behavior.h"
+#include "fault_guard.h"
 
 typedef enum {
     PANEL_LINK_UNKNOWN = 0,
@@ -69,6 +72,22 @@ static ctrlStatus_e panelPublishButtons(void)
         if (status != CTRL_OK) {
             result = status;
         }
+
+        /* Local fallback: abort the start without a host. */
+        if (id == (int)BUTTON_BTN2 && press == BUTTON_PRESS_LONG && sequenceManagerIsRunning()) {
+            status = sequenceManagerAbort(HP_ABORT_BUTTON);
+            if (status != CTRL_OK) {
+                result = status;
+            }
+        }
+#if CTRL_ENABLE_FAULT_INJECT
+        if (press == BUTTON_PRESS_VERY_LONG && id == (int)BUTTON_BTN1) {
+            faultGuardInjectHardFault();
+        }
+        if (press == BUTTON_PRESS_VERY_LONG && id == (int)BUTTON_BTN3) {
+            faultGuardInjectHang();
+        }
+#endif
     }
     return result;
 }

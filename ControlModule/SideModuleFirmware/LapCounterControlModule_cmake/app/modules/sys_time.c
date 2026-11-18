@@ -47,6 +47,21 @@ uint64_t sysTimeNowUs(void)
     return ticks * SYS_TIME_TICK_US + cnt;
 }
 
+void sysTimeNowSplit(uint32_t *tick, uint32_t *phaseUs)
+{
+    uint32_t guard = irqGuardEnter();
+    uint64_t ticks = sysTimeTickCount;
+    uint32_t cnt   = LL_TIM_GetCounter(TIM12);
+    if (LL_TIM_IsActiveFlag_UPDATE(TIM12) != 0U) {
+        cnt = LL_TIM_GetCounter(TIM12);
+        ticks++;
+    }
+    irqGuardExit(guard);
+
+    *tick    = (uint32_t)ticks;
+    *phaseUs = cnt;
+}
+
 uint64_t sysTimeTicks(void)
 {
     uint32_t guard = irqGuardEnter();

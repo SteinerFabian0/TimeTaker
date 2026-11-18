@@ -1,0 +1,208 @@
+/*
+ * sequence_manager.c
+ *
+ * @brief  Start sequence. See sequence_manager.h.
+ */
+
+#include "sequence_manager.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "ctrl_status.h"
+#include "host_protocol.h"
+#include "lane_protocol.h"
+#include "lane_logic.h"
+#include "seq_planner.h"
+#include "rng.h"
+#include "sys_time.h"
+#include "log_line.h"
+#include "lane_manager.h"
+#include "host_manager.h"
+
+typedef enum {
+    SEQ_IDLE = 0,
+    SEQ_ARMING,      /* actions queued, waiting for every lane to confirm */
+    SEQ_ARMED,       /* every lane confirmed, waiting for Tout */
+} seqState_e;
+
+static seqState_e seqState;
+static seqPlan_t  seqPlan;
+static uint8_t    seqLanes;          /* participating lanes (mask) */
+static uint8_t    seqLights;
+
+static void seqLog(const char *what, int32_t v)
+{
+    logLine_t l;
+    logLineInit(&l, "SEQ ");
+    logLineStr(&l, what);
+    logLineKv(&l, "v", v);
+    hostManagerLog(HP_LOG_INFO, &l);
+}
+
+static ctrlStatus_e seqAction(uint8_t lane, uint8_t op, uint8_t action, uint16_t param, uint64_t atUs)
+{
+    laneSchedule_t a;
+    memset(&a, 0, sizeof(a));
+    a.op     = op;
+    a.action = action;
+    a.param  = param;
+    a.atUs   = atUs;
+    return laneManagerSchedule(lane, &a);
+}
+
+ctrlStatus_e sequenceManagerInit(void)
+{
+    seqState = SEQ_IDLE;
+    seqLanes = 0U;
+    return CTRL_OK;
+}
+
+bool sequenceManagerIsRunning(void)
+{
+    return seqState != SEQ_IDLE;
+}
+
+ctrlStatus_e sequenceManagerAbort(uint8_t reason)
+{
+    if (seqState == SEQ_IDLE) {
+        return CTRL_ERR_INVALID_STATE;
+    }
+    seqState = SEQ_IDLE;
+
+    const laneLed_t blink = {
+        .mode            = LANE_LED_BLINK,
+        .level           = 1000U,
+        .blinkPeriodMs   = SEQUENCE_MANAGER_ABORT_BLINK_MS,
+        .blinkOnPermille = 500U,
+        .blinkCount      = 3U,
+    };
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        if ((seqLanes & LANE_LOGIC_MASK(n)) != 0U) {
+            (void)seqAction(n, LANE_SCHED_CANCEL_ALL, 0U, 0U, 0U);   /* gone lanes refuse: fine */
+        }
+    }
+    if (seqLanes != 0U) {
+        (void)laneManagerSetLed(seqLanes, &blink);
+    }
+    laneManagerScheduleForget();
+
+    const hpEvtSeqAborted_t evt = { .reason = reason, .atUs = sysTimeNowUs() };
+    seqLog("ABORTED", reason);
+    return hostManagerPublishEvent(HP_MSG_EVT_SEQ_ABORTED, &evt, sizeof(evt));
+}
+
+ctrlStatus_e sequenceManagerStart(const hpStartSequenceReq_t *req, uint64_t *t0Us)
+{
+    if (seqState != SEQ_IDLE) {
+        return CTRL_ERR_SEQ_RUNNING;
+    }
+    if (req->armSampling > 1U) {
+        return CTRL_ERR_INVALID_ARG;
+    }
+
+    const uint8_t lanes = laneManagerConfiguredMask();
+    uint8_t count = 0U;
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        count = (uint8_t)(count + (((lanes & LANE_LOGIC_MASK(n)) != 0U) ? 1U : 0U));
+    }
+
+    uint32_t word = 0U;
+    (void)rngGet(&word);   /* a fallback word on an RNG failure still makes a fair hold */
+
+    const seqPlanParams_t params = {
+        .lights    = req->lights,
+        .stepMs    = req->stepMs,
+        .holdMinMs = req->holdMinMs,
+        .holdMaxMs = req->holdMaxMs,
+        .leadMs    = req->leadMs,
+    };
+    CTRL_RETURN_IF_ERR(seqPlannerPlan(&params, count, sysTimeNowUs(), word, &seqPlan));
+
+    laneManagerScheduleForget();
+    seqLanes  = lanes;
+    seqLights = seqPlan.litCount;
+    seqState  = SEQ_ARMING;
+
+    uint8_t k = 0U;
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        if ((lanes & LANE_LOGIC_MASK(n)) == 0U) {
+            continue;
+        }
+        uint8_t expect = 0U;
+        ctrlStatus_e st = seqAction(n, LANE_SCHED_CANCEL_ALL, 0U, 0U, 0U);
+        if (st == CTRL_OK && k < seqPlan.litCount) {
+            st = seqAction(n, LANE_SCHED_ADD, LANE_ACT_LED_ON, 1000U, seqPlan.onUs[k]);
+            if (st == CTRL_OK) {
+                st = seqAction(n, LANE_SCHED_ADD, LANE_ACT_LED_OFF, 0U, seqPlan.toutUs);
+            }
+            expect = 2U;
+        }
+        if (st == CTRL_OK && req->armSampling != 0U) {
+            st = seqAction(n, LANE_SCHED_ADD, LANE_ACT_SAMPLING_ON, 0U, seqPlan.t0Us);
+            expect++;
+        }
+        if (st == CTRL_OK) {
+            st = laneManagerScheduleVerify(n, expect);
+        }
+        if (st != CTRL_OK) {
+            (void)sequenceManagerAbort(HP_ABORT_LANE_FAILED);
+            return (st == CTRL_ERR_BUSY) ? CTRL_ERR_BUSY : CTRL_ERR_LANE_NACK;
+        }
+        k++;
+    }
+
+    *t0Us = seqPlan.t0Us;
+    const hpEvtSeqStarted_t evt = {
+        .lights      = seqPlan.litCount,
+        .armSampling = req->armSampling,
+        .stepMs      = req->stepMs,
+        .t0Us        = seqPlan.t0Us,
+    };
+    seqLog("STARTED", seqPlan.litCount);
+    return hostManagerPublishEvent(HP_MSG_EVT_SEQ_STARTED, &evt, sizeof(evt));
+}
+
+ctrlStatus_e sequenceManagerRun(void)
+{
+    if (seqState == SEQ_IDLE) {
+        return CTRL_OK;
+    }
+    const uint64_t now = sysTimeNowUs();
+
+    if (!laneManagerIsPowered()) {
+        return sequenceManagerAbort(HP_ABORT_POWER);
+    }
+    if ((laneManagerConfiguredMask() & seqLanes) != seqLanes) {
+        return sequenceManagerAbort(HP_ABORT_LANE_LEFT);
+    }
+
+    if (seqState == SEQ_ARMING) {
+        bool allOk = true;
+        for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+            if ((seqLanes & LANE_LOGIC_MASK(n)) == 0U) {
+                continue;
+            }
+            const laneSchedResult_e r = laneManagerScheduleResult(n);
+            if (r == LANE_SCHED_RESULT_FAILED) {
+                return sequenceManagerAbort(HP_ABORT_LANE_FAILED);
+            }
+            allOk = allOk && r == LANE_SCHED_RESULT_OK;
+        }
+        if (allOk) {
+            seqState = SEQ_ARMED;
+        } else if (now + (uint64_t)SEQUENCE_MANAGER_CONFIRM_MS * 1000U >= seqPlan.t0Us) {
+            return sequenceManagerAbort(HP_ABORT_LANE_FAILED);   /* better than a dark lane */
+        }
+    }
+
+    if (now >= seqPlan.toutUs) {
+        seqState = SEQ_IDLE;
+        laneManagerScheduleForget();
+        const hpEvtLightsOut_t evt = { .lights = seqLights, .toutUs = seqPlan.toutUs };
+        seqLog("LIGHTS OUT", (int32_t)seqPlan.holdUs);
+        return hostManagerPublishEvent(HP_MSG_EVT_LIGHTS_OUT, &evt, sizeof(evt));
+    }
+    return CTRL_OK;
+}

@@ -1,0 +1,1909 @@
+{
+ "format": "timetaker-race",
+ "version": 1,
+ "protocol": "0.2",
+ "exportedAt": "2026-11-17T20:00:00.000Z",
+ "race": {
+  "id": "laps-incidents",
+  "config": {
+   "name": "Incidents",
+   "mode": "laps",
+   "laps": 12,
+   "durationMs": 300000,
+   "firstCrossing": "startsTiming",
+   "minLapMs": 3600,
+   "rejectInHoldoff": true,
+   "blockedCountsAsCrossing": true,
+   "falseStart": {
+    "action": "flag",
+    "penaltyMs": 5000
+   },
+   "suspectFlags": 7,
+   "id": "laps-incidents",
+   "entries": [
+    {
+     "lane": 1,
+     "driver": "Anna"
+    },
+    {
+     "lane": 2,
+     "driver": "Ben"
+    },
+    {
+     "lane": 3,
+     "driver": "Cleo"
+    },
+    {
+     "lane": 4,
+     "driver": "Dan"
+    },
+    {
+     "lane": 5,
+     "driver": "Eva"
+    },
+    {
+     "lane": 6,
+     "driver": "Finn"
+    }
+   ]
+  },
+  "from": null,
+  "createdAt": "2026-11-17T20:00:00.000Z"
+ },
+ "boots": [
+  1099549949
+ ],
+ "events": [
+  {
+   "bootId": 1099549949,
+   "evSeq": 0,
+   "msgId": 192,
+   "name": "EVT_BOOT",
+   "value": {
+    "evSeq": 0,
+    "resetCause": 1,
+    "reserved": "000000",
+    "bootId": 1099549949,
+    "sysUs": "0"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 1,
+   "msgId": 199,
+   "name": "EVT_BIND_CHANGED",
+   "value": {
+    "evSeq": 1,
+    "change": 1,
+    "count": 1,
+    "windowS": 0,
+    "clientIdPrefix": "4242424242424242"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 2,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 2,
+    "lane": 1,
+    "state": 1,
+    "status": 0,
+    "sysUs": "101000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 3,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 3,
+    "lane": 1,
+    "state": 2,
+    "status": 0,
+    "sysUs": "105000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 4,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 4,
+    "lane": 2,
+    "state": 1,
+    "status": 0,
+    "sysUs": "120000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 5,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 5,
+    "lane": 2,
+    "state": 2,
+    "status": 0,
+    "sysUs": "124000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 6,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 6,
+    "lane": 3,
+    "state": 1,
+    "status": 0,
+    "sysUs": "139000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 7,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 7,
+    "lane": 3,
+    "state": 2,
+    "status": 0,
+    "sysUs": "143000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 8,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 8,
+    "lane": 4,
+    "state": 1,
+    "status": 0,
+    "sysUs": "158000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 9,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 9,
+    "lane": 4,
+    "state": 2,
+    "status": 0,
+    "sysUs": "162000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 10,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 10,
+    "lane": 5,
+    "state": 1,
+    "status": 0,
+    "sysUs": "177000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 11,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 11,
+    "lane": 5,
+    "state": 2,
+    "status": 0,
+    "sysUs": "181000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 12,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 12,
+    "lane": 6,
+    "state": 1,
+    "status": 0,
+    "sysUs": "196000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 13,
+   "msgId": 194,
+   "name": "EVT_LANE_STATE",
+   "value": {
+    "evSeq": 13,
+    "lane": 6,
+    "state": 2,
+    "status": 0,
+    "sysUs": "200000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 14,
+   "msgId": 196,
+   "name": "EVT_SEQ_STARTED",
+   "value": {
+    "evSeq": 14,
+    "lights": 6,
+    "armSampling": 1,
+    "stepMs": 1000,
+    "t0Us": "2357000"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 15,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 15,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "5865053",
+    "laneSeq": 0,
+    "dwell10us": 1558,
+    "depth": 722,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 16,
+   "msgId": 197,
+   "name": "EVT_LIGHTS_OUT",
+   "value": {
+    "evSeq": 16,
+    "lights": 6,
+    "reserved": "000000",
+    "toutUs": "9900787"
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 17,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 17,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "10504681",
+    "laneSeq": 0,
+    "dwell10us": 2289,
+    "depth": 622,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 18,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 18,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "10545283",
+    "laneSeq": 0,
+    "dwell10us": 2717,
+    "depth": 763,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 19,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 19,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "10550761",
+    "laneSeq": 0,
+    "dwell10us": 2805,
+    "depth": 698,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 20,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 20,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "10697442",
+    "laneSeq": 0,
+    "dwell10us": 2456,
+    "depth": 850,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 21,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 21,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "10724970",
+    "laneSeq": 0,
+    "dwell10us": 2375,
+    "depth": 675,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 22,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 22,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "12501218",
+    "laneSeq": 1,
+    "dwell10us": 2753,
+    "depth": 873,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 23,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 23,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "16622482",
+    "laneSeq": 1,
+    "dwell10us": 1630,
+    "depth": 801,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 24,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 24,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "16884919",
+    "laneSeq": 1,
+    "dwell10us": 2835,
+    "depth": 879,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 25,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 25,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "17106025",
+    "laneSeq": 1,
+    "dwell10us": 2995,
+    "depth": 891,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 26,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 26,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "17235546",
+    "laneSeq": 1,
+    "dwell10us": 2981,
+    "depth": 673,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 27,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 27,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "17356565",
+    "laneSeq": 1,
+    "dwell10us": 2807,
+    "depth": 641,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 28,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 28,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "18686839",
+    "laneSeq": 2,
+    "dwell10us": 2467,
+    "depth": 628,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 29,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 29,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "22330853",
+    "laneSeq": 2,
+    "dwell10us": 1902,
+    "depth": 593,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 30,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 30,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "23029928",
+    "laneSeq": 2,
+    "dwell10us": 2848,
+    "depth": 879,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 31,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 31,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "23626989",
+    "laneSeq": 2,
+    "dwell10us": 1681,
+    "depth": 551,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 32,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 32,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "23779958",
+    "laneSeq": 2,
+    "dwell10us": 1757,
+    "depth": 565,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 33,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 33,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "24108970",
+    "laneSeq": 2,
+    "dwell10us": 2471,
+    "depth": 811,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 34,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 34,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "25112975",
+    "laneSeq": 3,
+    "dwell10us": 2480,
+    "depth": 718,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 35,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 35,
+    "lane": 3,
+    "type": 1,
+    "flags": 8,
+    "reserved": 0,
+    "tEntryUs": "27305489",
+    "laneSeq": 3,
+    "dwell10us": 1704,
+    "depth": 633,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 36,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 36,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "28112801",
+    "laneSeq": 3,
+    "dwell10us": 2865,
+    "depth": 687,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 37,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 37,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "29260453",
+    "laneSeq": 3,
+    "dwell10us": 2074,
+    "depth": 729,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 38,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 38,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "30057199",
+    "laneSeq": 3,
+    "dwell10us": 2390,
+    "depth": 665,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 39,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 39,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "30365479",
+    "laneSeq": 3,
+    "dwell10us": 1605,
+    "depth": 621,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 40,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 40,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "31419164",
+    "laneSeq": 4,
+    "dwell10us": 2831,
+    "depth": 733,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 41,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 41,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "33926925",
+    "laneSeq": 4,
+    "dwell10us": 2563,
+    "depth": 713,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 42,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 42,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "34015751",
+    "laneSeq": 4,
+    "dwell10us": 2994,
+    "depth": 706,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 43,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 43,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "35403052",
+    "laneSeq": 4,
+    "dwell10us": 1739,
+    "depth": 551,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 44,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 44,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "36131088",
+    "laneSeq": 4,
+    "dwell10us": 2604,
+    "depth": 668,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 45,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 45,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "37042155",
+    "laneSeq": 4,
+    "dwell10us": 1780,
+    "depth": 568,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 46,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 46,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "37851925",
+    "laneSeq": 5,
+    "dwell10us": 2816,
+    "depth": 814,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 47,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 47,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "40056308",
+    "laneSeq": 5,
+    "dwell10us": 1858,
+    "depth": 647,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 48,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 48,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "40471204",
+    "laneSeq": 5,
+    "dwell10us": 1845,
+    "depth": 760,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 49,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 49,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "41547164",
+    "laneSeq": 5,
+    "dwell10us": 2938,
+    "depth": 718,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 50,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 50,
+    "lane": 4,
+    "type": 2,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "42212724",
+    "laneSeq": 5,
+    "dwell10us": 50000,
+    "depth": 847,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 51,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 51,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "43643637",
+    "laneSeq": 5,
+    "dwell10us": 2503,
+    "depth": 552,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 52,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 52,
+    "lane": 4,
+    "type": 3,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "44074104",
+    "laneSeq": 6,
+    "dwell10us": 65535,
+    "depth": 847,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 53,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 53,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "44560517",
+    "laneSeq": 6,
+    "dwell10us": 1596,
+    "depth": 719,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 54,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 54,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "45731076",
+    "laneSeq": 6,
+    "dwell10us": 2036,
+    "depth": 738,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 55,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 55,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "47425120",
+    "laneSeq": 6,
+    "dwell10us": 1610,
+    "depth": 697,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 56,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 56,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "47541388",
+    "laneSeq": 6,
+    "dwell10us": 2175,
+    "depth": 725,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 57,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 57,
+    "lane": 5,
+    "type": 1,
+    "flags": 8,
+    "reserved": 0,
+    "tEntryUs": "48818694",
+    "laneSeq": 7,
+    "dwell10us": 2163,
+    "depth": 848,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 58,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 58,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "50402067",
+    "laneSeq": 7,
+    "dwell10us": 2896,
+    "depth": 579,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 59,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 59,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "50430812",
+    "laneSeq": 6,
+    "dwell10us": 1589,
+    "depth": 677,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 60,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 60,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "50918031",
+    "laneSeq": 7,
+    "dwell10us": 2458,
+    "depth": 638,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 61,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 61,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "53579949",
+    "laneSeq": 7,
+    "dwell10us": 2196,
+    "depth": 726,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 62,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 62,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "54259109",
+    "laneSeq": 7,
+    "dwell10us": 1896,
+    "depth": 755,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 63,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 63,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "54715512",
+    "laneSeq": 8,
+    "dwell10us": 2212,
+    "depth": 944,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 64,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 64,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "56816218",
+    "laneSeq": 8,
+    "dwell10us": 1816,
+    "depth": 898,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 65,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 65,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "57126068",
+    "laneSeq": 7,
+    "dwell10us": 2964,
+    "depth": 681,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 66,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 66,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "59768901",
+    "laneSeq": 8,
+    "dwell10us": 2972,
+    "depth": 809,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 67,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 67,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "60837447",
+    "laneSeq": 9,
+    "dwell10us": 2789,
+    "depth": 829,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 68,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 68,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "61298792",
+    "laneSeq": 8,
+    "dwell10us": 2054,
+    "depth": 661,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 69,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 69,
+    "lane": 2,
+    "type": 1,
+    "flags": 16,
+    "reserved": 0,
+    "tEntryUs": "62354147",
+    "laneSeq": 8,
+    "dwell10us": 1538,
+    "depth": 679,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 70,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 70,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "63237043",
+    "laneSeq": 9,
+    "dwell10us": 1629,
+    "depth": 813,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 71,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 71,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "63882321",
+    "laneSeq": 8,
+    "dwell10us": 2873,
+    "depth": 668,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 72,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 72,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "65902886",
+    "laneSeq": 9,
+    "dwell10us": 1808,
+    "depth": 581,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 73,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 73,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "68073485",
+    "laneSeq": 9,
+    "dwell10us": 2490,
+    "depth": 634,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 74,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 74,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "68726580",
+    "laneSeq": 9,
+    "dwell10us": 2905,
+    "depth": 858,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 75,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 75,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "69411243",
+    "laneSeq": 10,
+    "dwell10us": 1621,
+    "depth": 922,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 76,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 76,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "70672411",
+    "laneSeq": 9,
+    "dwell10us": 2007,
+    "depth": 625,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 77,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 77,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "72024987",
+    "laneSeq": 10,
+    "dwell10us": 2097,
+    "depth": 702,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 78,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 78,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "72282003",
+    "laneSeq": 10,
+    "dwell10us": 1802,
+    "depth": 585,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 79,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 79,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "75061832",
+    "laneSeq": 10,
+    "dwell10us": 2575,
+    "depth": 815,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 80,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 80,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "75167410",
+    "laneSeq": 10,
+    "dwell10us": 1531,
+    "depth": 923,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 81,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 81,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "75314418",
+    "laneSeq": 11,
+    "dwell10us": 2652,
+    "depth": 631,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 82,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 82,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "77360911",
+    "laneSeq": 10,
+    "dwell10us": 2070,
+    "depth": 827,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 83,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 83,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "77956808",
+    "laneSeq": 11,
+    "dwell10us": 2464,
+    "depth": 722,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 84,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 84,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "78039197",
+    "laneSeq": 11,
+    "dwell10us": 2621,
+    "depth": 792,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 85,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 85,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "81660850",
+    "laneSeq": 12,
+    "dwell10us": 2765,
+    "depth": 844,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 86,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 86,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "81749878",
+    "laneSeq": 11,
+    "dwell10us": 1796,
+    "depth": 795,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 87,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 87,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "81742904",
+    "laneSeq": 11,
+    "dwell10us": 2770,
+    "depth": 636,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 88,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 88,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "83402132",
+    "laneSeq": 12,
+    "dwell10us": 2837,
+    "depth": 877,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 89,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 89,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "83932747",
+    "laneSeq": 11,
+    "dwell10us": 1525,
+    "depth": 592,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 90,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 90,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "84222316",
+    "laneSeq": 12,
+    "dwell10us": 2838,
+    "depth": 851,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 91,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 91,
+    "lane": 4,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "88036228",
+    "laneSeq": 13,
+    "dwell10us": 1589,
+    "depth": 683,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 92,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 92,
+    "lane": 2,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "88338002",
+    "laneSeq": 12,
+    "dwell10us": 2948,
+    "depth": 777,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 93,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 93,
+    "lane": 3,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "88543154",
+    "laneSeq": 12,
+    "dwell10us": 2035,
+    "depth": 615,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 94,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 94,
+    "lane": 5,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "89368196",
+    "laneSeq": 13,
+    "dwell10us": 2520,
+    "depth": 583,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 95,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 95,
+    "lane": 6,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "90402458",
+    "laneSeq": 13,
+    "dwell10us": 1813,
+    "depth": 705,
+    "reserved2": 0
+   }
+  },
+  {
+   "bootId": 1099549949,
+   "evSeq": 96,
+   "msgId": 193,
+   "name": "EVT_CROSSING",
+   "value": {
+    "evSeq": 96,
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "90630640",
+    "laneSeq": 12,
+    "dwell10us": 2585,
+    "depth": 778,
+    "reserved2": 0
+   }
+  }
+ ],
+ "actions": [
+  {
+   "type": "penalty",
+   "lane": 1,
+   "ms": 2000,
+   "note": "cut the chicane",
+   "at": {
+    "bootId": 1099549949,
+    "evSeq": 40
+   },
+   "wallTime": "2026-11-17T20:00:00.000Z",
+   "id": "act1",
+   "seq": 1
+  },
+  {
+   "type": "adjustLaps",
+   "lane": 6,
+   "delta": 1,
+   "note": "missed crossing?",
+   "at": {
+    "bootId": 1099549949,
+    "evSeq": 40
+   },
+   "wallTime": "2026-11-17T20:00:00.000Z",
+   "id": "act2",
+   "seq": 2
+  },
+  {
+   "type": "undo",
+   "target": "act2",
+   "note": "no, it was fine",
+   "at": {
+    "bootId": 1099549949,
+    "evSeq": 45
+   },
+   "wallTime": "2026-11-17T20:00:00.000Z",
+   "id": "act3",
+   "seq": 3
+  }
+ ],
+ "expect": {
+  "phase": "finished",
+  "order": [
+   6,
+   4,
+   2,
+   5,
+   1,
+   3
+  ],
+  "cars": {
+   "1": {
+    "laps": 12,
+    "status": "finished",
+    "falseStart": false,
+    "reactionMs": 649.974,
+    "lapMs": [
+     6555.264,
+     6520.964,
+     6738.49,
+     6676.676,
+     6601.482,
+     6787.175,
+     6695.256,
+     6756.253,
+     6790.09,
+     6688.5,
+     6571.836,
+     6697.893
+    ],
+    "penaltiesMs": 2000,
+    "elapsedMs": 80729.853
+   },
+   "2": {
+    "laps": 12,
+    "status": "finished",
+    "falseStart": true,
+    "reactionMs": -4035.734,
+    "lapMs": [
+     6636.165,
+     6185.621,
+     6426.136,
+     6306.189,
+     6432.761,
+     6708.592,
+     6357.514,
+     11436.116,
+     6372.433,
+     6440.83,
+     6575.494,
+     6595.098
+    ],
+    "penaltiesMs": 0,
+    "elapsedMs": 78437.215
+   },
+   "3": {
+    "laps": 11,
+    "status": "finished",
+    "falseStart": false,
+    "reactionMs": 603.894,
+    "lapMs": [
+     6851.884,
+     6752.405,
+     9817.955,
+     6544.279,
+     6953.916,
+     6833.989,
+     7039.683,
+     6774.693,
+     6988.347,
+     6688.046,
+     6793.276
+    ],
+    "penaltiesMs": 0,
+    "elapsedMs": 78642.367
+   },
+   "4": {
+    "laps": 12,
+    "status": "finished",
+    "falseStart": false,
+    "reactionMs": 796.655,
+    "lapMs": [
+     6538.104,
+     6544.412,
+     6277.241,
+     6073.889,
+     6081.636,
+     8189.343,
+     6414.151,
+     6420.825,
+     6174.2,
+     5903.175,
+     6346.432,
+     6375.378
+    ],
+    "penaltiesMs": 0,
+    "elapsedMs": 78135.441
+   },
+   "5": {
+    "laps": 12,
+    "status": "finished",
+    "falseStart": false,
+    "reactionMs": 644.496,
+    "lapMs": [
+     6077.199,
+     5708.371,
+     5781.948,
+     5902.95,
+     6040.557,
+     5674.768,
+     8984.436,
+     6121.935,
+     11444.556,
+     5674.805,
+     5445.324,
+     5966.064
+    ],
+    "penaltiesMs": 0,
+    "elapsedMs": 79467.409
+   },
+   "6": {
+    "laps": 12,
+    "status": "finished",
+    "falseStart": false,
+    "reactionMs": 824.183,
+    "lapMs": [
+     6159.949,
+     6145.009,
+     6230.525,
+     6142.599,
+     6144.112,
+     5994.224,
+     6038.561,
+     6188.952,
+     6133.985,
+     6122.101,
+     6014.21,
+     6183.119
+    ],
+    "penaltiesMs": 0,
+    "elapsedMs": 74321.529
+   }
+  },
+  "timingGaps": 0,
+  "aborts": 0
+ }
+}

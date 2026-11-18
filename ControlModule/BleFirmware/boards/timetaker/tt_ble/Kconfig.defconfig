@@ -1,0 +1,8 @@
+# TimeTaker BLE bridge board defaults.
+
+if BOARD_TT_BLE
+
+config HW_STACK_PROTECTION
+	default ARCH_HAS_STACK_PROTECTION
+
+endif # BOARD_TT_BLE

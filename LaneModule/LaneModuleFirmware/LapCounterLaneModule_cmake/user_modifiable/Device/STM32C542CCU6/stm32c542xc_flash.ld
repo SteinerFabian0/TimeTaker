@@ -19,7 +19,7 @@
 ENTRY(Reset_Handler)
 
 HEAP_SIZE = 0x200;
-STACK_SIZE = 0x400;
+STACK_SIZE = 0x1000;   /* lane firmware: 4 KB, ISR nesting up to 5 deep with FPU frames (was 0x400) */
 
 
 MEMORY
@@ -146,6 +146,17 @@ SECTIONS
     . = ALIGN(8);
     _ebss = .;
     __bss_end__ = _ebss;
+  } > RAM
+
+  /* Lane firmware: fault_guard's breadcrumb. Neither copied nor zeroed by the
+   * startup code, so it survives every reset but power-on. Re-add after a
+   * CubeMX2 regeneration (docs/RELEASING.md). */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(8);
+    *(.noinit);
+    *(.noinit*);
+    . = ALIGN(8);
   } > RAM
 
   .heap (NOLOAD) :

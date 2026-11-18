@@ -25,11 +25,26 @@ else()
   endif()
 endif()
 
+# Numbers for the ID register: MAJOR.MINOR.PATCH and the short revision as a
+# u32 (0 outside git).
+string(REPLACE "." ";" parts "${LANE_FW_VERSION}")
+list(GET parts 0 major)
+list(GET parts 1 minor)
+list(GET parts 2 patch)
+set(revHex "0")
+if(revStatus EQUAL 0)
+  string(SUBSTRING "${rev}" 0 7 revHex)
+endif()
+
 set(content "/* Generated at build time by cmake/version_stamp.cmake. Do not edit. */
 #pragma once
 
 #define LANE_FW_VERSION_STRING  \"${LANE_FW_VERSION}+${rev}\"
 #define LANE_FW_TREE_DIRTY      ${dirty}
+#define LANE_FW_VERSION_MAJOR   ${major}U
+#define LANE_FW_VERSION_MINOR   ${minor}U
+#define LANE_FW_VERSION_PATCH   ${patch}U
+#define LANE_FW_GIT_REV         0x${revHex}UL
 ")
 
 set(old "")
