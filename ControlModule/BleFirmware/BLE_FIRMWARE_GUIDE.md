@@ -225,7 +225,7 @@ STM, 0x41–0x7F go STM → nRF. **`ble_link_protocol.h` is the authority**
 | 0x03 | `LINK_DOWN` | `hciReason u8` | On disconnect |
 | 0x04 | `BUTTON` | `press u8` (`SHORT` 1, `LONG` 2, `VERY_LONG` 3: the same values as the host protocol's `pressKind`) | On release (§7.1) |
 | 0x05 | `CREDIT` | `count u8` | When DATA slots free up (§5.4) |
-| 0x06 | `STATS` | `rssi i8, reserved u8, dataDropped u16, linkCrcErrors u16, uartErrors u16` (8 B) | Once a second while connected (task B4; optional before) |
+| 0x06 | `STATS` | `rssi i8, slotsFree u8, dataDropped u16, linkCrcErrors u16, uartErrors u16` (8 B) | Once a second while connected (task B4; optional before) |
 
 **STM → nRF:**
 
@@ -262,6 +262,15 @@ STM → nRF direction needs flow control.
 - **Not connected:** a DATA frame is dropped at once and its credit returned.
   The STM does not send DATA while BLE_IRQ is low, so this is only a race at
   disconnect.
+- **Resync (link 0.2):** a DATA frame corrupted on the wire is dropped by the
+  nRF and its credit would be lost until the next `NRF_HELLO`. So `STATS`
+  (once a second while connected) carries `slotsFree`, the DATA slots free
+  when it was built (free slots minus credits owed but not yet sent, since those still go out
+  as `CREDIT`).
+  When STATS arrives and the STM sent no DATA frame in the last 20 ms, the STM
+  sets its credit count to `slotsFree`, up or down. A recent DATA frame blocks
+  it (STATS was built before that frame landed); a disconnected link ignores
+  it. A lost credit therefore heals within about a second.
 - **nRF → STM needs no credits:** the STM drains its 1 KB ring every loop
   pass (< 1 ms), the UART moves 46 bytes/ms, and BLE writes from a browser
   are small requests. If the TX ring to the STM is ever full, the nRF drops
@@ -626,7 +635,7 @@ SYSTEM_ARCHITECTURE §9 on 2026-11-17):
 | `prj.conf` | Stage A (§9 "frees" applied); `stage_b_{mtu,dle,phy}.conf` are stage B, all on by default via `TT_STAGE_B_CONF` in `CMakeLists.txt` |
 | `debug.conf`, `wdt_selftest.conf` | RTT logging + thread analyzer; WDT self-test (bench T10 only) |
 | `src/main.c` | Init order, k_poll event loop, bridge state, WDT 4 s, reset cause, STATS 1/s |
-| `src/ble_link.c` | Advertising §6.1, NUS, conn/MTU/PHY/DLE callbacks, notify with completion tagged by slot + connection generation, RSSI |
+| `src/ble_link.c` | Advertising §6.1, NUS, conn/MTU/PHY/DLE callbacks, notify with completion tagged by slot + connection generation, RSSI (cached, read by the system workqueue) |
 | `src/stm_link.c` | UARTE async RX (2×64 B DMA → 512 B ring), TX ring 512 B under a spinlock, frame_codec, counters |
 | `src/bind_ui.c`, `src/stm_ctrl.c` | 10 ms button timer + LED renderer; BLE_IRQ, BOOT_REQ (held high, unused), NRST open drain released |
 | Pure modules | `button_classifier`, `led_table`, `data_slots` (credits + MTU split), `link_msg` (framing, CTRL pack/parse, KICK reason, reset cause), `byte_ring` |
@@ -686,7 +695,7 @@ mutation counts only if it still compiles and a check fails).
 the ST-LINK; LDO/LFRC bring-up; UARTE async RX with TIMER1 at 460800 and
 the real baud error; stack sizes (run the debug image's thread analyzer);
 notify/credit timing under load and throughput; advertising restart after
-disconnect; RSSI read; LED/button timing by eye; WDT reset.
+disconnect; RSSI read (workqueue stack 1024 B enough for the sync HCI call?); LED/button timing by eye; WDT reset.
 
 **Open:** release APPROTECT (§13 Q3); measured
 stacks, baud error and throughput go here after the bench (BENCH_TESTS.md).

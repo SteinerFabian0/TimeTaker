@@ -70,6 +70,7 @@ void nrfLinkCreditsReset(nrfLinkCredits_t *c, uint8_t granted)
 {
     c->credits = granted;
     c->granted = granted;
+    c->dataSent = false;
 }
 
 void nrfLinkCreditsReturn(nrfLinkCredits_t *c, uint8_t count)
@@ -112,4 +113,25 @@ uint16_t nrfLinkProtoEncodeCtrl(uint8_t type, const void *body, uint16_t bodyLen
     }
     const uint8_t head[2] = { (uint8_t)BLE_LINK_CH_CTRL, type };
     return frameEncode(head, 2U, (const uint8_t *)body, bodyLen, out, cap);
+}
+
+void nrfLinkCreditsNoteData(nrfLinkCredits_t *c, uint32_t nowMs)
+{
+    c->lastDataMs = nowMs;
+    c->dataSent   = true;
+}
+
+bool nrfLinkCreditsResync(nrfLinkCredits_t *c, uint8_t slotsFree, uint32_t nowMs, bool connected)
+{
+    if (!connected) {
+        return false;
+    }
+    if (c->dataSent && (uint32_t)(nowMs - c->lastDataMs) < NRF_LINK_RESYNC_QUIET_MS) {
+        return false;
+    }
+    if (c->credits != slotsFree) {
+        c->resyncs++;
+    }
+    c->credits = slotsFree;
+    return true;
 }

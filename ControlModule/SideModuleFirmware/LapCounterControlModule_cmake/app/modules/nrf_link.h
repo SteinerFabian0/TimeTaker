@@ -7,7 +7,8 @@
  *        decoder for link frames. DATA payloads go into a second 1 KB ring:
  *        the BLE session's byte stream (nrfLinkRead). CTRL messages become
  *        nrfLinkEvent_t for host_manager (HELLO, LINK_UP/DOWN, BUTTON, STATS);
- *        CREDIT is handled here.
+ *        CREDIT is handled here, and STATS.slotsFree resyncs the credit count
+ *        (not within 20 ms of a DATA frame, not while disconnected).
  *   TX   nrfLinkWrite() takes whole host frames into a 1 KB staging ring (all
  *        or nothing, like usbCdcWrite). nrfLinkRun() cuts it into DATA frames
  *        of up to 244 bytes and sends one only with a credit from the nRF and
@@ -76,6 +77,7 @@ typedef struct {
     uint32_t ctrlDropped;          /* CTRL queue full */
     uint32_t overCredit;           /* credit count overflowed (desync) */
     uint32_t eventsDropped;
+    uint32_t creditResyncs;        /* STATS resyncs that changed the credit count */
 } nrfLinkStats_t;
 
 ctrlStatus_e nrfLinkInit(void);

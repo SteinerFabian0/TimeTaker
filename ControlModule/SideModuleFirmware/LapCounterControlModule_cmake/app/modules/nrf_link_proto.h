@@ -14,6 +14,7 @@
  *     each DATA frame takes one, CREDIT returns some. The grant is only the
  *     slots free at that moment (busy ones return later), so the count may
  *     rise above it; only a uint8_t overflow is clamped and counted.
+ *   - STATS.slotsFree resyncs the count (see nrfLinkCreditsResync).
  *   - Link MAJOR must match BLE_LINK_MAJOR, or DATA is refused (CTRL keeps
  *     working).
  *
@@ -59,7 +60,17 @@ typedef struct {
     uint8_t  credits;       /* DATA frames the STM may send now */
     uint8_t  granted;       /* credits granted by the last NRF_HELLO (slots free then) */
     uint32_t overReturned;  /* CREDITs that overflowed the uint8_t count (a desync) */
+    uint32_t lastDataMs;    /* when the last DATA frame went out (valid if dataSent) */
+    bool     dataSent;
+    uint32_t resyncs;       /* STATS resyncs that changed the count */
 } nrfLinkCredits_t;
+
+/* STATS carries the nRF's free DATA slots. A DATA frame the nRF dropped
+ * (corrupt on the wire) loses its credit for good, so STATS resyncs the count,
+ * but only if no DATA frame left within the last NRF_LINK_RESYNC_QUIET_MS
+ * (STATS was built before that frame arrived, or its credit is still on the
+ * way back). */
+#define NRF_LINK_RESYNC_QUIET_MS  20U
 
 /* Classifies one decoded link frame (the raw bytes frame_codec handed over). */
 nrfLinkParse_e nrfLinkProtoParse(const uint8_t *raw, uint16_t len, nrfLinkMsg_t *msg);
@@ -70,6 +81,14 @@ bool nrfLinkProtoVersionOk(const bleCtrlNrfHello_t *hello);
 void nrfLinkCreditsReset(nrfLinkCredits_t *c, uint8_t granted);
 void nrfLinkCreditsReturn(nrfLinkCredits_t *c, uint8_t count);
 bool nrfLinkCreditsTake(nrfLinkCredits_t *c);
+
+/* A DATA frame was handed to the UART at nowMs. */
+void nrfLinkCreditsNoteData(nrfLinkCredits_t *c, uint32_t nowMs);
+
+/* STATS.slotsFree arrived. Sets the count to it (up or down) when connected
+ * and no DATA frame went out in the last NRF_LINK_RESYNC_QUIET_MS. Returns
+ * true if applied. */
+bool nrfLinkCreditsResync(nrfLinkCredits_t *c, uint8_t slotsFree, uint32_t nowMs, bool connected);
 
 /* Builds a DATA frame of 1..BLE_LINK_DATA_MAX bytes. Returns the wire bytes,
  * 0 on a bad length or a short out buffer. */

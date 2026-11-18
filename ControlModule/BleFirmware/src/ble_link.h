@@ -79,8 +79,9 @@ void bleLinkNewSession(void);
 /* LINK_UP for the current connection. false if not connected. */
 bool bleLinkGetLinkUp(bleCtrlLinkUp_t *out);
 
-/* RSSI of the connection in dBm, 127 if unknown. Blocks the caller for one
- * HCI command round trip (sub-millisecond with the SoftDevice Controller). */
+/* RSSI of the connection in dBm, 127 if unknown (not connected, or not read
+ * yet). Never blocks: returns the last value the system workqueue read and
+ * queues a new read, so a STATS value is one second old. */
 int8_t bleLinkRssi(void);
 
 /* The identity address, little-endian, as the controller reports it. */

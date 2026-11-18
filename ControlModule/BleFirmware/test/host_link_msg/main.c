@@ -138,9 +138,9 @@ static void goldenNrfToStm(void)
     const uint8_t crRaw[] = { 0x01, 0x05, 0x02 };
     check("CREDIT wire bytes", ctrlRaw(BLE_CTRL_CREDIT, &cr, sizeof(cr), crRaw, sizeof(crRaw)));
 
-    const bleCtrlStats_t st = { .rssi = -60, .reserved = 0, .dataDropped = 0x0102,
+    const bleCtrlStats_t st = { .rssi = -60, .slotsFree = 3, .dataDropped = 0x0102,
                                 .linkCrcErrors = 0x0304, .uartErrors = 0xFFFF };
-    const uint8_t stRaw[] = { 0x01, 0x06, 0xC4, 0x00, 0x02, 0x01, 0x04, 0x03, 0xFF, 0xFF };
+    const uint8_t stRaw[] = { 0x01, 0x06, 0xC4, 0x03, 0x02, 0x01, 0x04, 0x03, 0xFF, 0xFF };
     check("STATS wire bytes", ctrlRaw(BLE_CTRL_STATS, &st, sizeof(st), stRaw, sizeof(stRaw)));
 }
 

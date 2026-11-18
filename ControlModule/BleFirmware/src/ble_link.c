@@ -42,6 +42,7 @@ static atomic_t connectedFlag;
 static atomic_t notifyFlag;
 static atomic_t advertisingFlag;
 static atomic_t lastReason;
+static atomic_t rssiCache = ATOMIC_INIT(127);   /* see rssiWorkFn */
 
 /* The connection, with our reference. Guarded by connLock. */
 static struct k_spinlock connLock;
@@ -102,6 +103,7 @@ static void onConnected(struct bt_conn *conn, uint8_t err)
     k_spin_unlock(&connLock, key);
 
     atomic_set(&notifyFlag, 0);
+    atomic_set(&rssiCache, 127);
     atomic_set(&connectedFlag, 1);
     postEvent(BLE_EVT_CONNECTED);
 }
@@ -122,6 +124,7 @@ static void onDisconnected(struct bt_conn *conn, uint8_t reason)
     atomic_set(&lastReason, reason);
     atomic_set(&notifyFlag, 0);
     atomic_set(&connectedFlag, 0);
+    atomic_set(&rssiCache, 127);
     postEvent(BLE_EVT_DISCONNECTED);
 }
 
@@ -394,39 +397,57 @@ bool bleLinkGetLinkUp(bleCtrlLinkUp_t *out)
     return true;
 }
 
-int8_t bleLinkRssi(void)
+/* RSSI: NCS has no connection-info field for it, only the synchronous HCI
+ * Read RSSI command. That must never run on the main loop (it waits for the
+ * controller and would stall the loop and the watchdog), so the system
+ * workqueue does it and the loop only reads the cached value. A stuck command
+ * blocks the workqueue (the bridge's LED/button sequencing), never the loop;
+ * the value then simply stops updating. */
+static void rssiWorkFn(struct k_work *work);
+static K_WORK_DEFINE(rssiWork, rssiWorkFn);
+
+static void rssiWorkFn(struct k_work *work)
 {
+    ARG_UNUSED(work);
     int8_t rssi = 127;
     struct bt_conn *c = connGet();
     if (c == NULL) {
-        return rssi;
+        atomic_set(&rssiCache, 127);
+        return;
     }
 
     uint16_t handle;
     const int herr = bt_hci_get_conn_handle(c, &handle);
     bt_conn_unref(c);
-    if (herr != 0) {
-        return rssi;
-    }
+    if (herr == 0) {
+        struct net_buf *buf = bt_hci_cmd_alloc(K_MSEC(10));
+        if (buf != NULL) {
+            struct bt_hci_cp_read_rssi *cp = net_buf_add(buf, sizeof(*cp));
+            cp->handle = sys_cpu_to_le16(handle);
 
-    struct net_buf *buf = bt_hci_cmd_alloc(K_MSEC(10));
-    if (buf == NULL) {
-        return rssi;
-    }
-    struct bt_hci_cp_read_rssi *cp = net_buf_add(buf, sizeof(*cp));
-    cp->handle = sys_cpu_to_le16(handle);
-
-    struct net_buf *rsp = NULL;
-    if (bt_hci_cmd_send_sync(BT_HCI_OP_READ_RSSI, buf, &rsp) == 0 && rsp != NULL) {
-        const struct bt_hci_rp_read_rssi *rp = (const void *)rsp->data;
-        if (rp->status == 0U) {
-            rssi = rp->rssi;
+            struct net_buf *rsp = NULL;
+            if (bt_hci_cmd_send_sync(BT_HCI_OP_READ_RSSI, buf, &rsp) == 0 && rsp != NULL) {
+                const struct bt_hci_rp_read_rssi *rp = (const void *)rsp->data;
+                if (rp->status == 0U) {
+                    rssi = rp->rssi;
+                }
+            }
+            if (rsp != NULL) {
+                net_buf_unref(rsp);
+            }
         }
     }
-    if (rsp != NULL) {
-        net_buf_unref(rsp);
+    /* A disconnect during the command must not leave a stale value. */
+    atomic_set(&rssiCache, atomic_get(&connectedFlag) != 0 ? rssi : 127);
+}
+
+int8_t bleLinkRssi(void)
+{
+    if (atomic_get(&connectedFlag) == 0) {
+        return 127;
     }
-    return rssi;
+    (void)k_work_submit(&rssiWork);       /* no-op if already queued */
+    return (int8_t)atomic_get(&rssiCache);
 }
 
 void bleLinkGetAddr(uint8_t out[6])

@@ -187,6 +187,9 @@ static void nrfLinkHandleFrame(const uint8_t *raw, uint16_t len)
             nrfLinkStats.overCredit = nrfLinkCredits.overReturned;
             break;
         case BLE_CTRL_STATS:
+            (void)nrfLinkCreditsResync(&nrfLinkCredits, msg.ctrl.stats.slotsFree,
+                                       HAL_GetTick(), nrfLinkConnected);
+            nrfLinkStats.creditResyncs = nrfLinkCredits.resyncs;
             ev.kind = NRF_LINK_EV_STATS;
             ev.body.stats = msg.ctrl.stats;
             nrfLinkPushEvent(&ev);
@@ -267,6 +270,7 @@ static void nrfLinkTransmit(void)
         return;
     }
     byteRingDrop(&nrfLinkStageRing, len);
+    nrfLinkCreditsNoteData(&nrfLinkCredits, HAL_GetTick());
     nrfLinkStats.dataFramesOut++;
 }
 

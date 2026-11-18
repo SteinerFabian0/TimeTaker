@@ -113,6 +113,24 @@ static void testCredits(void)
     check("credits: a new HELLO resets to its value", c.credits == 4 && c.granted == 4);
 }
 
+static void testResync(void)
+{
+    nrfLinkCredits_t c = { 0 };
+    nrfLinkCreditsReset(&c, 4);
+    nrfLinkCreditsTake(&c);
+    nrfLinkCreditsNoteData(&c, 1000);
+    check("resync: DATA 5 ms ago blocks it", !nrfLinkCreditsResync(&c, 4, 1005, true) && c.credits == 3);
+    check("resync: DATA 19 ms ago still blocks it", !nrfLinkCreditsResync(&c, 4, 1019, true) && c.credits == 3);
+    check("resync: DATA 20 ms ago allows it, count goes up", nrfLinkCreditsResync(&c, 4, 1020, true) && c.credits == 4);
+    check("resync: counted", c.resyncs == 1);
+    check("resync: count goes down", nrfLinkCreditsResync(&c, 1, 5000, true) && c.credits == 1);
+    check("resync: DATA time wraps with the tick", (nrfLinkCreditsNoteData(&c, 0xFFFFFFF0UL),
+          !nrfLinkCreditsResync(&c, 4, 3, true)) && c.credits == 1);
+    check("resync: disconnected ignores it", !nrfLinkCreditsResync(&c, 4, 90000, false) && c.credits == 1);
+    nrfLinkCreditsReset(&c, 2);
+    check("resync: with no DATA sent yet it applies", nrfLinkCreditsResync(&c, 3, 0, true) && c.credits == 3);
+}
+
 static void testRing(void)
 {
     byteRing_t r;
@@ -154,6 +172,7 @@ int main(void)
     testParse();
     testEncode();
     testCredits();
+    testResync();
     testRing();
     testBudget();
     return finish();

@@ -49,7 +49,7 @@
 #include <stdint.h>
 
 #define BLE_LINK_MAJOR                 0U
-#define BLE_LINK_MINOR                 1U
+#define BLE_LINK_MINOR                 2U
 
 #define BLE_LINK_BAUD                  460800U
 
@@ -150,7 +150,10 @@ typedef struct __attribute__((packed)) {
 
 typedef struct __attribute__((packed)) {
     int8_t   rssi;             /* dBm, 127 = unknown                            */
-    uint8_t  reserved;
+    uint8_t  slotsFree;        /* DATA slots free when this was built (0.2+). The
+                                * STM may resync its credit count to it when it
+                                * sent no DATA frame for the last 20 ms, which
+                                * recovers credits lost to corrupted frames.   */
     uint16_t dataDropped;      /* writes/frames dropped on the nRF (saturates)  */
     uint16_t linkCrcErrors;    /* bad link frames from the STM (saturates)      */
     uint16_t uartErrors;       /* framing/overrun (saturates)                   */

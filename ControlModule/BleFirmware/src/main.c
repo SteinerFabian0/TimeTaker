@@ -151,6 +151,15 @@ static void sendCredits(void)
     }
 }
 
+/* Free slots minus the credits owed but not yet sent: those go out as CREDIT
+ * messages, so counting them here too would hand the STM each one twice. */
+static uint8_t statsSlotsFree(void)
+{
+    const uint8_t f = slotsFree(&slots);
+    const uint8_t o = slotsOwed(&slots);
+    return (o < f) ? (uint8_t)(f - o) : 0U;
+}
+
 static void sendStats(void)
 {
     stmLinkCounters_t lc;
@@ -158,7 +167,7 @@ static void sendStats(void)
 
     const bleCtrlStats_t s = {
         .rssi          = bleLinkRssi(),
-        .reserved      = 0U,
+        .slotsFree     = statsSlotsFree(),
         .dataDropped   = linkSat16(st.stmDataDropped + lc.txDropped),
         .linkCrcErrors = linkSat16(lc.badFrames + lc.badMessages),
         .uartErrors    = linkSat16(lc.uartErrors + lc.rxOverflows),
