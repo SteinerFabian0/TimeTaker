@@ -90,6 +90,8 @@ void HAL_UART_ErrorCallback(hal_uart_handle_t *huart)
     nrfLinkStats.uartErrors++;
     if (huart->rx_state == HAL_UART_RX_STATE_IDLE) {
         nrfLinkStartRx();                /* overrun stops the reception: restart */
+    } else {
+        nrfLinkRxNeedsRestart = true;    /* still winding down: the loop retries */
     }
 }
 
@@ -233,11 +235,13 @@ static void nrfLinkTransmit(void)
     }
 
     /* CTRL first: whole frames already encoded, no credit needed. */
-    uint16_t n = byteRingGet(&nrfLinkCtrlRing, nrfLinkTxFrame, (uint16_t)sizeof(nrfLinkTxFrame));
+    uint16_t n = byteRingPeek(&nrfLinkCtrlRing, nrfLinkTxFrame, (uint16_t)sizeof(nrfLinkTxFrame));
     if (n > 0U) {
         nrfLinkTxBusy = true;
         if (HAL_UART_Transmit_IT(nrfLinkUart, nrfLinkTxFrame, n) != HAL_OK) {
-            nrfLinkTxBusy = false;
+            nrfLinkTxBusy = false;       /* the frames stay queued: retry next pass */
+        } else {
+            byteRingDrop(&nrfLinkCtrlRing, n);
         }
         return;
     }
@@ -250,17 +254,20 @@ static void nrfLinkTransmit(void)
         return;
     }
     uint8_t  data[BLE_LINK_DATA_MAX];
-    uint16_t len  = byteRingGet(&nrfLinkStageRing, data, BLE_LINK_DATA_MAX);
+    uint16_t len  = byteRingPeek(&nrfLinkStageRing, data, BLE_LINK_DATA_MAX);
     uint16_t wire = nrfLinkProtoEncodeData(data, len, nrfLinkTxFrame, (uint16_t)sizeof(nrfLinkTxFrame));
     if (wire == 0U) {
         nrfLinkCreditsReturn(&nrfLinkCredits, 1U);
         return;
     }
-    nrfLinkStats.dataFramesOut++;
     nrfLinkTxBusy = true;
     if (HAL_UART_Transmit_IT(nrfLinkUart, nrfLinkTxFrame, wire) != HAL_OK) {
-        nrfLinkTxBusy = false;
+        nrfLinkTxBusy = false;           /* keep the bytes, give the credit back */
+        nrfLinkCreditsReturn(&nrfLinkCredits, 1U);
+        return;
     }
+    byteRingDrop(&nrfLinkStageRing, len);
+    nrfLinkStats.dataFramesOut++;
 }
 
 

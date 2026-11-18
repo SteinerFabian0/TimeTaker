@@ -246,8 +246,11 @@ The nRF has a few KB of RAM for everything; the STM has 64 KB. So only the
 STM → nRF direction needs flow control.
 
 - **The nRF owns `N` DATA slots** of 244 B (start with N = 4, about 1 KB).
-  `NRF_HELLO.credits = N`. The STM sets its credit counter to N on every
-  `NRF_HELLO` (an nRF reset frees everything, so this also resyncs).
+  `NRF_HELLO.credits` is the number of slots **free at that moment**
+  ("granted now"); slots still busy return their credit later with
+  `CREDIT`. The STM sets its credit counter to the HELLO value on every
+  `NRF_HELLO` and never clamps later CREDITs to it. At boot the value is
+  always N, so a reset also resyncs.
 - **Each DATA frame from the STM uses one credit.** The STM sends no DATA
   frame without a credit.
 - **The nRF returns the credit** (`CREDIT{1}`, or batched) when the slot is

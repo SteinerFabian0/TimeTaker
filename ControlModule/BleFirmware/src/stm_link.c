@@ -71,11 +71,16 @@ static void txKickLocked(void)
     }
 }
 
+static volatile bool rxEnableFailed;         /* RX is off: stmLinkPoll() retries */
+
 static void rxEnable(void)
 {
     rxDmaNext = 1U;
     if (uart_rx_enable(uart, rxDma[0], sizeof(rxDma[0]), RX_TIMEOUT_US) != 0) {
         atomic_inc(&uartErrors);
+        rxEnableFailed = true;
+    } else {
+        rxEnableFailed = false;
     }
 }
 
@@ -174,6 +179,10 @@ int stmLinkPoll(linkMsg_t *out)
 {
     const uint8_t *run;
     uint16_t n;
+
+    if (rxEnableFailed) {
+        rxEnable();                       /* a failed re-enable must not stop RX for good */
+    }
 
     /* Feed the decoder from the ring's contiguous runs; stop right after a
      * complete message so out->data (in the decoder buffer) stays valid. */

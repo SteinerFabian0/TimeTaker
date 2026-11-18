@@ -74,10 +74,14 @@ void nrfLinkCreditsReset(nrfLinkCredits_t *c, uint8_t granted)
 
 void nrfLinkCreditsReturn(nrfLinkCredits_t *c, uint8_t count)
 {
+    /* NRF_HELLO.credits is the free slots at that moment; busy slots return
+     * theirs later, so the count may legitimately climb above `granted` up to
+     * the nRF's slot total, which the STM does not know. Only a uint8_t
+     * overflow is a desync. */
     uint16_t sum = (uint16_t)c->credits + count;
-    if (sum > c->granted) {
+    if (sum > 255U) {
         c->overReturned++;
-        sum = c->granted;
+        sum = 255U;
     }
     c->credits = (uint8_t)sum;
 }

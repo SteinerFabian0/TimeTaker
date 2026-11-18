@@ -11,8 +11,9 @@
  *     shorter than the type needs: dropped, counted. Longer: accepted, the
  *     extra bytes (fields of a newer MINOR) ignored.
  *   - Credits (STM -> nRF DATA only): NRF_HELLO sets the count to its value,
- *     each DATA frame takes one, CREDIT returns some. More returned than were
- *     granted is clamped and counted (a desync the bench should see).
+ *     each DATA frame takes one, CREDIT returns some. The grant is only the
+ *     slots free at that moment (busy ones return later), so the count may
+ *     rise above it; only a uint8_t overflow is clamped and counted.
  *   - Link MAJOR must match BLE_LINK_MAJOR, or DATA is refused (CTRL keeps
  *     working).
  *
@@ -56,8 +57,8 @@ typedef struct {
 
 typedef struct {
     uint8_t  credits;       /* DATA frames the STM may send now */
-    uint8_t  granted;       /* the nRF's slot count from NRF_HELLO */
-    uint32_t overReturned;  /* CREDITs beyond what was granted */
+    uint8_t  granted;       /* credits granted by the last NRF_HELLO (slots free then) */
+    uint32_t overReturned;  /* CREDITs that overflowed the uint8_t count (a desync) */
 } nrfLinkCredits_t;
 
 /* Classifies one decoded link frame (the raw bytes frame_codec handed over). */

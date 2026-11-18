@@ -74,7 +74,7 @@ typedef struct {
     uint32_t dataFramesOut;
     uint32_t ctrlFramesOut;
     uint32_t ctrlDropped;          /* CTRL queue full */
-    uint32_t overCredit;           /* CREDIT beyond what NRF_HELLO granted */
+    uint32_t overCredit;           /* credit count overflowed (desync) */
     uint32_t eventsDropped;
 } nrfLinkStats_t;
 

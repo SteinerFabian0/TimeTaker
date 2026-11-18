@@ -101,7 +101,13 @@ static void testCredits(void)
     nrfLinkCreditsReturn(&c, 1);
     check("credits: CREDIT returns one", nrfLinkCreditsTake(&c) && !nrfLinkCreditsTake(&c));
     nrfLinkCreditsReturn(&c, 5);
-    check("credits: more returned than granted is clamped and counted", c.credits == 2 && c.overReturned == 1);
+    check("credits: returns above the HELLO grant are kept (busy slots come back later)",
+          c.credits == 5 && c.overReturned == 0);
+    nrfLinkCreditsReset(&c, 1);
+    nrfLinkCreditsReturn(&c, 3);
+    check("credits: grant 1 then CREDIT 3 -> 4 (nRF had 4 slots, 3 busy)", c.credits == 4 && c.overReturned == 0);
+    nrfLinkCreditsReturn(&c, 255);
+    check("credits: uint8 overflow is clamped and counted", c.credits == 255 && c.overReturned == 1);
     nrfLinkCreditsTake(&c);
     nrfLinkCreditsReset(&c, 4);
     check("credits: a new HELLO resets to its value", c.credits == 4 && c.granted == 4);
