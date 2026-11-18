@@ -109,6 +109,7 @@ typedef struct {
     bool             seqKnown;
     uint16_t         nextSeq;
     uint32_t         seqGaps;
+    uint32_t         seqDups;            /* repeated records dropped */
     uint16_t         lastDropped;
     uint16_t         lastShifts;
     uint8_t          rx[LANE_RX_MAX];
@@ -127,6 +128,7 @@ static laneJoinState_e  laneJoin;
 static uint8_t          laneJoinProbes;      /* probes outstanding */
 static uint8_t          laneJoinAnswering;   /* mask */
 static uint8_t          laneJoinIndex;
+static bool             laneJoinProbeLost;   /* a probe could not be queued */
 static uint32_t         laneHotJoins;        /* latched, not yet handled */
 static bool             laneEnumOpen;
 static uint32_t         laneEnumDeadlineMs;
@@ -390,14 +392,17 @@ static void laneFifoResult(uint8_t lane, uint16_t rxLen)
         return;
     }
     for (uint8_t i = 0U; i < n; i++) {
-        if (s->seqKnown) {
+        const laneSeqVerdict_e v = laneLogicSeqCheck(s->seqKnown, s->nextSeq, ev[i].seq);
+        if (v == LANE_SEQ_DUPLICATE) {
+            s->seqDups++;   /* re-sent after a cut read: already published */
+            continue;
+        }
+        if (v == LANE_SEQ_GAP) {
             const uint16_t gap = laneLogicSeqGap(s->nextSeq, ev[i].seq);
-            if (gap >= 0x8000U) {
-                laneLog(HP_LOG_WARN, "SEQ BACK", lane, "seq", ev[i].seq);
-            } else if (gap != 0U) {
-                s->seqGaps += gap;
-                laneLog(HP_LOG_WARN, "SEQ GAP", lane, "lost", gap);
-            }
+            s->seqGaps += gap;
+            laneLog(HP_LOG_WARN, "SEQ GAP", lane, "lost", gap);
+        } else if (v == LANE_SEQ_RESYNC) {
+            laneLog(HP_LOG_WARN, "SEQ BACK", lane, "seq", ev[i].seq);
         }
         s->seqKnown = true;
         s->nextSeq  = (uint16_t)(ev[i].seq + 1U);
@@ -457,6 +462,9 @@ static void laneHealthResult(uint8_t lane, const laneStatus_t *st)
     if (s->state == SLOT_CONFIGURED && laneLogicNeedsPush(st)) {
         laneLog(HP_LOG_WARN, "LOST CONFIG", lane, "state", st->state);
         laneStartPush(lane, PUSH_LANE_ID);
+    } else if (s->state == SLOT_CONFIGURED && laneLogicNeedsModePush(st)) {
+        laneLog(HP_LOG_WARN, "BUS IDLE SAFE", lane, "mode", laneModeFor(lane));
+        laneCommand(lane, LANE_CMD_SAMPLING, laneModeFor(lane));
     }
 }
 
@@ -476,6 +484,14 @@ static uint8_t laneKnownMask(void)
 
 static void laneJoinDecide(void)
 {
+    if (laneJoinProbeLost) {
+        /* A known lane went unprobed (queue full): deciding now would mark
+         * it LEFT and hand out its index. Try the join again next pass. */
+        laneJoin = JOIN_IDLE;
+        laneHotJoins++;
+        return;
+    }
+
     laneJoinDecision_t d;
     laneLogicDecideJoin(laneKnownMask(), laneJoinAnswering, &d);
 
@@ -507,12 +523,17 @@ static void laneJoinStart(void)
 {
     laneJoinAnswering = 0U;
     laneJoinProbes    = 0U;
+    laneJoinProbeLost = false;
     laneJoin          = JOIN_PROBING;
     for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
-        if (laneSlots[n].state != SLOT_ABSENT
-            && laneSubmit(n, OP_PROBE, LANE_REG_STATUS, NULL, 0U, laneSlots[n].probe,
-                          (uint16_t)sizeof(laneStatus_t), NULL, true) == CTRL_OK) {
+        if (laneSlots[n].state == SLOT_ABSENT) {
+            continue;
+        }
+        if (laneSubmit(n, OP_PROBE, LANE_REG_STATUS, NULL, 0U, laneSlots[n].probe,
+                       (uint16_t)sizeof(laneStatus_t), NULL, true) == CTRL_OK) {
             laneJoinProbes++;
+        } else {
+            laneJoinProbeLost = true;
         }
     }
     if (laneJoinProbes == 0U) {
@@ -576,6 +597,9 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
     if (LANE_TAG_GEN(tag) != s->gen) {
         return;   /* for an incarnation that LEFT */
     }
+    if (s->state == SLOT_ABSENT) {
+        return;   /* a write sent after LEFT (RELEASE_CHAIN): nothing to count */
+    }
 
     const bool sequenced = op != OP_WRITE && op != OP_SCHED && op != OP_SCHED_VERIFY
                            && op != OP_REQ_STATUS && op != OP_REQ_SIGNAL;
@@ -621,6 +645,13 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
     if (status != CTRL_OK) {
         if (++s->failStreak >= LANE_MANAGER_FAIL_LIMIT) {
             laneMarkLeft(lane, status);   /* the downstream will fail too; the hot-joins bring them back */
+            if (status != CTRL_ERR_LANE_ABSENT) {
+                /* It still acknowledged its address: a lane that keeps it
+                 * never hot-joins again. Make it rejoin (priority queue, so
+                 * this goes out before any later probe or ENTDAA). */
+                const laneCommand_t c = { .cmd = LANE_CMD_RELEASE_CHAIN, .arg = 0U };
+                (void)laneSubmit(lane, OP_WRITE, LANE_REG_COMMAND, &c, (uint8_t)sizeof(c), NULL, 0U, NULL, true);
+            }
         }
         return;   /* a sequenced step is retried on the next pass */
     }

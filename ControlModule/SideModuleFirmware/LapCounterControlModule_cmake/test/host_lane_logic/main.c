@@ -87,6 +87,20 @@ static void testCrossing(void)
     check("seq: two lost -> 2", laneLogicSeqGap(5, 7) == 2);
     check("seq: across the wrap", laneLogicSeqGap(65535, 1) == 2);
     check("seq: backwards -> >= 0x8000", laneLogicSeqGap(10, 3) >= 0x8000U);
+
+    /* Duplicates after a cut read: dropped, wrap-aware, within the window. */
+    check("seq check: nothing known yet -> take", laneLogicSeqCheck(false, 100, 7) == LANE_SEQ_TAKE);
+    check("seq check: the expected one -> take", laneLogicSeqCheck(true, 100, 100) == LANE_SEQ_TAKE);
+    check("seq check: ahead -> gap", laneLogicSeqCheck(true, 100, 103) == LANE_SEQ_GAP);
+    check("seq check: the previous one again -> duplicate", laneLogicSeqCheck(true, 100, 99) == LANE_SEQ_DUPLICATE);
+    check("seq check: a whole re-sent read (4 back) -> duplicate", laneLogicSeqCheck(true, 100, 96) == LANE_SEQ_DUPLICATE);
+    check("seq check: duplicate across the wrap", laneLogicSeqCheck(true, 1, 65534) == LANE_SEQ_DUPLICATE);
+    check("seq check: gap across the wrap", laneLogicSeqCheck(true, 65534, 2) == LANE_SEQ_GAP);
+    check("seq check: window edge is still a duplicate",
+          laneLogicSeqCheck(true, 1000, (uint16_t)(1000 - LANE_LOGIC_SEQ_DUP_WINDOW)) == LANE_SEQ_DUPLICATE);
+    check("seq check: beyond the window -> resync",
+          laneLogicSeqCheck(true, 1000, (uint16_t)(1000 - LANE_LOGIC_SEQ_DUP_WINDOW - 1U)) == LANE_SEQ_RESYNC);
+    check("seq check: half the range ahead -> resync, not gap", laneLogicSeqCheck(true, 0, 0x8000) == LANE_SEQ_RESYNC);
 }
 
 static void testHealth(void)
@@ -110,6 +124,19 @@ static void testHealth(void)
     laneHealthView_t v2 = { 0 };
     check("health: PARKED is a fault on the first STATUS",
           laneLogicHealth(&v2, &st, out) == 1 && out[0] == HP_LANE_STATE_FAULT);
+}
+
+static void testIdleSafe(void)
+{
+    laneStatus_t st;
+    memset(&st, 0, sizeof(st));
+    st.state = LANE_STATE_IDLE;
+    st.flags = LANE_STATUS_CONFIG_VALID | LANE_STATUS_SYNC_ALIGNED;
+    check("idle-safe: flag clear -> no mode push", !laneLogicNeedsModePush(&st));
+    st.flags |= LANE_STATUS_BUS_IDLE_SAFE;
+    check("idle-safe: BUS_IDLE_SAFE -> re-push the mode", laneLogicNeedsModePush(&st));
+    st.flags = LANE_STATUS_BUS_IDLE_SAFE;
+    check("idle-safe: other flags do not matter", laneLogicNeedsModePush(&st));
 }
 
 static void testConfigured(void)
@@ -213,6 +240,7 @@ static void testMapping(void)
 
 int main(void)
 {
+    testIdleSafe();
     testJoin();
     testFifo();
     testCrossing();

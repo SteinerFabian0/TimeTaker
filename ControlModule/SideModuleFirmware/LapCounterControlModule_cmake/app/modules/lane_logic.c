@@ -89,6 +89,27 @@ uint16_t laneLogicSeqGap(uint16_t expected, uint16_t got)
     return (uint16_t)(got - expected);
 }
 
+laneSeqVerdict_e laneLogicSeqCheck(bool known, uint16_t expected, uint16_t got)
+{
+    if (!known) {
+        return LANE_SEQ_TAKE;
+    }
+    const uint16_t ahead  = (uint16_t)(got - expected);
+    const uint16_t behind = (uint16_t)(expected - got);
+    if (ahead == 0U) {
+        return LANE_SEQ_TAKE;
+    }
+    if (behind >= 1U && behind <= LANE_LOGIC_SEQ_DUP_WINDOW) {
+        return LANE_SEQ_DUPLICATE;
+    }
+    return (ahead < 0x8000U) ? LANE_SEQ_GAP : LANE_SEQ_RESYNC;
+}
+
+bool laneLogicNeedsModePush(const laneStatus_t *st)
+{
+    return (st->flags & LANE_STATUS_BUS_IDLE_SAFE) != 0U;
+}
+
 uint8_t laneLogicHealth(laneHealthView_t *view, const laneStatus_t *st, uint8_t out[3])
 {
     uint8_t n = 0U;

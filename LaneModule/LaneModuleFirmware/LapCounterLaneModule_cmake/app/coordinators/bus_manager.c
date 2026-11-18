@@ -278,6 +278,9 @@ static void busRunChain(uint32_t nowMs)
         laneTrace(LANE_TRACE_EVENTS, "I3C error codes=0x%x (#%u)", st.lastErrorCodes, st.errors);
     }
 
+    /* No ENTDAA answers unless this lane is the one meant (chain_logic). */
+    laneBusSetTargetEnabled(chainLogicTargetEnabled(chain, nowMs));
+
     if (chainLogicJoinDue(chain, nowMs)) {
         laneStatus_e s = laneBusRequestHotJoin();
         chainLogicJoinSent(chain, nowMs);
@@ -344,6 +347,7 @@ static void busWriteCommand(const laneCommand_t *c, uint32_t nowMs)
     switch (c->cmd) {
     case LANE_CMD_SAMPLING:
         busSleeping = false;
+        busIdleSafe = false;   /* the controller's re-push clears BUS_IDLE_SAFE */
         status = senseManagerSetMode((laneSamplingMode_e)c->arg);
         break;
     case LANE_CMD_CALIBRATE:
@@ -363,6 +367,7 @@ static void busWriteCommand(const laneCommand_t *c, uint32_t nowMs)
     case LANE_CMD_RELEASE_CHAIN:
         laneBusReleaseAddress();
         chainLogicAddressLost(laneChainLogic(), nowMs);
+        laneBusSetTargetEnabled(false);   /* off for the rejoin hold */
         busAddressGone("RELEASE_CHAIN");
         break;
     case LANE_CMD_RESET:
@@ -555,15 +560,15 @@ static void busRunWatchdog(uint32_t nowMs)
         last = busAddressMs;
     }
 
+    /* The flag stays until COMMAND SAMPLING (lane_protocol.h): clearing it
+     * on the next frame would hide it from the controller, whose 10 ms
+     * EVENT_FIFO polls come long before its 1 s STATUS read. */
     if (!busIdleSafe && (uint32_t)(nowMs - last) > LANE_BUS_IDLE_SAFE_MS) {
         busIdleSafe = true;
         (void)senseManagerSetMode(LANE_SAMPLING_OFF);
         (void)indicatorLedSet(false);
         busSchedCancelAll();
         laneTrace(LANE_TRACE_EVENTS, "bus quiet %u ms: safe defaults", nowMs - last);
-    } else if (busIdleSafe && (uint32_t)(nowMs - last) <= LANE_BUS_IDLE_SAFE_MS) {
-        busIdleSafe = false;
-        laneTrace(LANE_TRACE_EVENTS, "bus traffic again");
     }
 #else
     (void)nowMs;
@@ -599,7 +604,9 @@ laneStatus_e busManagerRun(uint32_t nowMs)
     }
 
     busRunWatchdog(nowMs);
-    busRunIbi(nowMs);
+    if (LANE_BUS_IBI_ENABLE != 0U) {
+        busRunIbi(nowMs);
+    }
 
     if (busResetPending && (int32_t)(nowMs - busResetAtMs) >= 0) {
         laneTrace(LANE_TRACE_EVENTS, "COMMAND RESET");

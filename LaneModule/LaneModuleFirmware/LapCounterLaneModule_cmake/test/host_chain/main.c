@@ -130,6 +130,41 @@ static void testRiseJoinsAtOnce(void)
     check("re-plug: join due at once despite the old backoff", chainLogicJoinDue(&c, now));
 }
 
+/* ENTDAA is answered in hardware by every enabled target without an
+ * address: the target may only be enabled when this lane is the one meant. */
+static void testTargetEnable(void)
+{
+    now = 0U;
+    chainLogicInit(&c, now);
+    check("target: disabled at boot (CHAIN_IN low)", !chainLogicTargetEnabled(&c, now));
+    (void)hold(true, CHAIN_DEBOUNCE_MS - 1U);
+    check("target: disabled while CHAIN_IN high is not debounced", !chainLogicTargetEnabled(&c, now));
+    (void)hold(true, 5U);
+    check("target: enabled once CHAIN_IN is high and a join is due",
+          chainLogicJoinDue(&c, now) && chainLogicTargetEnabled(&c, now));
+
+    chainLogicJoinSent(&c, now);
+    check("target: stays enabled between join retries", chainLogicTargetEnabled(&c, now + 1U));
+
+    chainLogicAddressAssigned(&c);
+    chainLogicAddressLost(&c, now);
+    check("target: disabled during the RSTDAA hold", !chainLogicTargetEnabled(&c, now + CHAIN_REJOIN_HOLD_MS - 1U));
+    check("target: enabled after the hold with CHAIN_IN high", chainLogicTargetEnabled(&c, now + CHAIN_REJOIN_HOLD_MS));
+
+    chainLogicAddressAssigned(&c);
+    check("target: enabled with an address", chainLogicTargetEnabled(&c, now));
+    (void)hold(false, 10U);
+    check("target: disabled once CHAIN_IN fell (address forgotten)", !chainLogicTargetEnabled(&c, now + 100000U));
+
+    /* RSTDAA, then the upstream re-addressed: the rise ends the hold. */
+    (void)hold(true, 10U);
+    chainLogicAddressAssigned(&c);
+    chainLogicAddressLost(&c, now);
+    (void)hold(false, 10U);
+    (void)hold(true, CHAIN_DEBOUNCE_MS);
+    check("target: a fresh rise ends the hold", chainLogicTargetEnabled(&c, now) && chainLogicJoinDue(&c, now));
+}
+
 static void testTickWrap(void)
 {
     now = 0xFFFFFFF0U;
@@ -149,6 +184,7 @@ int main(void)
     testBackoff();
     testRiseJoinsAtOnce();
     testTickWrap();
+    testTargetEnable();
 
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
     return failures ? 1 : 0;

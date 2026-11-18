@@ -15,6 +15,7 @@ void chainLogicInit(chainLogic_t *c, uint32_t nowMs)
     c->hasAddress = false;
     c->nextJoinMs = nowMs;
     c->backoffMs  = CHAIN_JOIN_BACKOFF_MIN_MS;
+    c->holdUntilMs = nowMs;
 }
 
 chainEvent_e chainLogicUpdate(chainLogic_t *c, bool level, uint32_t nowMs)
@@ -33,6 +34,7 @@ chainEvent_e chainLogicUpdate(chainLogic_t *c, bool level, uint32_t nowMs)
     c->backoffMs  = CHAIN_JOIN_BACKOFF_MIN_MS;
 
     if (level) {
+        c->holdUntilMs = nowMs;   /* a fresh rise: the upstream is addressed */
         c->nextJoinMs = nowMs;
         return CHAIN_EVENT_ROSE;
     }
@@ -52,6 +54,7 @@ void chainLogicAddressLost(chainLogic_t *c, uint32_t nowMs)
     /* The backoff is at its minimum already: the assignment reset it. */
     c->hasAddress = false;
     c->nextJoinMs = nowMs + CHAIN_REJOIN_HOLD_MS;
+    c->holdUntilMs = c->nextJoinMs;
 }
 
 bool chainLogicChainOut(const chainLogic_t *c)
@@ -81,4 +84,9 @@ void chainLogicJoinSent(chainLogic_t *c, uint32_t nowMs)
     if (c->backoffMs > CHAIN_JOIN_BACKOFF_MAX_MS) {
         c->backoffMs = CHAIN_JOIN_BACKOFF_MAX_MS;
     }
+}
+
+bool chainLogicTargetEnabled(const chainLogic_t *c, uint32_t nowMs)
+{
+    return c->hasAddress || (c->stableHigh && (int32_t)(nowMs - c->holdUntilMs) >= 0);
 }

@@ -23,6 +23,12 @@
  *     lets the CHAIN_OUT drops cascade down the chain first, so only lane 1
  *     (whose CHAIN_IN the controller drives) can join and two identical IDs
  *     never meet in one ENTDAA.
+ *   - The I3C target is enabled only while it may take part in ENTDAA or
+ *     already has an address: (has address) OR (CHAIN_IN high AND no RSTDAA
+ *     hold running). ENTDAA is answered by the peripheral in hardware by every
+ *     enabled target without an address, so a lane whose CHAIN_IN is low must
+ *     keep its target disabled, or it joins (with the same provisioned ID) the
+ *     ENTDAA meant for the lane upstream (lane_protocol.h "Enumeration").
  */
 
 #pragma once
@@ -49,6 +55,7 @@ typedef struct {
     bool     hasAddress;
     uint32_t nextJoinMs;
     uint32_t backoffMs;
+    uint32_t holdUntilMs;     /* end of the RSTDAA / RELEASE_CHAIN hold         */
 } chainLogic_t;
 
 /* Starts with CHAIN_IN low and no address. */
@@ -76,3 +83,7 @@ bool chainLogicJoinDue(const chainLogic_t *c, uint32_t nowMs);
 
 /* A hot-join request went out at nowMs: schedules the retry. */
 void chainLogicJoinSent(chainLogic_t *c, uint32_t nowMs);
+
+/* The I3C target must be enabled now (the ENTDAA rule above). Whenever a
+ * join is due this is true as well. */
+bool chainLogicTargetEnabled(const chainLogic_t *c, uint32_t nowMs);

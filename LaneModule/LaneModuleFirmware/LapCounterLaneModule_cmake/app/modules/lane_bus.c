@@ -41,9 +41,11 @@ static uint8_t  laneBusTx[LANE_BUS_TX_MAX];
 static uint32_t laneBusTxLen;
 static uint32_t laneBusTxPos;
 static uint8_t  laneBusTxOffered;
+static uint8_t  laneBusTxReg = LANE_REG_STATUS;   /* register the preload was built for */
 static uint8_t  laneBusPointer = LANE_REG_STATUS;
 
 static bool laneBusCccSeen;
+static bool laneBusErrSeen;     /* the ERR interrupt fired since the last frame end */
 
 /* Mailbox, ISR -> main loop. */
 static laneBusFrame_t    laneBusBox[LANE_BUS_MAILBOX];
@@ -81,6 +83,7 @@ static void laneBusPrepare(void)
     LL_I3C_RequestTxFIFOFlush(I3C1);
 
     laneBusTxOffered = 0U;
+    laneBusTxReg     = laneBusPointer;
     laneBusTxLen     = (laneBusBuild != NULL)
                        ? laneBusBuild(laneBusPointer, laneBusTx, sizeof(laneBusTx), &laneBusTxOffered)
                        : 0U;
@@ -124,19 +127,29 @@ static void laneBusPostFrame(void)
     laneBusBoxTail = next;
 }
 
+/* The bytes of a write message become the pointer and a mailbox frame. */
+static void laneBusTakeWrite(void)
+{
+    laneBusStatsData.writes++;
+    if (laneBusRxOverflow) {
+        laneBusStatsData.rxOverflow++;
+    }
+    laneBusPointer = laneBusRx[0];
+    laneBusPostFrame();
+    laneBusRxLen      = 0U;
+    laneBusRxOverflow = false;
+}
+
 static void laneBusFrameEnd(void)
 {
+    const bool errSeen = laneBusErrSeen;
+    laneBusErrSeen   = false;
     laneBusTrafficMs = HAL_GetTick();
 
     if (LL_I3C_GetMessageDirection(I3C1) == LL_I3C_MESSAGE_DIRECTION_WRITE) {
         laneBusDrainRx();
         if (laneBusRxLen > 0U) {
-            laneBusStatsData.writes++;
-            if (laneBusRxOverflow) {
-                laneBusStatsData.rxOverflow++;
-            }
-            laneBusPointer = laneBusRx[0];
-            laneBusPostFrame();
+            laneBusTakeWrite();
             laneBusPrepare();
         }
         laneBusRxLen      = 0U;
@@ -154,8 +167,22 @@ static void laneBusFrameEnd(void)
 
     uint32_t clocked = LL_I3C_GetXferDataCount(I3C1);
     laneBusStatsData.reads++;
-    if (laneBusDone != NULL) {
-        laneBusDone(laneBusPointer, laneBusTxOffered, clocked);
+    if (errSeen) {
+        /* A read cut by a bus error pops nothing (lane_protocol.h): the
+         * controller saw an error and keeps nothing of it either. */
+        laneBusStatsData.cutReads++;
+    } else if (laneBusDone != NULL) {
+        laneBusDone(laneBusTxReg, laneBusTxOffered, clocked);
+    }
+
+    laneBusDrainRx();
+    if (laneBusRxLen > 0U) {
+        /* BENCH: no FC at the repeated START, so the pointer write arrived
+         * inside this read frame and the read was served from the old
+         * pointer. Keep the write (and the pointer for the next read); the
+         * controller's STOP turnaround (i3c_ctrl) avoids this case. */
+        laneBusStatsData.mergedFrames++;
+        laneBusTakeWrite();
     }
     laneBusPrepare();
 }
@@ -228,6 +255,11 @@ laneStatus_e laneBusInit(laneBusBuildFn_t build, laneBusReadDoneFn_t done)
     uint32_t guard = irqGuardEnter();
     h->p_isr_func = laneBusIsr;
     LL_I3C_EnableIT(I3C1, LANE_BUS_IT_BASE);
+    if (!laneBusAddressed) {
+        /* mx_i3c1_init() and the MRL call above left the target enabled; it
+         * stays off until chain_logic lets it answer ENTDAA. */
+        LL_I3C_Disable(I3C1);
+    }
     irqGuardExit(guard);
 
     return LANE_OK;
@@ -264,8 +296,29 @@ uint8_t laneBusAddress(void)
     return laneBusAddressed ? laneBusDynAddr : 0U;
 }
 
+void laneBusSetTargetEnabled(bool on)
+{
+    uint32_t guard = irqGuardEnter();
+    const bool enabled = LL_I3C_IsEnabled(I3C1) != 0U;
+
+    if (on && !enabled) {
+        laneBusRxLen      = 0U;
+        laneBusRxOverflow = false;
+        laneBusCccSeen    = false;
+        laneBusErrSeen    = false;
+        LL_I3C_Enable(I3C1);
+        laneBusStatsData.enables++;
+    } else if (!on && enabled && !laneBusAddressed && LL_I3C_IsEnabledOwnDynAddress(I3C1) == 0U) {
+        LL_I3C_Disable(I3C1);
+    }
+    irqGuardExit(guard);
+}
+
 laneStatus_e laneBusRequestHotJoin(void)
 {
+    if (LL_I3C_IsEnabled(I3C1) == 0U) {
+        return LANE_ERR_HOTJOIN;
+    }
     if (laneBusAddressed || LL_I3C_IsEnabledOwnDynAddress(I3C1) != 0U) {
         return LANE_ERR_INVALID_STATE;
     }
@@ -337,6 +390,7 @@ void HAL_I3C_ErrorCallback(hal_i3c_handle_t *hi3c)
     laneBusRxLen       = 0U;
     laneBusRxOverflow  = false;
     laneBusCccSeen     = false;
+    laneBusErrSeen     = true;
     laneBusIbiInFlight = false;
     laneBusEvents     |= LANE_BUS_EV_ERROR;
 

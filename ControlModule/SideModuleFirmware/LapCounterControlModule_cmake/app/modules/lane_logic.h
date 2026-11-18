@@ -13,6 +13,15 @@
  *   EVT_CROSSING    one per lane record: lane, type, flags, tEntryUs, seq,
  *                   dwell, depth copied 1:1.
  *   seq gaps        counted, never published (the host sees laneSeq).
+ *   duplicates      a record whose seq was already received (at most
+ *                   LANE_LOGIC_SEQ_DUP_WINDOW behind the next expected one,
+ *                   wrapping u16) is dropped: a read cut by a bus error pops
+ *                   nothing on the lane, so its records come again
+ *                   (lane_protocol.h). Further back is a lane that restarted
+ *                   its count: taken, and the count resyncs.
+ *   idle-safe       a STATUS with LANE_STATUS_BUS_IDLE_SAFE means the lane's
+ *                   bus watchdog stopped sampling: re-push the sampling mode
+ *                   (COMMAND SAMPLING, which also clears the flag).
  *   health          STATUS changes become SYNC_LOST / SYNC_OK / FAULT once.
  *   configured      CONFIG applied and SYNC aligned, lane IDLE or SAMPLING.
  *   config checks   what LANE_CONFIG_SET refuses before it reaches a lane.
@@ -60,6 +69,24 @@ void laneLogicCrossing(uint8_t lane, const laneEvent_t *ev, hpEvtCrossing_t *out
  * (wrapping u16). 0 = in order. A value >= 0x8000 means the lane went
  * backwards (a reset the bus did not notice): the caller resyncs. */
 uint16_t laneLogicSeqGap(uint16_t expected, uint16_t got);
+
+/* How far back a repeated seq may lie: the lane FIFO (>= 32) plus one read. */
+#define LANE_LOGIC_SEQ_DUP_WINDOW  64U
+
+typedef enum {
+    LANE_SEQ_TAKE = 0,      /* the next one, or the first one seen          */
+    LANE_SEQ_GAP,           /* take it; laneLogicSeqGap() were lost          */
+    LANE_SEQ_DUPLICATE,     /* already received: drop it                     */
+    LANE_SEQ_RESYNC,        /* far behind: the lane restarted; take it       */
+} laneSeqVerdict_e;
+
+/* Verdict on a received record seq, given the next expected one (known =
+ * false: nothing expected yet, always LANE_SEQ_TAKE). After a take, gap or
+ * resync the caller expects got + 1; after a duplicate, nothing changes. */
+laneSeqVerdict_e laneLogicSeqCheck(bool known, uint16_t expected, uint16_t got);
+
+/* The lane's bus watchdog put it to safe defaults: re-push the mode. */
+bool laneLogicNeedsModePush(const laneStatus_t *st);
 
 /* What the health poll saw last, per lane. */
 typedef struct {

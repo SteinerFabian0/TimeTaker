@@ -22,12 +22,14 @@
  *   - Bus watchdog: enumerated and no frame for LANE_BUS_IDLE_SAFE_MS puts
  *     sampling OFF, the LED off and the queue empty, and sets
  *     LANE_STATUS_BUS_IDLE_SAFE. The address is kept and the lane keeps
- *     answering; the flag clears at the next frame, and the control module
- *     re-pushes what it wants.
+ *     answering; the flag stays until COMMAND SAMPLING (the control module's
+ *     re-push, lane_protocol.h) or address loss clears it.
+ *   - The I3C target is enabled only when chain_logic allows it (address, or
+ *     CHAIN_IN high outside the rejoin hold): ENTDAA is answered in hardware.
  *   - A scheduled action needs SYNC locked and aligned to be mapped to local
  *     time; until then it waits in the queue (and fires late, counted).
  *     Late = more than LANE_SCHED_LATE_US after its time.
- *   - IBI (when the controller enabled it): LANE_IBI_EVENTS on a new event,
+ *   - IBI (only with LANE_BUS_IBI_ENABLE, and when the controller enabled it): LANE_IBI_EVENTS on a new event,
  *     LANE_IBI_RAW on a full raw chunk, LANE_IBI_STATUS on a STATUS flag or
  *     lastError change; repeated every LANE_BUS_IBI_REPEAT_MS while events
  *     wait. Polling stays the primary path (control guide §5.1).
@@ -43,6 +45,12 @@
 
 #define LANE_BUS_IDLE_SAFE_MS     5000U
 #define LANE_BUS_IBI_REPEAT_MS    50U
+/* IBIs off in v1: the control module configures no DEVRx and NACKs every
+ * IBI (CONTROL_FIRMWARE_GUIDE §10 Q1), and lane_protocol.h makes them
+ * optional. A NACKed request still wins arbitration against the
+ * controller's 0x7E header and costs a restart, delaying the transfer
+ * behind it (SYNC_ALIGN). Set to 1 once the controller acknowledges IBIs. */
+#define LANE_BUS_IBI_ENABLE       0U
 #define LANE_SCHED_LATE_US        100U
 
 laneStatus_e busManagerInit(uint32_t nowMs);

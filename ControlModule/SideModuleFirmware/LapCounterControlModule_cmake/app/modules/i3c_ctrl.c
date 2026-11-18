@@ -42,6 +42,9 @@ static hal_i3c_transfer_ctx_t i3cCtrlCtx;
 static uint32_t               i3cCtrlStartMs;
 static bool                   i3cCtrlAborting;
 static uint8_t                i3cCtrlErrStreak;
+/* OP_READ with I3C_CTRL_READ_STOP_TURNAROUND: the pointer write is in flight
+ * and its completion starts the read (ISR). */
+static volatile bool          i3cCtrlReadPending;
 
 /* Written by the ISR, read by the loop. */
 static volatile uint8_t  i3cCtrlResult;
@@ -122,9 +125,27 @@ static void i3cCtrlRecoverBus(void)
 
 /* --- Starting a transfer ------------------------------------------------------- */
 
+/* The read half of OP_READ as its own frame (STOP turnaround). ISR or loop. */
+static hal_status_t i3cCtrlStartRead(void)
+{
+    const i3cCtrlXfer_t *x = &i3cCtrlCur;
+
+    (void)HAL_I3C_CTRL_ResetTransferCtx(&i3cCtrlCtx);
+    i3cCtrlTc[1] = (uint32_t)x->rdLen | LL_I3C_DIRECTION_READ | ((uint32_t)x->addr << I3C_CR_ADD_Pos)
+                   | LL_I3C_CONTROLLER_MTYPE_PRIVATE | LL_I3C_GENERATE_STOP;
+    i3cCtrlCtx.p_tc_data     = &i3cCtrlTc[1];
+    i3cCtrlCtx.tc_size_word  = 1U;
+    i3cCtrlCtx.p_rx_data     = x->rd;
+    i3cCtrlCtx.rx_size_byte  = x->rdLen;
+    i3cCtrlCtx.transfer_mode = (hal_i3c_transfer_mode_t)LL_I3C_CONTROLLER_MTYPE_PRIVATE;
+    return HAL_I3C_CTRL_Transfer_IT(i3cCtrlHandle, &i3cCtrlCtx);
+}
+
 static hal_status_t i3cCtrlLaunch(void)
 {
     i3cCtrlXfer_t *x = &i3cCtrlCur;
+
+    i3cCtrlReadPending = false;
 
     if (x->prepare != NULL) {
         x->prepare(x->wr, x->wrLen);
@@ -163,7 +184,15 @@ static hal_status_t i3cCtrlLaunch(void)
     i3cCtrlCtx.p_tc_data     = i3cCtrlTc;
     i3cCtrlCtx.transfer_mode = (hal_i3c_transfer_mode_t)LL_I3C_CONTROLLER_MTYPE_PRIVATE;
 
-    if (x->op == I3C_CTRL_OP_READ) {
+    if (x->op == I3C_CTRL_OP_READ && I3C_CTRL_READ_STOP_TURNAROUND != 0U) {
+        /* Pointer write as a frame of its own; its completion starts the
+         * read. The lane serves a read after a STOP the same way. */
+        i3cCtrlTc[0] = 1U | LL_I3C_DIRECTION_WRITE | addr | LL_I3C_CONTROLLER_MTYPE_PRIVATE
+                       | LL_I3C_GENERATE_STOP;
+        i3cCtrlCtx.tc_size_word = 1U;
+        i3cCtrlCtx.tx_size_byte = 1U;
+        i3cCtrlReadPending      = true;
+    } else if (x->op == I3C_CTRL_OP_READ) {
         i3cCtrlTc[0] = 1U | LL_I3C_DIRECTION_WRITE | addr | LL_I3C_CONTROLLER_MTYPE_PRIVATE
                        | LL_I3C_GENERATE_RESTART;
         i3cCtrlTc[1] = (uint32_t)x->rdLen | LL_I3C_DIRECTION_READ | addr | LL_I3C_CONTROLLER_MTYPE_PRIVATE
@@ -358,6 +387,16 @@ const i3cCtrlStats_t *i3cCtrlGetStats(void)
 
 void HAL_I3C_CTRL_TransferCpltCallback(hal_i3c_handle_t *hi3c)
 {
+    if (i3cCtrlReadPending) {
+        /* STOP turnaround: the pointer is written, now the read. The HAL is
+         * idle again before this callback runs. */
+        i3cCtrlReadPending = false;
+        if (i3cCtrlStartRead() != HAL_OK) {
+            i3cCtrlSer    = 0U;
+            i3cCtrlResult = I3C_CTRL_RESULT_ERROR;
+        }
+        return;
+    }
     /* SR describes the last message: the read, for OP_READ. */
     i3cCtrlRxLen  = (uint16_t)LL_I3C_GetXferDataCount(I3C1);
     i3cCtrlResult = I3C_CTRL_RESULT_DONE;
@@ -383,14 +422,16 @@ void HAL_I3C_ErrorCallback(hal_i3c_handle_t *hi3c)
     (void)hi3c;
     /* GET_LAST_ERRORS is off in the CubeMX config, so read SER directly; the
      * HAL cleared ERRF, SER may already be clear (then: generic ERR_I3C). */
-    i3cCtrlSer    = LL_I3C_GetRegister_SER(I3C1);
-    i3cCtrlResult = I3C_CTRL_RESULT_ERROR;
+    i3cCtrlSer         = LL_I3C_GetRegister_SER(I3C1);
+    i3cCtrlReadPending = false;
+    i3cCtrlResult      = I3C_CTRL_RESULT_ERROR;
 }
 
 void HAL_I3C_AbortCpltCallback(hal_i3c_handle_t *hi3c)
 {
     (void)hi3c;
-    i3cCtrlResult = I3C_CTRL_RESULT_ABORTED;
+    i3cCtrlReadPending = false;
+    i3cCtrlResult      = I3C_CTRL_RESULT_ABORTED;
 }
 
 void HAL_I3C_NotifyCallback(hal_i3c_handle_t *hi3c, uint32_t notify_id)

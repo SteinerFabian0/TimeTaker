@@ -14,6 +14,11 @@
  *               register read, lane_protocol.h). rxLen = bytes the lane
  *               actually sent: the target may end the read early (T-bit)
  *               and the controller's SR.XDCNT counts what arrived.
+ *               With I3C_CTRL_READ_STOP_TURNAROUND = 1 the pointer write is
+ *               its own frame (STOP) and the read a second one, started from
+ *               the first one's completion: the bench fallback if the lane
+ *               cannot preload its response within the ~10 µs Sr turnaround
+ *               (the lane serves both the same way, lane_bus.h).
  *   OP_CCC      broadcast CCC (RSTDAA, ...) with an optional payload
  *   OP_ENTDAA   ENTDAA giving the address in xfer.addr to the target that
  *               answers. rxLen = targets that answered (0 = nobody, 1 =
@@ -61,6 +66,9 @@
 #define I3C_CTRL_WR_MAX           40U    /* payload after the register byte */
 #define I3C_CTRL_XFER_TIMEOUT_MS  5U
 #define I3C_CTRL_RECOVER_AFTER    3U
+/* BENCH switch: 1 = STOP between the pointer write and the read of OP_READ
+ * instead of a repeated START (see OP_READ). */
+#define I3C_CTRL_READ_STOP_TURNAROUND  0U
 
 typedef enum {
     I3C_CTRL_OP_WRITE = 0,

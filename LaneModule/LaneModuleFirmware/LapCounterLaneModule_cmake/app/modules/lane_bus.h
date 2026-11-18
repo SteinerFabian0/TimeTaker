@@ -35,6 +35,13 @@
  *   - Reads of a write-only register return nothing (0 bytes preloaded).
  *   - GET/STATUS CCCs are answered by the hardware; a frame end flagged by
  *     them is not taken for a private read (BENCH: confirm no FIFO pop).
+ *   - A read during which the ERR interrupt fired pops nothing: the
+ *     controller saw the error too and re-reads (it drops repeated seqs).
+ *   - ENTDAA: the peripheral answers it in hardware whenever it is enabled
+ *     and has no address. The target is therefore disabled (CFGR.EN = 0)
+ *     from init until bus_manager enables it to hot-join, and disabled again
+ *     when the address goes (lane_protocol.h: no ENTDAA while CHAIN_IN is
+ *     low). BENCH: a disabled target must leave SDA/SCL released.
  *
  * Max read length is set to LANE_BUS_MRL at init (CubeMX has 64, too short
  * for RAW_FIFO's 80 bytes and EVENT_FIFO's 68): see the guide's CubeMX list.
@@ -87,6 +94,9 @@ typedef struct {
     uint32_t ibis;           /* requests sent                                */
     uint32_t cccFrames;      /* frame ends skipped as CCC traffic            */
     uint32_t resets;         /* RSTACT / reset pattern seen                  */
+    uint32_t cutReads;       /* reads ended after an ERR: nothing popped     */
+    uint32_t mergedFrames;   /* BENCH: pointer write seen inside a read frame */
+    uint32_t enables;        /* target enabled (to join ENTDAA)              */
 } laneBusStats_t;
 
 /* Takes over I3C1 from the generated init: MRL, event routine, interrupts. */
@@ -101,8 +111,14 @@ uint32_t laneBusTakeEvents(void);
 bool    laneBusHasAddress(void);
 uint8_t laneBusAddress(void);
 
+/* Enables or disables the I3C target (CFGR.EN). An enabled target without
+ * an address answers every ENTDAA in hardware, so bus_manager keeps it off
+ * until chain_logic says this lane is the one to join. Disabling is ignored
+ * while the lane has an address. */
+void laneBusSetTargetEnabled(bool on);
+
 /* Asks the controller for an address. LANE_ERR_INVALID_STATE with an
- * address, LANE_ERR_HOTJOIN when hot-join is disabled in the peripheral. */
+ * address, LANE_ERR_HOTJOIN when the target or hot-join is disabled. */
 laneStatus_e laneBusRequestHotJoin(void);
 
 /* The controller enabled IBIs (ENEC) and none is in flight. */
