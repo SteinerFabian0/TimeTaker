@@ -9,6 +9,8 @@
  *   of the same boot with no EVT_SEQ_ABORTED in between. Aborted sequences
  *   are listed; a later sequence restarts the start procedure. Sequences
  *   after the start are ignored (warning).
+ * - Crossings timed before T0 of the start sequence (in the start boot) are
+ *   ignored: grid positioning and practice (RACE_RULES.md "Start").
  * - Crossings are ordered by tEntryUs within a boot (the lanes timestamp,
  *   the log order across lanes is collection order, not time:
  *   CONTROL guide §5.1 "the host orders by tEntryUs, never by evSeq").
@@ -188,9 +190,9 @@ export function buildTimeline(input: readonly RaceInputEvent[], raceLanes: Reado
       st.last = laneSeq;
       if (!raceLanes.has(lane) || (type !== LaneEventType.CROSSING && type !== LaneEventType.BLOCKED)) continue;
       const tUs = num(v['tEntryUs']);
-      // In the start boot only crossings of the start procedure count: logged after
-      // EVT_SEQ_STARTED, or timed at/after T0. Earlier ones are practice.
-      if (ord === startOrd && e.evSeq < start.seqEvSeq && tUs < start.t0Us) { st.lost = false; st.left = false; continue; }
+      // RACE_RULES.md: crossings before the start sequence began (timed before T0
+      // of the start boot) are ignored: grid positioning, practice.
+      if (ord === startOrd && tUs < start.t0Us) { st.lost = false; st.left = false; continue; }
       crossings.push({
         bootId: e.bootId, ord, evSeq: e.evSeq, lane, type, flags: v['flags'] as number, tUs, laneSeq,
         lostBefore: st.lost, outageBefore: st.left,

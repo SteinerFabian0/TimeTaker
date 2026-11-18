@@ -29,17 +29,45 @@ export interface RaceEntry {
 
 export type RaceMode = 'laps' | 'time';
 
+/** RACE_RULES.md "False start": what happens. */
+export type FalseStartAction = 'flag' | 'timePenalty' | 'disqualify';
+
 /**
- * How the first crossing after lights out is treated.
- *   startsTiming   the grid is BEHIND the line (the usual layout): the first
- *                  crossing only starts lap timing; lap 1 ends at the second.
- *   completesLap1  the grid is just AFTER the line: lights out starts lap 1
- *                  and the first crossing completes it (lap 1 = c1 − Tout).
+ * How a false-start time penalty applies.
+ *   addToFirstLap  added to the car's first lap time (and so to its total)
+ *   addToTotal     added to the total only
+ *   stopAndGo      FUTURE (power board): the car is held for the penalty time.
+ *                  Documented here; config validation rejects it for now.
  */
-export type FirstCrossingRule = 'startsTiming' | 'completesLap1';
+export type PenaltyApplication = 'addToFirstLap' | 'addToTotal' | 'stopAndGo';
 
-export type FalseStartAction = 'flag' | 'penalty' | 'disqualify';
+/**
+ * RACE_RULES.md "Crashes".
+ *   replacementAllowed  a marshal puts the car back; the lap is just long
+ *   crashIsDnf          the host marks the car crashed/out (crashOut action);
+ *                       it leaves the list of cars the race waits for
+ */
+export type CrashPolicy = 'replacementAllowed' | 'crashIsDnf';
 
+/** The start light sequence (RACE_RULES.md "Start lights"); the director sends it. */
+export interface StartLightsConfig {
+  /** Off-on-off breathing cycles before the countdown. */
+  readonly attentionPulses: number;
+  /** Pulse rise time, off to full. */
+  readonly pulseRiseMs: number;
+  /** One more lane lights every stepMs. */
+  readonly stepMs: number;
+  /** Random hold with all lights on, then lights out. */
+  readonly holdMinMs: number;
+  readonly holdMaxMs: number;
+}
+
+/**
+ * Fixed rules (RACE_RULES.md, not settings): the grid is behind the line (the
+ * first crossing after lights out starts lap 1's timing), a BLOCKED report
+ * (car stopped on the line) is a crossing, crossings timed before the start
+ * sequence began are ignored, lap times use device timestamps only.
+ */
 export interface RaceConfig {
   readonly id: string;
   readonly name: string;
@@ -49,18 +77,18 @@ export interface RaceConfig {
   /** Time race: duration from lights out. */
   readonly durationMs: number;
   readonly entries: readonly RaceEntry[];
-  readonly firstCrossing: FirstCrossingRule;
-  /** A crossing sooner than this after the car's previous counted crossing is not a lap. */
+  /** A crossing sooner than this after the car's previous counted crossing is never a lap. */
   readonly minLapMs: number;
   /** A crossing the lane flagged IN_HOLDOFF is not a lap. */
   readonly rejectInHoldoff: boolean;
-  /** A BLOCKED report (car stopped on the line) counts as the crossing, at its entry time. */
-  readonly blockedCountsAsCrossing: boolean;
   readonly falseStart: {
     readonly action: FalseStartAction;
-    /** Added to the race time when action = 'penalty'. */
+    /** The time penalty (action 'timePenalty'). */
     readonly penaltyMs: number;
+    readonly apply: PenaltyApplication;
   };
+  readonly crashPolicy: CrashPolicy;
+  readonly startLights: StartLightsConfig;
   /** LaneEventFlag bits that make a lap time "suspect" (shown, still counted). */
   readonly suspectFlags: number;
 }
@@ -84,8 +112,9 @@ export type HostAction = ActionBase & (
   | { readonly type: 'penalty'; readonly lane: number; readonly ms: number }
   | { readonly type: 'disqualify'; readonly lane: number }
   | { readonly type: 'retire'; readonly lane: number }
+  /** Crash = DNF policy only: the car is out from `at`; the race no longer waits for it. */
+  | { readonly type: 'crashOut'; readonly lane: number }
   | { readonly type: 'ignoreCrossing'; readonly crossing: LogPos }
-  | { readonly type: 'acceptCrossing'; readonly crossing: LogPos }
   | { readonly type: 'endRace' }
   | { readonly type: 'undo'; readonly target: string }
 );
@@ -96,11 +125,13 @@ export type HostActionType = HostAction['type'];
 
 export type RacePhase = 'waiting' | 'starting' | 'running' | 'finishing' | 'finished';
 
-export type CarStatus = 'grid' | 'running' | 'finished' | 'disqualified' | 'retired';
+export type CarStatus = 'grid' | 'running' | 'finished' | 'disqualified' | 'retired' | 'crashed';
 
-export type LapFlag = 'suspectTiming' | 'eventsLost' | 'laneOutage' | 'rebootGap' | 'blocked' | 'accepted';
+/** falseStartPenalty: the false-start time penalty is included in this lap's ms. */
+export type LapFlag = 'suspectTiming' | 'eventsLost' | 'laneOutage' | 'rebootGap' | 'blocked' | 'falseStartPenalty';
 
-export type RejectReason = 'minLap' | 'holdoff' | 'ignored' | 'afterFinish' | 'beforeStart';
+/** disqualified / out: after the car's disqualification or crash-out position. */
+export type RejectReason = 'minLap' | 'holdoff' | 'ignored' | 'afterFinish' | 'beforeStart' | 'disqualified' | 'out';
 
 export interface Lap {
   /** 1-based lap number (adjustments not included). */
@@ -132,6 +163,8 @@ export interface CarResult {
   readonly laps: number;
   readonly lapAdjust: number;
   readonly lapTimes: readonly Lap[];
+  /** Disqualified with a lap in progress: that lap's number, shown "TLF" (no time). */
+  readonly tlfLap: number | null;
   readonly lastLapMs: number | null;
   readonly bestLapMs: number | null;
   readonly bestLapN: number | null;

@@ -11,6 +11,13 @@
  *               that must be rejected by the minimum-lap rule)
  *   block       stops on the line (the lane reports BLOCKED, then CLEARED)
  *   merged      a body/wing gap the lane merges (MERGED flag, still one car)
+ *   crash       (scripted only) the car crashes out after a crossing and
+ *               never crosses again (crash policy "crash = DNF")
+ *
+ * Paces: SimDevice's own default pace is a short bench lap (4.8–6.8 s, quick
+ * protocol tests). Races use raceCarProfiles(): realistic 30–40 s laps with
+ * a pace, a consistency and a reaction per driver (RACE_RULES.md: the
+ * minimum lap is 20 s, so only a re-slotted "double" is ever that short).
  *
  * The grid is *behind* the line: after lights out a car needs its reaction
  * plus a run-up before its first crossing. That first crossing is what the
@@ -21,6 +28,7 @@
  * reconnects or other lanes never change a car's crossing times.
  */
 
+import { makeRng, subSeed } from '../../util/rng.ts';
 import type { Rng } from '../../util/rng.ts';
 import type { Scheduler, TimerHandle } from '../../util/clock.ts';
 
@@ -44,6 +52,8 @@ export interface CarProfile {
   pMerged: number;
   /** Time under the sensor, ms (uniform range). */
   dwellMs: readonly [number, number];
+  /** Clean-lap limits (driver variation stays inside); default: 0.8 × lapMs, no upper limit. */
+  lapRangeMs?: readonly [number, number];
 }
 
 export const DEFAULT_CAR: CarProfile = {
@@ -51,12 +61,29 @@ export const DEFAULT_CAR: CarProfile = {
   pFalseStart: 0, pDeslot: 0.03, pDouble: 0, pBlock: 0, pMerged: 0.02, dwellMs: [15, 30],
 };
 
+/**
+ * Race drivers (deterministic per seed and lane): mean lap 32–37 s, lap-to-lap
+ * spread 0.3–0.9 s, clean laps kept within 30–40 s; reaction 200–350 ms and a
+ * 0.6–0.9 s run-up from the grid behind the line. Pass as SimOptions.cars.
+ */
+export function raceCarProfiles(seed: number, lanes: readonly number[] = [1, 2, 3, 4, 5, 6]): Record<number, Partial<CarProfile>> {
+  const out: Record<number, Partial<CarProfile>> = {};
+  for (const lane of lanes) {
+    const r = makeRng(subSeed(seed, 300 + lane));
+    out[lane] = {
+      lapMs: Math.round(r.range(32_000, 37_000)), lapSdMs: Math.round(r.range(300, 900)), lapRangeMs: [30_000, 40_000],
+      reactionMs: Math.round(r.range(200, 350)), reactionSdMs: 50, runUpMs: Math.round(r.range(600, 900)),
+    };
+  }
+  return out;
+}
+
 export type CrossingKind = 'start' | 'falseStart' | 'lap' | 'double' | 'blocked';
 
 /** A scripted incident: applies right after the car's n-th genuine crossing of this run (1-based). */
 export interface CarIncident {
   readonly afterCrossing: number;
-  readonly kind: 'deslot' | 'double' | 'block';
+  readonly kind: 'deslot' | 'double' | 'block' | 'crash';
 }
 
 export interface CarScript {
@@ -163,7 +190,8 @@ export class SimCar {
 
   #lap(): number {
     const p = this.profile;
-    return Math.max(0.8 * p.lapMs, this.#rng.normal(p.lapMs, p.lapSdMs));
+    const [lo, hi] = p.lapRangeMs ?? [0.8 * p.lapMs, Number.POSITIVE_INFINITY];
+    return Math.min(hi, Math.max(lo, this.#rng.normal(p.lapMs, p.lapSdMs)));
   }
 
   #cross(atMs: number, scheduled: CrossingKind): void {
@@ -197,6 +225,10 @@ export class SimCar {
       ...(this.#rng.chance(p.pBlock) ? ['block' as const] : []),
     ];
     const incidents = new Set([...scripted, ...random]);
+    if (incidents.has('crash')) {
+      this.#state = 'parked';
+      return;
+    }
 
     let next = atMs + detail.blockMs + this.#lap();
     if (incidents.has('deslot')) next += this.#rng.range(2000, 6000);

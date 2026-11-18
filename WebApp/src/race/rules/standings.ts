@@ -2,12 +2,16 @@
  * Ranking, gaps and intervals.
  *
  * Order:
- *   1. classified cars (running / finished / retired) before disqualified;
+ *   1. classified cars (running / finished / retired / crashed) before
+ *      disqualified;
  *   2. more laps (counted + adjustments) first;
- *   3. on equal laps, the lower total time first: race time of the last
+ *   3. cars that have not started yet last among the classified;
+ *   4. on equal laps, the lower total time first: race time of the last
  *      counted crossing plus penalties (who got there first, after penalties);
- *   4. cars that have not started yet last among the classified, by lane.
- * Retired cars keep their laps and rank among the others by the same rule.
+ *   5. exact tie (same total to the µs, RACE_RULES.md): the faster best lap
+ *      (a car with no timed lap is slower), then the lower lane number.
+ * Retired and crashed cars keep their laps and rank among the others by the
+ * same rule.
  * Gap = to the leader, interval = to the car ahead: laps behind, or ms on the
  * same lap.
  */
@@ -24,6 +28,9 @@ export function compareCars(a: CarResult, b: CarResult): number {
   const ta = a.totalMs ?? Number.POSITIVE_INFINITY;
   const tb = b.totalMs ?? Number.POSITIVE_INFINITY;
   if (ta !== tb) return ta - tb;
+  const ba = a.bestLapMs ?? Number.POSITIVE_INFINITY;
+  const bb = b.bestLapMs ?? Number.POSITIVE_INFINITY;
+  if (ba !== bb) return ba - bb;
   return a.lane - b.lane;
 }
 

@@ -5,14 +5,20 @@
  *   active again). An undo may only target an earlier action (by seq);
  *   anything else is ignored with a reason, as are actions for lanes not in
  *   the race and duplicate ids.
- * - adjustLaps / penalty / disqualify / retire apply to the whole race (a
- *   "+1 lap" for a missed crossing counts from the start, so the car may
- *   reach the flag one crossing earlier — it did drive that lap).
- * - ignoreCrossing / acceptCrossing override the rules for one crossing,
- *   named by its (bootId, evSeq). An ignored crossing is as if it never
- *   happened (it can be the start crossing or a false start); an accepted one
- *   skips the lap checks. One naming no race crossing in the log is ignored
- *   with a reason.
+ * - adjustLaps / penalty / retire apply to the whole race (a "+1 lap" for a
+ *   missed crossing counts from the start, so the car may reach the flag one
+ *   crossing earlier — it did drive that lap).
+ * - disqualify applies from its `at` log position (RACE_RULES.md
+ *   "Disqualification"): crossings logged after it never count, the lap in
+ *   progress is aborted (TLF). `at` null = from the start. Two active DQs of
+ *   one lane: the earlier position wins.
+ * - crashOut (crash policy crashIsDnf only; ignored with a reason under
+ *   replacementAllowed): the car is out from its `at` position, later
+ *   crossings never count, and the race no longer waits for it.
+ * - ignoreCrossing removes one crossing, named by its (bootId, evSeq): as if
+ *   it never happened (it can be the start crossing or a false start). One
+ *   naming no race crossing in the log is ignored with a reason. There is no
+ *   "accept" counterpart: a lap under the minimum never counts.
  * - endRace freezes the race at its `at` position: later crossings do not
  *   count, and the phase becomes finished.
  */
@@ -22,10 +28,12 @@ import type { HostAction, LogPos, RaceConfig } from '../types.ts';
 export interface ResolvedActions {
   readonly lapAdjust: Map<number, number>;
   readonly penaltyMs: Map<number, number>;
-  readonly disqualified: Set<number>;
+  /** Lane → the DQ position (null: from the start). */
+  readonly disqualified: Map<number, LogPos | null>;
   readonly retired: Set<number>;
+  /** Lane → the crash-out position (null: from the start). */
+  readonly crashed: Map<number, LogPos | null>;
   readonly ignored: Set<string>;
-  readonly accepted: Set<string>;
   /** The earliest active endRace position, or 'end' with no position (now). */
   readonly endAt: LogPos | 'now' | null;
   readonly applied: string[];
@@ -47,13 +55,17 @@ export function resolveActions(
     if (byId.has(a.id)) { rejected.push({ id: a.id, reason: 'duplicate id' }); continue; }
     byId.set(a.id, a);
     if ('lane' in a && !lanes.has(a.lane)) { rejected.push({ id: a.id, reason: `lane ${a.lane} is not in the race` }); continue; }
+    if ((a.type as string) === 'acceptCrossing') { rejected.push({ id: a.id, reason: 'acceptCrossing no longer exists: a short lap never counts' }); continue; }
     if (a.type === 'undo') {
       const target = byId.get(a.target);
       if (!target || target.seq >= a.seq) { rejected.push({ id: a.id, reason: `undo of unknown or later action ${a.target}` }); continue; }
     }
     if (a.type === 'adjustLaps' && !Number.isInteger(a.delta)) { rejected.push({ id: a.id, reason: 'delta must be an integer' }); continue; }
     if (a.type === 'penalty' && !Number.isFinite(a.ms)) { rejected.push({ id: a.id, reason: 'ms must be a number' }); continue; }
-    if ((a.type === 'ignoreCrossing' || a.type === 'acceptCrossing') && !isCrossing(a.crossing)) {
+    if (a.type === 'crashOut' && config.crashPolicy !== 'crashIsDnf') {
+      rejected.push({ id: a.id, reason: 'crash policy is replacementAllowed: a crashed car is put back' }); continue;
+    }
+    if (a.type === 'ignoreCrossing' && !isCrossing(a.crossing)) {
       rejected.push({ id: a.id, reason: `no race crossing at ${posKey(a.crossing)}` }); continue;
     }
     valid.push(a);
@@ -70,20 +82,25 @@ export function resolveActions(
   }
 
   const r: ResolvedActions = {
-    lapAdjust: new Map(), penaltyMs: new Map(), disqualified: new Set(), retired: new Set(),
-    ignored: new Set(), accepted: new Set(), endAt: null, applied: [], rejected,
+    lapAdjust: new Map(), penaltyMs: new Map(), disqualified: new Map(), retired: new Set(), crashed: new Map(),
+    ignored: new Set(), endAt: null, applied: [], rejected,
   };
   let endAt: LogPos | 'now' | null = null;
+  const earlier = (m: Map<number, LogPos | null>, lane: number, at: LogPos | null): LogPos | null => {
+    if (!m.has(lane)) return at;
+    const cur = m.get(lane)!;
+    return cur === null || at === null ? null : cmp(at, cur) < 0 ? at : cur;
+  };
   for (const a of valid) {
     if (!active.get(a.id)) continue;
     r.applied.push(a.id);
     switch (a.type) {
       case 'adjustLaps': r.lapAdjust.set(a.lane, (r.lapAdjust.get(a.lane) ?? 0) + a.delta); break;
       case 'penalty': r.penaltyMs.set(a.lane, (r.penaltyMs.get(a.lane) ?? 0) + a.ms); break;
-      case 'disqualify': r.disqualified.add(a.lane); break;
+      case 'disqualify': r.disqualified.set(a.lane, earlier(r.disqualified, a.lane, a.at)); break;
       case 'retire': r.retired.add(a.lane); break;
-      case 'ignoreCrossing': r.ignored.add(posKey(a.crossing)); r.accepted.delete(posKey(a.crossing)); break;
-      case 'acceptCrossing': r.accepted.add(posKey(a.crossing)); r.ignored.delete(posKey(a.crossing)); break;
+      case 'crashOut': r.crashed.set(a.lane, earlier(r.crashed, a.lane, a.at)); break;
+      case 'ignoreCrossing': r.ignored.add(posKey(a.crossing)); break;
       case 'endRace':
         if (!a.at) endAt = 'now';
         else if (endAt !== 'now' && (endAt === null || cmp(a.at, endAt) < 0)) endAt = a.at;

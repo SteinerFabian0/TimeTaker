@@ -70,7 +70,7 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
 
 ## Tests
 
-`npm test`: 189 tests, about 2 s. Simulated time runs on `VirtualClock`, so a
+`npm test`: 214 tests, about 2 s. Simulated time runs on `VirtualClock`, so a
 60 s bind timeout or a 20-lap race takes milliseconds.
 
 - protocol (golden bytes), session, simulator behaviour, device layer
@@ -83,40 +83,44 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
   truth through an independent oracle, not from the engine. The test also
   re-records every scenario and requires identical bytes, and checks that
   pulling USB mid-race and continuing over BLE gives identical standings.
-- **Mutation check** (`node tools/mutate.ts`, 2026-11-18): 17 single-rule
-  mutations (min-lap, holdoff, ignore, false start, first crossing,
-  false-start penalty, tEntryUs order, aborted sequence, practice filter,
-  laps finish, time finish, undo, lap adjust, penalties in total, DQ last,
-  reboot gap, laneSeq gaps). Every one fails 1–13 tests.
+- **Mutation check** (`node tools/mutate.ts`, 2026-11-18): 35 single-rule
+  mutations of the race engine (every RACE_RULES.md rule plus the timeline,
+  flags, corrections and ranking). Every one fails at least one test.
 
-## Race rules (defaults, `src/race/rules/config.ts`)
+## Race settings
 
-- Start: the race begins at the first EVT_LIGHTS_OUT after an un-aborted
-  EVT_SEQ_STARTED of the same boot. Crossings before the sequence are practice.
-- First crossing: `startsTiming` (grid behind the line): the first crossing
-  after lights out starts lap 1; `completesLap1` (grid after the line): lap 1
-  runs from Tout. Reaction time = first crossing − Tout (includes the run-up).
-- False start: a crossing of the start procedure before Tout (logged after
-  EVT_SEQ_STARTED or at/after T0). Default action `flag`; `penalty` (5 s) or
-  `disqualify` configurable. In `startsTiming` it is the car's start crossing.
-- Laps: crossings ordered by tEntryUs; rejected if IN_HOLDOFF
-  (`rejectInHoldoff`) or under `minLapMs` (2 s) since the last counted
-  crossing; a rejected crossing never moves the lap start. BLOCKED counts at
-  its entry time (`blockedCountsAsCrossing`); CLEARED never. Flags: suspect
-  timing (NO_LOCK/UNALIGNED/EXTRAPOLATED), lost lane events (laneSeq gap),
-  lane outage, reboot gap, blocked, accepted.
-- Finish: laps race: first to the lap count takes the flag, the others
-  finish on their next counted crossing. Time race: the flag is out at the
-  first counted crossing at or after the duration; every car finishes on its
-  next one. The race is finished when every started, non-DQ, non-retired car
-  has finished, or on `endRace`.
-- Corrections are host actions: ±laps (count from the start), penalty ms,
-  disqualify, retire, ignore/accept one crossing, endRace (freezes at its log
-  position), undo (undo of undo works). Invalid ones are ignored with a reason.
-- Standings: classified before DQ, laps desc, total time (race time of the
-  last counted crossing + penalties) asc; gap/interval in laps or ms.
-- Reboot mid-race: a new bootId is a flagged timing gap; the lap spanning it
-  counts with no time; race time continues from the old boot's last event.
+The rules are the user's decisions in [`../RACE_RULES.md`](../RACE_RULES.md);
+`src/race/rules/config.ts` holds the defaults, each rule file documents its
+rule. Settings (main = race setup screen, deeper = advanced page):
+
+| Setting | Config field | Default | Options |
+|---|---|---|---|
+| False start: what happens (main) | `falseStart.action` | `timePenalty` | `flag`, `timePenalty`, `disqualify` |
+| Penalty seconds (main) | `falseStart.penaltyMs` | 5000 | ms |
+| How the penalty applies (deeper) | `falseStart.apply` | `addToFirstLap` | `addToTotal`; `stopAndGo` reserved (power board), rejected for now |
+| Crash policy (main) | `crashPolicy` | `replacementAllowed` | `crashIsDnf` (host action "crashed / out": `director.crashOut(lane)`) |
+| Minimum lap time (deeper) | `minLapMs` | 20000 | ms; a faster lap never counts (no "accept") |
+| Attention pulses (deeper) | `startLights.attentionPulses` | 2 | |
+| Pulse rise time (deeper) | `startLights.pulseRiseMs` | 1000 | ms |
+| Step between lights (deeper) | `startLights.stepMs` | 1000 | ms |
+| Hold range (deeper) | `startLights.holdMinMs` / `holdMaxMs` | 200 / 3000 | ms, random hold before lights out |
+
+Fixed rules (not settings): grid behind the line (the first crossing after
+lights out starts lap 1's timing); crossings timed before the start sequence
+began (T0) are ignored; a car stopped on the line (BLOCKED) is a crossing; a
+disqualification applies from its log position, later laps never count and
+the lap in progress shows TLF; the race ends when every car still in the race
+(not disqualified, retired or crashed out) has finished; ranking: more laps,
+lower total (with penalties), then faster best lap, then lower lane.
+Internal: `rejectInHoldoff` (the lanes' holdoff flag), `suspectFlags`.
+
+Also: crossings ordered by tEntryUs; flags for suspect timing, lost lane
+events, lane outage, reboot gap, blocked, false-start penalty. Corrections
+are host actions: ±laps, penalty ms, disqualify, retire, crashed/out, ignore
+one crossing, endRace (freezes at its log position), undo. Invalid ones are
+ignored with a reason. A reboot mid-race is a flagged timing gap; the lap
+spanning it counts with no time. Simulated race cars
+(`raceCarProfiles()` in `src/device/sim/simCars.ts`) lap in 30–40 s.
 
 ## Contract change requests
 

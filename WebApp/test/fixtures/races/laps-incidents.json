@@ -1,22 +1,29 @@
 {
  "format": "timetaker-race",
  "version": 1,
- "protocol": "0.4",
+ "protocol": "0.5",
  "exportedAt": "2026-11-17T20:00:00.000Z",
  "race": {
   "id": "laps-incidents",
   "config": {
    "name": "Incidents",
    "mode": "laps",
-   "laps": 12,
+   "laps": 8,
    "durationMs": 300000,
-   "firstCrossing": "startsTiming",
-   "minLapMs": 3600,
+   "minLapMs": 20000,
    "rejectInHoldoff": true,
-   "blockedCountsAsCrossing": true,
    "falseStart": {
-    "action": "flag",
-    "penaltyMs": 5000
+    "action": "timePenalty",
+    "penaltyMs": 5000,
+    "apply": "addToFirstLap"
+   },
+   "crashPolicy": "replacementAllowed",
+   "startLights": {
+    "attentionPulses": 2,
+    "pulseRiseMs": 1000,
+    "stepMs": 1000,
+    "holdMinMs": 200,
+    "holdMaxMs": 3000
    },
    "suspectFlags": 7,
    "id": "laps-incidents",
@@ -90,7 +97,7 @@
     "lane": 1,
     "state": 1,
     "status": 0,
-    "sysUs": "101000"
+    "sysUs": "181000"
    }
   },
   {
@@ -103,7 +110,7 @@
     "lane": 1,
     "state": 2,
     "status": 0,
-    "sysUs": "105000"
+    "sysUs": "185000"
    }
   },
   {
@@ -116,7 +123,7 @@
     "lane": 2,
     "state": 1,
     "status": 0,
-    "sysUs": "120000"
+    "sysUs": "200000"
    }
   },
   {
@@ -129,7 +136,7 @@
     "lane": 2,
     "state": 2,
     "status": 0,
-    "sysUs": "124000"
+    "sysUs": "204000"
    }
   },
   {
@@ -142,7 +149,7 @@
     "lane": 3,
     "state": 1,
     "status": 0,
-    "sysUs": "139000"
+    "sysUs": "219000"
    }
   },
   {
@@ -155,7 +162,7 @@
     "lane": 3,
     "state": 2,
     "status": 0,
-    "sysUs": "143000"
+    "sysUs": "223000"
    }
   },
   {
@@ -168,7 +175,7 @@
     "lane": 4,
     "state": 1,
     "status": 0,
-    "sysUs": "158000"
+    "sysUs": "238000"
    }
   },
   {
@@ -181,7 +188,7 @@
     "lane": 4,
     "state": 2,
     "status": 0,
-    "sysUs": "162000"
+    "sysUs": "242000"
    }
   },
   {
@@ -194,7 +201,7 @@
     "lane": 5,
     "state": 1,
     "status": 0,
-    "sysUs": "177000"
+    "sysUs": "257000"
    }
   },
   {
@@ -207,7 +214,7 @@
     "lane": 5,
     "state": 2,
     "status": 0,
-    "sysUs": "181000"
+    "sysUs": "261000"
    }
   },
   {
@@ -220,7 +227,7 @@
     "lane": 6,
     "state": 1,
     "status": 0,
-    "sysUs": "196000"
+    "sysUs": "276000"
    }
   },
   {
@@ -233,7 +240,7 @@
     "lane": 6,
     "state": 2,
     "status": 0,
-    "sysUs": "200000"
+    "sysUs": "280000"
    }
   },
   {
@@ -246,7 +253,7 @@
     "lights": 6,
     "armSampling": 1,
     "stepMs": 1000,
-    "t0Us": "2357000"
+    "t0Us": "2457000"
    }
   },
   {
@@ -260,7 +267,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "5865053",
+    "tEntryUs": "7360129",
     "laneSeq": 0,
     "dwell10us": 1558,
     "depth": 722,
@@ -276,7 +283,7 @@
     "evSeq": 16,
     "lights": 6,
     "reserved": "000000",
-    "toutUs": "9900787"
+    "toutUs": "13000787"
    }
   },
   {
@@ -286,14 +293,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 17,
-    "lane": 3,
+    "lane": 1,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "10504681",
+    "tEntryUs": "13897766",
     "laneSeq": 0,
-    "dwell10us": 2289,
-    "depth": 622,
+    "dwell10us": 2805,
+    "depth": 698,
     "reserved2": 0
    }
   },
@@ -304,14 +311,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 18,
-    "lane": 5,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "10545283",
+    "tEntryUs": "13971999",
     "laneSeq": 0,
-    "dwell10us": 2717,
-    "depth": 763,
+    "dwell10us": 2456,
+    "depth": 850,
     "reserved2": 0
    }
   },
@@ -322,14 +329,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 19,
-    "lane": 1,
+    "lane": 6,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "10550761",
+    "tEntryUs": "13988940",
     "laneSeq": 0,
-    "dwell10us": 2805,
-    "depth": 698,
+    "dwell10us": 2375,
+    "depth": 675,
     "reserved2": 0
    }
   },
@@ -340,14 +347,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 20,
-    "lane": 4,
+    "lane": 3,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "10697442",
+    "tEntryUs": "14017365",
     "laneSeq": 0,
-    "dwell10us": 2456,
-    "depth": 850,
+    "dwell10us": 2289,
+    "depth": 622,
     "reserved2": 0
    }
   },
@@ -358,14 +365,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 21,
-    "lane": 6,
+    "lane": 5,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "10724970",
+    "tEntryUs": "14104200",
     "laneSeq": 0,
-    "dwell10us": 2375,
-    "depth": 675,
+    "dwell10us": 2717,
+    "depth": 763,
     "reserved2": 0
    }
   },
@@ -380,7 +387,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "12501218",
+    "tEntryUs": "44421742",
     "laneSeq": 1,
     "dwell10us": 2753,
     "depth": 873,
@@ -394,14 +401,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 23,
-    "lane": 5,
+    "lane": 6,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "16622482",
+    "tEntryUs": "46679485",
     "laneSeq": 1,
-    "dwell10us": 1630,
-    "depth": 801,
+    "dwell10us": 2835,
+    "depth": 879,
     "reserved2": 0
    }
   },
@@ -412,14 +419,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 24,
-    "lane": 6,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "16884919",
+    "tEntryUs": "46955197",
     "laneSeq": 1,
-    "dwell10us": 2835,
-    "depth": 879,
+    "dwell10us": 2981,
+    "depth": 673,
     "reserved2": 0
    }
   },
@@ -434,7 +441,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "17106025",
+    "tEntryUs": "48045586",
     "laneSeq": 1,
     "dwell10us": 2995,
     "depth": 891,
@@ -448,14 +455,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 26,
-    "lane": 4,
+    "lane": 5,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "17235546",
+    "tEntryUs": "48326692",
     "laneSeq": 1,
-    "dwell10us": 2981,
-    "depth": 673,
+    "dwell10us": 1630,
+    "depth": 801,
     "reserved2": 0
    }
   },
@@ -470,7 +477,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "17356565",
+    "tEntryUs": "48351266",
     "laneSeq": 1,
     "dwell10us": 2807,
     "depth": 641,
@@ -484,14 +491,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 28,
-    "lane": 2,
+    "lane": 5,
     "type": 1,
-    "flags": 0,
+    "flags": 8,
     "reserved": 0,
-    "tEntryUs": "18686839",
+    "tEntryUs": "50363008",
     "laneSeq": 2,
-    "dwell10us": 2467,
-    "depth": 628,
+    "dwell10us": 1662,
+    "depth": 737,
     "reserved2": 0
    }
   },
@@ -502,14 +509,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 29,
-    "lane": 5,
+    "lane": 6,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "22330853",
+    "tEntryUs": "79282112",
     "laneSeq": 2,
-    "dwell10us": 1902,
-    "depth": 593,
+    "dwell10us": 2848,
+    "depth": 879,
     "reserved2": 0
    }
   },
@@ -520,14 +527,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 30,
-    "lane": 6,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "23029928",
+    "tEntryUs": "79950300",
     "laneSeq": 2,
-    "dwell10us": 2848,
-    "depth": 879,
+    "dwell10us": 1757,
+    "depth": 565,
     "reserved2": 0
    }
   },
@@ -538,14 +545,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 31,
-    "lane": 1,
+    "lane": 2,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "23626989",
+    "tEntryUs": "80041111",
     "laneSeq": 2,
-    "dwell10us": 1681,
-    "depth": 551,
+    "dwell10us": 2467,
+    "depth": 628,
     "reserved2": 0
    }
   },
@@ -556,14 +563,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 32,
-    "lane": 4,
+    "lane": 1,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "23779958",
+    "tEntryUs": "82047256",
     "laneSeq": 2,
-    "dwell10us": 1757,
-    "depth": 565,
+    "dwell10us": 1681,
+    "depth": 551,
     "reserved2": 0
    }
   },
@@ -578,7 +585,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "24108970",
+    "tEntryUs": "82189083",
     "laneSeq": 2,
     "dwell10us": 2471,
     "depth": 811,
@@ -592,14 +599,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 34,
-    "lane": 2,
+    "lane": 5,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "25112975",
+    "tEntryUs": "84444610",
     "laneSeq": 3,
-    "dwell10us": 2480,
-    "depth": 718,
+    "dwell10us": 2015,
+    "depth": 925,
     "reserved2": 0
    }
   },
@@ -614,7 +621,7 @@
     "type": 1,
     "flags": 8,
     "reserved": 0,
-    "tEntryUs": "27305489",
+    "tEntryUs": "85385602",
     "laneSeq": 3,
     "dwell10us": 1704,
     "depth": 633,
@@ -628,14 +635,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 36,
-    "lane": 5,
+    "lane": 6,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "28112801",
+    "tEntryUs": "112387975",
     "laneSeq": 3,
-    "dwell10us": 2865,
-    "depth": 687,
+    "dwell10us": 2074,
+    "depth": 729,
     "reserved2": 0
    }
   },
@@ -646,14 +653,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 37,
-    "lane": 6,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "29260453",
+    "tEntryUs": "112441080",
     "laneSeq": 3,
-    "dwell10us": 2074,
-    "depth": 729,
+    "dwell10us": 2390,
+    "depth": 665,
     "reserved2": 0
    }
   },
@@ -664,14 +671,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 38,
-    "lane": 4,
+    "lane": 2,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "30057199",
+    "tEntryUs": "116430395",
     "laneSeq": 3,
-    "dwell10us": 2390,
-    "depth": 665,
+    "dwell10us": 2480,
+    "depth": 718,
     "reserved2": 0
    }
   },
@@ -686,7 +693,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "30365479",
+    "tEntryUs": "116975782",
     "laneSeq": 3,
     "dwell10us": 1605,
     "depth": 621,
@@ -700,14 +707,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 40,
-    "lane": 2,
+    "lane": 3,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "31419164",
+    "tEntryUs": "118570313",
     "laneSeq": 4,
-    "dwell10us": 2831,
-    "depth": 733,
+    "dwell10us": 2563,
+    "depth": 713,
     "reserved2": 0
    }
   },
@@ -718,14 +725,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 41,
-    "lane": 3,
+    "lane": 5,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "33926925",
+    "tEntryUs": "119352585",
     "laneSeq": 4,
-    "dwell10us": 2563,
-    "depth": 713,
+    "dwell10us": 2086,
+    "depth": 658,
     "reserved2": 0
    }
   },
@@ -736,14 +743,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 42,
-    "lane": 5,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "34015751",
+    "tEntryUs": "144548006",
     "laneSeq": 4,
-    "dwell10us": 2994,
-    "depth": 706,
+    "dwell10us": 2604,
+    "depth": 668,
     "reserved2": 0
    }
   },
@@ -758,7 +765,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "35403052",
+    "tEntryUs": "144976421",
     "laneSeq": 4,
     "dwell10us": 1739,
     "depth": 551,
@@ -772,14 +779,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 44,
-    "lane": 4,
+    "lane": 3,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "36131088",
-    "laneSeq": 4,
-    "dwell10us": 2604,
-    "depth": 668,
+    "tEntryUs": "151370262",
+    "laneSeq": 5,
+    "dwell10us": 1845,
+    "depth": 760,
     "reserved2": 0
    }
   },
@@ -794,7 +801,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "37042155",
+    "tEntryUs": "151640921",
     "laneSeq": 4,
     "dwell10us": 1780,
     "depth": 568,
@@ -812,10 +819,10 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "37851925",
-    "laneSeq": 5,
-    "dwell10us": 2816,
-    "depth": 814,
+    "tEntryUs": "152435715",
+    "laneSeq": 4,
+    "dwell10us": 2831,
+    "depth": 733,
     "reserved2": 0
    }
   },
@@ -830,10 +837,10 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "40056308",
+    "tEntryUs": "152453782",
     "laneSeq": 5,
-    "dwell10us": 1858,
-    "depth": 647,
+    "dwell10us": 1865,
+    "depth": 625,
     "reserved2": 0
    }
   },
@@ -844,14 +851,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 48,
-    "lane": 3,
-    "type": 1,
+    "lane": 4,
+    "type": 2,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "40471204",
+    "tEntryUs": "176669555",
     "laneSeq": 5,
-    "dwell10us": 1845,
-    "depth": 760,
+    "dwell10us": 50000,
+    "depth": 847,
     "reserved2": 0
    }
   },
@@ -866,7 +873,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "41547164",
+    "tEntryUs": "177573772",
     "laneSeq": 5,
     "dwell10us": 2938,
     "depth": 718,
@@ -881,12 +888,12 @@
    "value": {
     "evSeq": 50,
     "lane": 4,
-    "type": 2,
+    "type": 3,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "42212724",
-    "laneSeq": 5,
-    "dwell10us": 50000,
+    "tEntryUs": "178530935",
+    "laneSeq": 6,
+    "dwell10us": 65535,
     "depth": 847,
     "reserved2": 0
    }
@@ -898,14 +905,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 51,
-    "lane": 1,
+    "lane": 5,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "43643637",
-    "laneSeq": 5,
-    "dwell10us": 2503,
-    "depth": 552,
+    "tEntryUs": "184849416",
+    "laneSeq": 6,
+    "dwell10us": 2204,
+    "depth": 584,
     "reserved2": 0
    }
   },
@@ -916,14 +923,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 52,
-    "lane": 4,
-    "type": 3,
+    "lane": 1,
+    "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "44074104",
-    "laneSeq": 6,
-    "dwell10us": 65535,
-    "depth": 847,
+    "tEntryUs": "185985671",
+    "laneSeq": 5,
+    "dwell10us": 2503,
+    "depth": 552,
     "reserved2": 0
    }
   },
@@ -934,14 +941,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 53,
-    "lane": 2,
+    "lane": 3,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "44560517",
+    "tEntryUs": "186212968",
     "laneSeq": 6,
-    "dwell10us": 1596,
-    "depth": 719,
+    "dwell10us": 1610,
+    "depth": 697,
     "reserved2": 0
    }
   },
@@ -952,14 +959,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 54,
-    "lane": 5,
+    "lane": 2,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "45731076",
-    "laneSeq": 6,
-    "dwell10us": 2036,
-    "depth": 738,
+    "tEntryUs": "188846205",
+    "laneSeq": 5,
+    "dwell10us": 2816,
+    "depth": 814,
     "reserved2": 0
    }
   },
@@ -970,14 +977,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 55,
-    "lane": 3,
+    "lane": 6,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "47425120",
+    "tEntryUs": "209289089",
     "laneSeq": 6,
-    "dwell10us": 1610,
-    "depth": 697,
+    "dwell10us": 2175,
+    "depth": 725,
     "reserved2": 0
    }
   },
@@ -988,14 +995,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 56,
-    "lane": 6,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "47541388",
-    "laneSeq": 6,
-    "dwell10us": 2175,
-    "depth": 725,
+    "tEntryUs": "211117460",
+    "laneSeq": 7,
+    "dwell10us": 2896,
+    "depth": 579,
     "reserved2": 0
    }
   },
@@ -1006,14 +1013,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 57,
-    "lane": 5,
+    "lane": 3,
     "type": 1,
-    "flags": 8,
+    "flags": 0,
     "reserved": 0,
-    "tEntryUs": "48818694",
+    "tEntryUs": "220457627",
     "laneSeq": 7,
-    "dwell10us": 2163,
-    "depth": 848,
+    "dwell10us": 1896,
+    "depth": 755,
     "reserved2": 0
    }
   },
@@ -1024,14 +1031,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 58,
-    "lane": 4,
+    "lane": 1,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "50402067",
-    "laneSeq": 7,
-    "dwell10us": 2896,
-    "depth": 579,
+    "tEntryUs": "221121634",
+    "laneSeq": 6,
+    "dwell10us": 1589,
+    "depth": 677,
     "reserved2": 0
    }
   },
@@ -1042,14 +1049,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 59,
-    "lane": 1,
+    "lane": 5,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "50430812",
-    "laneSeq": 6,
-    "dwell10us": 1589,
-    "depth": 677,
+    "tEntryUs": "221906145",
+    "laneSeq": 7,
+    "dwell10us": 2616,
+    "depth": 907,
     "reserved2": 0
    }
   },
@@ -1064,10 +1071,10 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "50918031",
-    "laneSeq": 7,
-    "dwell10us": 2458,
-    "depth": 638,
+    "tEntryUs": "226139664",
+    "laneSeq": 6,
+    "dwell10us": 1596,
+    "depth": 719,
     "reserved2": 0
    }
   },
@@ -1082,7 +1089,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "53579949",
+    "tEntryUs": "241265314",
     "laneSeq": 7,
     "dwell10us": 2196,
     "depth": 726,
@@ -1096,14 +1103,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 62,
-    "lane": 3,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "54259109",
-    "laneSeq": 7,
-    "dwell10us": 1896,
-    "depth": 755,
+    "tEntryUs": "243866678",
+    "laneSeq": 8,
+    "dwell10us": 1816,
+    "depth": 898,
     "reserved2": 0
    }
   },
@@ -1118,10 +1125,10 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "54715512",
+    "tEntryUs": "253448698",
     "laneSeq": 8,
-    "dwell10us": 2212,
-    "depth": 944,
+    "dwell10us": 2979,
+    "depth": 586,
     "reserved2": 0
    }
   },
@@ -1132,14 +1139,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 64,
-    "lane": 4,
+    "lane": 3,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "56816218",
+    "tEntryUs": "255728032",
     "laneSeq": 8,
-    "dwell10us": 1816,
-    "depth": 898,
+    "dwell10us": 2054,
+    "depth": 661,
     "reserved2": 0
    }
   },
@@ -1154,7 +1161,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "57126068",
+    "tEntryUs": "255865941",
     "laneSeq": 7,
     "dwell10us": 2964,
     "depth": 681,
@@ -1168,14 +1175,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 66,
-    "lane": 6,
+    "lane": 2,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "59768901",
-    "laneSeq": 8,
-    "dwell10us": 2972,
-    "depth": 809,
+    "tEntryUs": "262309282",
+    "laneSeq": 7,
+    "dwell10us": 2458,
+    "depth": 638,
     "reserved2": 0
    }
   },
@@ -1186,14 +1193,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 67,
-    "lane": 5,
+    "lane": 6,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "60837447",
-    "laneSeq": 9,
-    "dwell10us": 2789,
-    "depth": 829,
+    "tEntryUs": "274126534",
+    "laneSeq": 8,
+    "dwell10us": 2972,
+    "depth": 809,
     "reserved2": 0
    }
   },
@@ -1204,14 +1211,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 68,
-    "lane": 3,
+    "lane": 4,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "61298792",
-    "laneSeq": 8,
-    "dwell10us": 2054,
-    "depth": 661,
+    "tEntryUs": "276628494",
+    "laneSeq": 9,
+    "dwell10us": 1629,
+    "depth": 813,
     "reserved2": 0
    }
   },
@@ -1222,14 +1229,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 69,
-    "lane": 2,
+    "lane": 5,
     "type": 1,
-    "flags": 16,
+    "flags": 0,
     "reserved": 0,
-    "tEntryUs": "62354147",
-    "laneSeq": 8,
-    "dwell10us": 1538,
-    "depth": 679,
+    "tEntryUs": "286658299",
+    "laneSeq": 9,
+    "dwell10us": 2547,
+    "depth": 654,
     "reserved2": 0
    }
   },
@@ -1240,14 +1247,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 70,
-    "lane": 4,
+    "lane": 3,
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "63237043",
+    "tEntryUs": "289677002",
     "laneSeq": 9,
-    "dwell10us": 1629,
-    "depth": 813,
+    "dwell10us": 2490,
+    "depth": 634,
     "reserved2": 0
    }
   },
@@ -1262,7 +1269,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "63882321",
+    "tEntryUs": "290870149",
     "laneSeq": 8,
     "dwell10us": 2873,
     "depth": 668,
@@ -1276,446 +1283,14 @@
    "name": "EVT_CROSSING",
    "value": {
     "evSeq": 72,
-    "lane": 6,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "65902886",
-    "laneSeq": 9,
-    "dwell10us": 1808,
-    "depth": 581,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 73,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 73,
-    "lane": 3,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "68073485",
-    "laneSeq": 9,
-    "dwell10us": 2490,
-    "depth": 634,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 74,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 74,
     "lane": 2,
     "type": 1,
-    "flags": 0,
+    "flags": 16,
     "reserved": 0,
-    "tEntryUs": "68726580",
-    "laneSeq": 9,
-    "dwell10us": 2905,
-    "depth": 858,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 75,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 75,
-    "lane": 4,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "69411243",
-    "laneSeq": 10,
-    "dwell10us": 1621,
-    "depth": 922,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 76,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 76,
-    "lane": 1,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "70672411",
-    "laneSeq": 9,
-    "dwell10us": 2007,
-    "depth": 625,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 77,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 77,
-    "lane": 6,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "72024987",
-    "laneSeq": 10,
-    "dwell10us": 2097,
-    "depth": 702,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 78,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 78,
-    "lane": 5,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "72282003",
-    "laneSeq": 10,
-    "dwell10us": 1802,
-    "depth": 585,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 79,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 79,
-    "lane": 3,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "75061832",
-    "laneSeq": 10,
-    "dwell10us": 2575,
-    "depth": 815,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 80,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 80,
-    "lane": 2,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "75167410",
-    "laneSeq": 10,
-    "dwell10us": 1531,
-    "depth": 923,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 81,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 81,
-    "lane": 4,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "75314418",
-    "laneSeq": 11,
-    "dwell10us": 2652,
-    "depth": 631,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 82,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 82,
-    "lane": 1,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "77360911",
-    "laneSeq": 10,
-    "dwell10us": 2070,
-    "depth": 827,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 83,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 83,
-    "lane": 5,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "77956808",
-    "laneSeq": 11,
-    "dwell10us": 2464,
-    "depth": 722,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 84,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 84,
-    "lane": 6,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "78039197",
-    "laneSeq": 11,
-    "dwell10us": 2621,
-    "depth": 792,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 85,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 85,
-    "lane": 4,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "81660850",
-    "laneSeq": 12,
-    "dwell10us": 2765,
-    "depth": 844,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 86,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 86,
-    "lane": 3,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "81749878",
-    "laneSeq": 11,
-    "dwell10us": 1796,
-    "depth": 795,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 87,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 87,
-    "lane": 2,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "81742904",
-    "laneSeq": 11,
-    "dwell10us": 2770,
-    "depth": 636,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 88,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 88,
-    "lane": 5,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "83402132",
-    "laneSeq": 12,
-    "dwell10us": 2837,
-    "depth": 877,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 89,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 89,
-    "lane": 1,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "83932747",
-    "laneSeq": 11,
-    "dwell10us": 1525,
-    "depth": 592,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 90,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 90,
-    "lane": 6,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "84222316",
-    "laneSeq": 12,
-    "dwell10us": 2838,
-    "depth": 851,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 91,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 91,
-    "lane": 4,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "88036228",
-    "laneSeq": 13,
-    "dwell10us": 1589,
-    "depth": 683,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 92,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 92,
-    "lane": 2,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "88338002",
-    "laneSeq": 12,
-    "dwell10us": 2948,
-    "depth": 777,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 93,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 93,
-    "lane": 3,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "88543154",
-    "laneSeq": 12,
-    "dwell10us": 2035,
-    "depth": 615,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 94,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 94,
-    "lane": 5,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "89368196",
-    "laneSeq": 13,
-    "dwell10us": 2520,
-    "depth": 583,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 95,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 95,
-    "lane": 6,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "90402458",
-    "laneSeq": 13,
-    "dwell10us": 1813,
-    "depth": 705,
-    "reserved2": 0
-   }
-  },
-  {
-   "bootId": 1099549949,
-   "evSeq": 96,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
-   "value": {
-    "evSeq": 96,
-    "lane": 1,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "90630640",
-    "laneSeq": 12,
-    "dwell10us": 2585,
-    "depth": 778,
+    "tEntryUs": "303351101",
+    "laneSeq": 8,
+    "dwell10us": 1538,
+    "depth": 679,
     "reserved2": 0
    }
   }
@@ -1728,7 +1303,7 @@
    "note": "cut the chicane",
    "at": {
     "bootId": 1099549949,
-    "evSeq": 40
+    "evSeq": 34
    },
    "wallTime": "2026-11-17T20:00:00.000Z",
    "id": "act1",
@@ -1741,7 +1316,7 @@
    "note": "missed crossing?",
    "at": {
     "bootId": 1099549949,
-    "evSeq": 40
+    "evSeq": 34
    },
    "wallTime": "2026-11-17T20:00:00.000Z",
    "id": "act2",
@@ -1753,7 +1328,7 @@
    "note": "no, it was fine",
    "at": {
     "bootId": 1099549949,
-    "evSeq": 45
+    "evSeq": 35
    },
    "wallTime": "2026-11-17T20:00:00.000Z",
    "id": "act3",
@@ -1765,142 +1340,125 @@
   "order": [
    6,
    4,
-   2,
    5,
+   3,
    1,
-   3
+   2
   ],
   "cars": {
    "1": {
-    "laps": 12,
+    "laps": 8,
     "status": "finished",
     "falseStart": false,
-    "reactionMs": 649.974,
+    "reactionMs": 896.979,
     "lapMs": [
-     6555.264,
-     6520.964,
-     6738.49,
-     6676.676,
-     6601.482,
-     6787.175,
-     6695.256,
-     6756.253,
-     6790.09,
-     6688.5,
-     6571.836,
-     6697.893
+     34147.82,
+     34001.67,
+     34928.526,
+     34665.139,
+     34344.75,
+     35135.963,
+     34744.307,
+     35004.208
     ],
     "penaltiesMs": 2000,
-    "elapsedMs": 80729.853
+    "tlfLap": null,
+    "elapsedMs": 277869.362
    },
    "2": {
-    "laps": 12,
+    "laps": 8,
     "status": "finished",
     "falseStart": true,
-    "reactionMs": -4035.734,
+    "reactionMs": -5640.658,
     "lapMs": [
-     6636.165,
-     6185.621,
-     6426.136,
-     6306.189,
-     6432.761,
-     6708.592,
-     6357.514,
-     11436.116,
-     6372.433,
-     6440.83,
-     6575.494,
-     6595.098
+     42061.613,
+     35619.369,
+     36389.284,
+     36005.32,
+     36410.49,
+     37293.459,
+     36169.618,
+     41041.819
     ],
-    "penaltiesMs": 0,
-    "elapsedMs": 78437.215
+    "penaltiesMs": 5000,
+    "tlfLap": null,
+    "elapsedMs": 290350.314
    },
    "3": {
-    "laps": 11,
+    "laps": 8,
     "status": "finished",
     "falseStart": false,
-    "reactionMs": 603.894,
+    "reactionMs": 1016.578,
     "lapMs": [
-     6851.884,
-     6752.405,
-     9817.955,
-     6544.279,
-     6953.916,
-     6833.989,
-     7039.683,
-     6774.693,
-     6988.347,
-     6688.046,
-     6793.276
+     34333.901,
+     33837.817,
+     36381.23,
+     32799.949,
+     34842.706,
+     34244.659,
+     35270.405,
+     33948.97
     ],
     "penaltiesMs": 0,
-    "elapsedMs": 78642.367
+    "tlfLap": null,
+    "elapsedMs": 276676.215
    },
    "4": {
-    "laps": 12,
+    "laps": 8,
     "status": "finished",
     "falseStart": false,
-    "reactionMs": 796.655,
+    "reactionMs": 971.212,
     "lapMs": [
-     6538.104,
-     6544.412,
-     6277.241,
-     6073.889,
-     6081.636,
-     8189.343,
-     6414.151,
-     6420.825,
-     6174.2,
-     5903.175,
-     6346.432,
-     6375.378
+     32983.198,
+     32995.103,
+     32490.78,
+     32106.926,
+     32121.549,
+     34447.905,
+     32749.218,
+     32761.816
     ],
     "penaltiesMs": 0,
-    "elapsedMs": 78135.441
+    "tlfLap": null,
+    "elapsedMs": 263627.707
    },
    "5": {
-    "laps": 12,
+    "laps": 8,
     "status": "finished",
     "falseStart": false,
-    "reactionMs": 644.496,
+    "reactionMs": 1103.413,
     "lapMs": [
-     6077.199,
-     5708.371,
-     5781.948,
-     5902.95,
-     6040.557,
-     5674.768,
-     8984.436,
-     6121.935,
-     11444.556,
-     5674.805,
-     5445.324,
-     5966.064
+     34222.492,
+     36117.918,
+     34907.975,
+     33101.197,
+     32395.634,
+     37056.729,
+     31542.553,
+     33209.601
     ],
     "penaltiesMs": 0,
-    "elapsedMs": 79467.409
+    "tlfLap": null,
+    "elapsedMs": 273657.512
    },
    "6": {
-    "laps": 12,
+    "laps": 8,
     "status": "finished",
     "falseStart": false,
-    "reactionMs": 824.183,
+    "reactionMs": 988.153,
     "lapMs": [
-     6159.949,
-     6145.009,
-     6230.525,
-     6142.599,
-     6144.112,
-     5994.224,
-     6038.561,
-     6188.952,
-     6133.985,
-     6122.101,
-     6014.21,
-     6183.119
+     32690.545,
+     32602.627,
+     33105.863,
+     32588.446,
+     32597.351,
+     31715.317,
+     31976.225,
+     32861.22
     ],
     "penaltiesMs": 0,
-    "elapsedMs": 74321.529
+    "tlfLap": null,
+    "elapsedMs": 261125.747
    }
   },
   "timingGaps": 0,

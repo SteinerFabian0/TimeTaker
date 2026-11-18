@@ -4,8 +4,10 @@
  *   device intents  → DeviceApi requests (power, prepare lanes, start/abort
  *                     the light sequence, calibrate, LED test, holdoff)
  *   corrections     → host actions appended to the race in the EventStore
- *                     (+/- lap, penalty, disqualify, retire, ignore/accept a
- *                     crossing, end the race, undo)
+ *                     (+/- lap, penalty, disqualify, retire, crashed/out,
+ *                     ignore a crossing, end the race, undo). There is no
+ *                     "accept crossing": a lap under the minimum never counts
+ *                     (RACE_RULES.md).
  *   state           → raceEngine.fold over the store's race input
  *
  * The director never decides results: the device reports facts, the engine
@@ -18,6 +20,7 @@ import { ALL_LANES, laneMask } from '../device/deviceApi.ts';
 import type { DeviceApi, StartParams } from '../device/deviceApi.ts';
 import { LedMode, SamplingMode } from '../protocol/generated.ts';
 import { fold } from '../race/raceEngine.ts';
+import { DEFAULT_START_LIGHTS } from '../race/rules/config.ts';
 import type { HostAction, LogPos, RaceState } from '../race/types.ts';
 import type { ActionDraft, EventStore } from '../store/eventStore.ts';
 
@@ -25,7 +28,16 @@ import type { ActionDraft, EventStore } from '../store/eventStore.ts';
 export type DirectorApi = Pick<DeviceApi, 'lanePower' | 'laneSampling' | 'laneLed' | 'laneCalibrate' | 'startSequence'
   | 'abortSequence' | 'laneConfigGet' | 'laneConfigSet' | 'status'>;
 
-export const DEFAULT_START: StartParams = { lights: 6, stepMs: 1000, holdMinMs: 200, holdMaxMs: 3000, armSampling: true, leadMs: 0 };
+/**
+ * The start light sequence (RACE_RULES.md "Start lights"): 2 attention pulses,
+ * rise 1000 ms, a lane every 1000 ms, hold 200–3000 ms. A race's own
+ * config.startLights replaces these; start() params override both.
+ */
+export const DEFAULT_START: StartParams = {
+  lights: 6, armSampling: true, leadMs: 0,
+  attentionPulses: DEFAULT_START_LIGHTS.attentionPulses, pulseRiseMs: DEFAULT_START_LIGHTS.pulseRiseMs,
+  stepMs: DEFAULT_START_LIGHTS.stepMs, holdMinMs: DEFAULT_START_LIGHTS.holdMinMs, holdMaxMs: DEFAULT_START_LIGHTS.holdMaxMs,
+};
 
 export interface DirectorOptions {
   readonly api: DirectorApi;
@@ -76,11 +88,21 @@ export class RaceDirector {
     await this.#o.api.laneLed(mask, { mode: LedMode.OFF });
   }
 
-  /** The light sequence. Returns T0 (device µs). Refused unless the race is waiting. */
+  /**
+   * The light sequence with the race's startLights settings. Returns T0 (device
+   * µs). Refused unless the race is waiting. The host presses start only when
+   * no car is moving (RACE_RULES.md); crossings before T0 are ignored anyway.
+   */
   async start(params: Partial<StartParams> = {}): Promise<bigint> {
     const phase = this.state().phase;
     if (phase !== 'waiting') throw new Error(`cannot start: race is ${phase}`);
-    return this.#o.api.startSequence({ ...DEFAULT_START, ...params });
+    return this.#o.api.startSequence({ ...this.startParams(), ...params });
+  }
+
+  /** What start() sends: DEFAULT_START with the race's startLights. */
+  startParams(): StartParams {
+    const sl = this.#o.store.race(this.#o.raceId).config.startLights ?? DEFAULT_START_LIGHTS;
+    return { ...DEFAULT_START, ...sl };
   }
 
   async abortStart(): Promise<void> {
@@ -115,10 +137,17 @@ export class RaceDirector {
 
   adjustLaps(lane: number, delta: number, note?: string): HostAction { return this.#act({ type: 'adjustLaps', lane, delta, note }); }
   penalty(lane: number, ms: number, note?: string): HostAction { return this.#act({ type: 'penalty', lane, ms, note }); }
+  /** From now (the last device event): later laps never count, the lap in progress is TLF. */
   disqualify(lane: number, note?: string): HostAction { return this.#act({ type: 'disqualify', lane, note }); }
   retire(lane: number, note?: string): HostAction { return this.#act({ type: 'retire', lane, note }); }
+  /** "Crashed / out" (crash policy crashIsDnf): the race stops waiting for this car. */
+  crashOut(lane: number, note?: string): HostAction {
+    if (this.#o.store.race(this.#o.raceId).config.crashPolicy !== 'crashIsDnf') {
+      throw new Error('crash policy is replacementAllowed: a crashed car is put back, nothing to enter');
+    }
+    return this.#act({ type: 'crashOut', lane, note });
+  }
   ignoreCrossing(crossing: LogPos, note?: string): HostAction { return this.#act({ type: 'ignoreCrossing', crossing, note }); }
-  acceptCrossing(crossing: LogPos, note?: string): HostAction { return this.#act({ type: 'acceptCrossing', crossing, note }); }
   endRace(note?: string): HostAction { return this.#act({ type: 'endRace', note }); }
   undo(actionId: string, note?: string): HostAction { return this.#act({ type: 'undo', target: actionId, note }); }
 }

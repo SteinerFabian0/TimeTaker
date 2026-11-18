@@ -28,7 +28,7 @@ const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
 const load = (f: string): string => readFileSync(new URL(f, dir), 'utf8');
 
 describe('fixtures fold to their expected results', () => {
-  test('there are fixtures', () => assert.ok(files.length >= 6));
+  test('there are fixtures', () => assert.ok(files.length >= 8));
 
   for (const f of files) {
     test(f, () => {
@@ -48,6 +48,7 @@ describe('fixtures fold to their expected results', () => {
         assert.equal(c.reactionMs, e.reactionMs, `${at} reaction`);
         assert.deepEqual(c.lapTimes.map((l) => l.ms), e.lapMs, `${at} lap times`);
         assert.equal(c.penaltiesMs, e.penaltiesMs, `${at} penalties`);
+        assert.equal(c.tlfLap, e.tlfLap, `${at} TLF lap`);
         if (e.elapsedMs !== undefined) assert.equal(c.elapsedMs, e.elapsedMs, `${at} elapsed`);
       }
     });
@@ -65,6 +66,37 @@ describe('fixture contents', () => {
     assert.equal(s.cars.find((c) => c.lane === 2)!.falseStart, true);
     assert.equal(race.actions.length, 3);
     assert.deepEqual(s.appliedActions, ['act1', 'act3']);             // the penalty and the undo; the +1 (act2) is undone
+  });
+
+  test('incidents: the false start costs 5 s on the first lap; every counted lap is 30–40 s or an incident lap', () => {
+    const race = parseRace(load('laps-incidents.json'));
+    const s = fold(race.race.config, race.events, race.actions);
+    const ben = s.cars.find((c) => c.lane === 2)!;
+    assert.equal(ben.penaltiesMs, 5000);
+    assert.deepEqual(ben.lapTimes[0]!.flags, ['falseStartPenalty']);
+    const raw = s.cars.flatMap((c) => c.lapTimes.map((l) => (l.flags.includes('falseStartPenalty') ? l.ms! - 5000 : l.ms!)));
+    assert.ok(raw.every((ms) => ms >= 30_000 && ms <= 50_000), raw.join(' '));
+    assert.ok(raw.filter((ms) => ms <= 40_000).length >= raw.length - 2);
+  });
+
+  test('crash = DNF: the crashed car is out, the race ended without it', () => {
+    const race = parseRace(load('crash-dnf.json'));
+    const s = fold(race.race.config, race.events, race.actions);
+    assert.equal(s.phase, 'finished');
+    assert.equal(s.cars.find((c) => c.lane === 3)!.status, 'crashed');
+    assert.equal(s.cars.filter((c) => c.status === 'finished').length, 3);
+    const undone = fold(race.race.config, race.events, []);
+    assert.equal(undone.phase, 'finishing', 'without the crash-out the race waits for the car');
+  });
+
+  test('DQ mid-lap: later crossings rejected, the lap in progress is TLF', () => {
+    const race = parseRace(load('dq-mid-lap.json'));
+    const s = fold(race.race.config, race.events, race.actions);
+    const c = s.cars.find((x) => x.lane === 2)!;
+    assert.equal(c.status, 'disqualified');
+    assert.equal(c.tlfLap, 3);
+    assert.ok(c.rejected.length >= 2 && c.rejected.every((r) => r.reason === 'disqualified'));
+    assert.equal(s.standings.at(-1)?.lane, 2);
   });
 
   test('reboot: one lap per car spans the reboot with no time', () => {
