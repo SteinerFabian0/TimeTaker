@@ -31,7 +31,7 @@ import { judgeLap } from './rules/laps.ts';
 import type { PrevCrossing } from './rules/laps.ts';
 import { falseStartPenaltyMs, judgeStart } from './rules/start.ts';
 import { rank } from './rules/standings.ts';
-import { buildTimeline, comparePos } from './rules/timeline.ts';
+import { buildTimeline, comparePos, roundUs } from './rules/timeline.ts';
 
 interface CarWork {
   readonly lane: number;
@@ -51,7 +51,8 @@ interface CarWork {
 export function fold(config: RaceConfig, events: readonly RaceInputEvent[], actions: readonly HostAction[] = []): RaceState {
   const lanes = new Set(config.entries.map((e) => e.lane));
   const tl = buildTimeline(events, lanes);
-  const acts = resolveActions(config, actions, (a, b) => comparePos(tl.boots, a, b));
+  const crossingKeys = new Set(tl.crossings.map(posKey));
+  const acts = resolveActions(config, actions, (a, b) => comparePos(tl.boots, a, b), (p) => crossingKeys.has(posKey(p)));
   const warnings = [...tl.warnings];
 
   const work = new Map<number, CarWork>();
@@ -70,10 +71,18 @@ export function fold(config: RaceConfig, events: readonly RaceInputEvent[], acti
     const tout = start.toutUs;
     for (const c of tl.crossings) {
       if (acts.endAt !== null && acts.endAt !== 'now' && comparePos(tl.boots, c, acts.endAt) > 0) continue;
-      if (c.type !== LaneEventType.CROSSING && !config.blockedCountsAsCrossing) continue;
       const car = work.get(c.lane)!;
-      car.pendingLost ||= c.lostBefore;
+      car.pendingLost ||= c.lostBefore;                                // kept for the next lap, even from a skipped BLOCKED
       car.pendingOutage ||= c.outageBefore;
+      if (c.type !== LaneEventType.CROSSING && !config.blockedCountsAsCrossing) continue;
+      const key = posKey(c);
+      if (acts.ignored.has(key)) {                                     // as if it never happened: not a start, not a false start
+        const v = judgeLap(config, c, car.prev ?? { bootId: -1, tUs: 0 }, { ignored: true, accepted: false, eventsLost: false, laneOutage: false });
+        if (!v.ok) {
+          car.rejected.push({ bootId: c.bootId, evSeq: c.evSeq, tUs: c.tUs, reason: v.reason, sinceMs: v.sinceMs });
+          continue;
+        }
+      }
 
       if (c.bootId === start.bootId) {
         const j = judgeStart(config, c.tUs, tout, car.hadPreStart, car.started);
@@ -110,7 +119,6 @@ export function fold(config: RaceConfig, events: readonly RaceInputEvent[], acti
         });
         continue;
       }
-      const key = posKey(c);
       const v = judgeLap(config, c, prev, {
         ignored: acts.ignored.has(key), accepted: acts.accepted.has(key),
         eventsLost: car.pendingLost, laneOutage: car.pendingOutage,
@@ -142,17 +150,18 @@ export function fold(config: RaceConfig, events: readonly RaceInputEvent[], acti
       : acts.retired.has(e.lane) ? 'retired'
       : w.finished ? 'finished'
       : w.started || w.laps.length > 0 ? 'running' : 'grid';
-    const penalties = (acts.penaltyMs.get(e.lane) ?? 0) + (w.falseStart ? falseStartPenaltyMs(config) : 0);
+    const penalties = roundUs((acts.penaltyMs.get(e.lane) ?? 0) + (w.falseStart ? falseStartPenaltyMs(config) : 0));
     const timed = w.laps.filter((l) => l.ms !== null);
     const best = timed.reduce<Lap | null>((b, l) => (b === null || l.ms! < b.ms! ? l : b), null);
     const last = w.laps.at(-1) ?? null;
     const elapsedMs = last ? last.raceMs : null;
-    return {
+    const r: CarResult = {
       lane: e.lane, driver: e.driver, status, laps: w.laps.length + adjust, lapAdjust: adjust, lapTimes: w.laps,
       lastLapMs: last?.ms ?? null, bestLapMs: best?.ms ?? null, bestLapN: best?.n ?? null,
       reactionMs: w.reactionMs, falseStart: w.falseStart, penaltiesMs: penalties,
       elapsedMs, totalMs: elapsedMs === null ? null : elapsedMs + penalties, rejected: w.rejected,
     };
+    return { ...r, totalMs: r.totalMs === null ? null : roundUs(r.totalMs) };   // whole µs: equal times tie exactly
   });
 
   let fastestLap: RaceState['fastestLap'] = null;

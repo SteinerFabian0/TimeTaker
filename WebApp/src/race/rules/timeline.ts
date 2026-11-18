@@ -1,8 +1,10 @@
 /*
  * From the raw device event log to what the rules work on.
  *
- * - Boots are ordered by first appearance in the log (bootIds are random).
- *   Within a boot, evSeq is the log order.
+ * - The log is keyed by (bootId, evSeq): an event delivered twice counts once
+ *   (the first copy is kept). Boots are ordered by first appearance in the
+ *   log (bootIds are random); within a boot, evSeq is the log order, whatever
+ *   order the events were handed in.
  * - The race start: the first EVT_LIGHTS_OUT that follows an EVT_SEQ_STARTED
  *   of the same boot with no EVT_SEQ_ABORTED in between. Aborted sequences
  *   are listed; a later sequence restarts the start procedure. Sequences
@@ -67,10 +69,28 @@ export function eventTimeUs(e: RaceInputEvent): number | null {
   return null;
 }
 
-export function buildTimeline(events: readonly RaceInputEvent[], raceLanes: ReadonlySet<number>): Timeline {
+/** ms rounded to whole µs: equal device times give equal numbers (no float noise in sums). */
+export const roundUs = (ms: number): number => Math.round(ms * 1000) / 1000;
+
+/** The log in log order: duplicates (same bootId, evSeq) dropped, boots by first appearance, evSeq within a boot. */
+export function normalizeLog(input: readonly RaceInputEvent[]): { events: RaceInputEvent[]; boots: number[]; ordOf: Map<number, number> } {
   const boots: number[] = [];
   const ordOf = new Map<number, number>();
-  for (const e of events) if (!ordOf.has(e.bootId)) { ordOf.set(e.bootId, boots.length); boots.push(e.bootId); }
+  const seen = new Set<string>();
+  const events: RaceInputEvent[] = [];
+  for (const e of input) {
+    const k = `${e.bootId}:${e.evSeq}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    events.push(e);
+    if (!ordOf.has(e.bootId)) { ordOf.set(e.bootId, boots.length); boots.push(e.bootId); }
+  }
+  events.sort((a, b) => ordOf.get(a.bootId)! - ordOf.get(b.bootId)! || a.evSeq - b.evSeq);
+  return { events, boots, ordOf };
+}
+
+export function buildTimeline(input: readonly RaceInputEvent[], raceLanes: ReadonlySet<number>): Timeline {
+  const { events, boots, ordOf } = normalizeLog(input);
 
   // ---- start ----
   let start: RaceStart | null = null;
@@ -117,7 +137,7 @@ export function buildTimeline(events: readonly RaceInputEvent[], raceLanes: Read
       const b = boots[o]!;
       if (o > startOrd) {
         const prev = boots[o - 1]!;
-        offset += Math.max(0, ((lastUsByBoot.get(prev) ?? base) - base) / 1000);
+        offset = roundUs(offset + Math.max(0, ((lastUsByBoot.get(prev) ?? base) - base) / 1000));
         base = 0;
         timingGaps.push({ fromBootId: prev, toBootId: b, atRaceMs: offset });
       }
@@ -128,7 +148,7 @@ export function buildTimeline(events: readonly RaceInputEvent[], raceLanes: Read
   const raceMs = (bootId: number, tUs: number): number | null => {
     const s = segStartUs.get(bootId);
     if (s === undefined) return null;
-    return segOffsetMs.get(bootId)! + (tUs - s) / 1000;
+    return roundUs(segOffsetMs.get(bootId)! + (tUs - s) / 1000);
   };
 
   // ---- crossings and lane changes of interest ----

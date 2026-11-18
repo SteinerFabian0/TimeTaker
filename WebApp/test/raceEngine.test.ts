@@ -292,3 +292,72 @@ describe('purity', () => {
     assert.throws(() => resolveConfig({ id: 'x', entries: [{ lane: 1, driver: 'a' }], mode: 'time', durationMs: 0 }), /durationMs/);
   });
 });
+
+describe('robustness (review 2026-11-18)', () => {
+  const big = (_k: string, v: unknown): unknown => (typeof v === 'bigint' ? v.toString() : v);
+  const race = (): Log => new Log().boot(0xb001).x(1, 300).seq(1000).x(2, 3000).abort(3500).seq(10000).out(16000)
+    .x(1, 16500).x(2, 16700).lane(2, LaneState.LEFT, 18000).lane(2, LaneState.JOINED, 18500)
+    .x(1, 21500).x(1, 22000).x(2, 21800).x(1, 26500, { skipSeq: 1 }).x(2, 26900);
+
+  test('a device event delivered twice changes nothing (idempotent on bootId+evSeq)', () => {
+    const clean = race().events;
+    const twice = clean.flatMap((e, i) => (i % 2 ? [e, { ...e }] : [e, e]));
+    assert.equal(JSON.stringify(fold(cfg(), twice), big), JSON.stringify(fold(cfg(), clean), big));
+  });
+
+  test('events of a boot delivered out of evSeq order fold like the log order', () => {
+    const clean = race().events;
+    const shuffled = [clean[0]!, ...clean.slice(1).reverse()];
+    assert.equal(JSON.stringify(fold(cfg(), shuffled), big), JSON.stringify(fold(cfg(), clean), big));
+  });
+
+  test('ignoreCrossing works on the start crossing and on a false-start crossing', () => {
+    // a ghost first crossing would otherwise be the start crossing (and make the real one a min-lap reject)
+    const log = start().x(1, 8300).x(1, 8600).x(1, 13600);
+    const ghost = log.events.at(-3)!;
+    const s = fold(cfg(), log.events, [act({ type: 'ignoreCrossing', crossing: { bootId: ghost.bootId, evSeq: ghost.evSeq } })]);
+    assert.equal(car(s, 1).reactionMs, 600);
+    assert.deepEqual(car(s, 1).lapTimes.map((l) => l.ms), [5000]);
+    assert.deepEqual(car(s, 1).rejected.map((r) => r.reason), ['ignored']);
+    // a hand in the beam before lights out, ignored by the marshal: no false start
+    const fs = start().x(1, 7900).x(1, 8600).x(1, 13600);
+    const hand = fs.events.at(-3)!;
+    const f = fold(cfg(), fs.events, [act({ type: 'ignoreCrossing', crossing: { bootId: hand.bootId, evSeq: hand.evSeq } })]);
+    assert.equal(car(f, 1).falseStart, false);
+    assert.equal(car(f, 1).reactionMs, 600);
+    assert.deepEqual(car(f, 1).lapTimes.map((l) => l.ms), [5000]);
+  });
+
+  test('an ignore/accept naming no crossing is ignored with a reason, not applied', () => {
+    const log = start().laps(1, 8500, 5000, 3);
+    const lightsOut = log.events[2]!;
+    const missing = act({ type: 'ignoreCrossing', crossing: { bootId: 0xb001, evSeq: 999 } });
+    const notCrossing = act({ type: 'acceptCrossing', crossing: { bootId: lightsOut.bootId, evSeq: lightsOut.evSeq } });
+    const s = fold(cfg({ laps: 10 }), log.events, [missing, notCrossing]);
+    assert.deepEqual(s.appliedActions, []);
+    assert.deepEqual(s.ignoredActions.map((x) => x.id), [missing.id, notCrossing.id]);
+    assert.equal(car(s, 1).laps, 2);
+  });
+
+  test('a skipped BLOCKED report still hands its lane outage to the next lap', () => {
+    const log = start().x(1, 8500).lane(1, LaneState.LEFT, 9000).lane(1, LaneState.JOINED, 9100)
+      .x(1, 13500, { type: LaneEventType.BLOCKED }).x(1, 18500).events;
+    const s = fold(cfg({ blockedCountsAsCrossing: false }), log);
+    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[10000, ['laneOutage']]]);
+  });
+
+  test('a car still on the grid ranks after a started car with no lap yet', () => {
+    const s = fold(cfg(), start().x(2, 8600).events);
+    assert.deepEqual(s.standings.map((x) => x.lane), [2, 1]);
+  });
+
+  test('equal totals tie exactly (µs arithmetic, no float noise), then by lane', () => {
+    // A: last crossing at race 16084.010 ms + 300 ms penalty; B: 16384.010 ms
+    const log = start().x(1, 8500).x(1, 16000).x(1, 24084.01).x(2, 8600).x(2, 16100).x(2, 24384.01);
+    const s = fold(cfg({ laps: 10 }), log.events, [act({ type: 'penalty', lane: 1, ms: 300 })]);
+    assert.equal(car(s, 1).totalMs, 16384.01);
+    assert.equal(car(s, 2).totalMs, 16384.01);
+    assert.deepEqual(s.standings.map((x) => x.lane), [1, 2]);
+    assert.deepEqual(s.standings[1]?.gap, { laps: 0, ms: 0 });
+  });
+});

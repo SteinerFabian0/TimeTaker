@@ -8,8 +8,11 @@
  * - adjustLaps / penalty / disqualify / retire apply to the whole race (a
  *   "+1 lap" for a missed crossing counts from the start, so the car may
  *   reach the flag one crossing earlier — it did drive that lap).
- * - ignoreCrossing / acceptCrossing override the lap rules for one crossing,
- *   named by its (bootId, evSeq).
+ * - ignoreCrossing / acceptCrossing override the rules for one crossing,
+ *   named by its (bootId, evSeq). An ignored crossing is as if it never
+ *   happened (it can be the start crossing or a false start); an accepted one
+ *   skips the lap checks. One naming no race crossing in the log is ignored
+ *   with a reason.
  * - endRace freezes the race at its `at` position: later crossings do not
  *   count, and the phase becomes finished.
  */
@@ -31,7 +34,10 @@ export interface ResolvedActions {
 
 export const posKey = (p: LogPos): string => `${p.bootId >>> 0}:${p.evSeq}`;
 
-export function resolveActions(config: RaceConfig, actions: readonly HostAction[], cmp: (a: LogPos, b: LogPos) => number): ResolvedActions {
+export function resolveActions(
+  config: RaceConfig, actions: readonly HostAction[], cmp: (a: LogPos, b: LogPos) => number,
+  isCrossing: (p: LogPos) => boolean,
+): ResolvedActions {
   const lanes = new Set(config.entries.map((e) => e.lane));
   const sorted = [...actions].sort((a, b) => a.seq - b.seq);
   const byId = new Map<string, HostAction>();
@@ -47,6 +53,9 @@ export function resolveActions(config: RaceConfig, actions: readonly HostAction[
     }
     if (a.type === 'adjustLaps' && !Number.isInteger(a.delta)) { rejected.push({ id: a.id, reason: 'delta must be an integer' }); continue; }
     if (a.type === 'penalty' && !Number.isFinite(a.ms)) { rejected.push({ id: a.id, reason: 'ms must be a number' }); continue; }
+    if ((a.type === 'ignoreCrossing' || a.type === 'acceptCrossing') && !isCrossing(a.crossing)) {
+      rejected.push({ id: a.id, reason: `no race crossing at ${posKey(a.crossing)}` }); continue;
+    }
     valid.push(a);
   }
 
