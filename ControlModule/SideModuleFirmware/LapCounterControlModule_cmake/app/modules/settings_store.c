@@ -20,6 +20,7 @@
 
 _Static_assert(sizeof(settingsData_t) <= 0xFFFFU, "settings payload");
 _Static_assert(SETTINGS_STORE_RECORD_MAX <= SETTINGS_STORE_PAGE_BYTES, "settings record fits a page");
+_Static_assert(offsetof(settingsData_t, laneReference) == SETTINGS_DATA_V1_BYTES, "v2 fields appended at the end");
 
 typedef enum {
     SETTINGS_IDLE = 0,
@@ -36,6 +37,11 @@ static uint8_t         settingsActive;      /* page of the current record (0/1),
 static uint32_t        settingsSequence;
 static uint32_t        settingsLastWriteMs;
 static bool            settingsEverWritten;
+static bool            settingsLost;        /* corrupt at boot, defaults loaded */
+static uint32_t        settingsChangeGen;   /* bumped by every change */
+static uint32_t        settingsWritingGen;  /* generation of the record being written */
+static uint32_t        settingsSavedGen;
+static uint32_t        settingsFailedGen;
 
 static uint8_t         settingsRecord[SETTINGS_STORE_RECORD_MAX];
 static uint32_t        settingsRecordLen;
@@ -67,6 +73,8 @@ ctrlStatus_e settingsStoreInit(void)
     settingsDirty  = false;
     settingsState  = SETTINGS_IDLE;
     settingsActive = 0xFFU;
+    settingsLost   = false;
+    settingsChangeGen = settingsWritingGen = settingsSavedGen = settingsFailedGen = 0U;
 
     settingsSelect_t sel;
     settingsRecordSelect((const uint8_t *)SETTINGS_STORE_PAGE0, (const uint8_t *)SETTINGS_STORE_PAGE1,
@@ -74,6 +82,7 @@ ctrlStatus_e settingsStoreInit(void)
     settingsTarget = sel.writeTarget;
     if (sel.active < 0) {
         settingsSequence = 0U;
+        settingsLost     = sel.corrupt;
         return sel.corrupt ? CTRL_ERR_SETTINGS_CORRUPT : CTRL_OK;
     }
 
@@ -81,10 +90,10 @@ ctrlStatus_e settingsStoreInit(void)
     const uint8_t         *payload = NULL;
     (void)settingsRecordCheck((const uint8_t *)settingsPageAddr((uint8_t)sel.active), SETTINGS_STORE_PAGE_BYTES,
                               &hdr, &payload);
-    /* A shorter record (an older layout) keeps the defaults for the rest;
-     * a longer one (a newer layout) is cut. Fields only ever get appended. */
-    const uint16_t n = (hdr.length < sizeof(settingsData)) ? hdr.length : (uint16_t)sizeof(settingsData);
-    memcpy(&settingsData, payload, n);
+    /* A shorter record (an older layout, e.g. version 1 without the
+     * references) keeps the defaults for the rest; a longer one is cut.
+     * Fields only ever get appended. */
+    (void)settingsRecordLoad(&hdr, payload, (uint8_t *)&settingsData, (uint16_t)sizeof(settingsData));
     settingsActive   = (uint8_t)sel.active;
     settingsSequence = sel.sequence;
 
@@ -97,6 +106,12 @@ ctrlStatus_e settingsStoreInit(void)
     return CTRL_OK;
 }
 
+static void settingsChanged(void)
+{
+    settingsDirty = true;
+    settingsChangeGen++;
+}
+
 const settingsData_t *settingsStoreData(void)
 {
     return &settingsData;
@@ -106,7 +121,7 @@ void settingsStoreSetDevice(const hpDeviceSettings_t *device)
 {
     if (memcmp(&settingsData.device, device, sizeof(*device)) != 0) {
         settingsData.device = *device;
-        settingsDirty = true;
+        settingsChanged();
     }
 }
 
@@ -117,7 +132,7 @@ void settingsStoreSetLaneTable(const hpLaneConfig_t config[LANE_MAX_LANES],
         || memcmp(settingsData.laneSampling, sampling, sizeof(settingsData.laneSampling)) != 0) {
         memcpy(settingsData.laneConfig, config, sizeof(settingsData.laneConfig));
         memcpy(settingsData.laneSampling, sampling, sizeof(settingsData.laneSampling));
-        settingsDirty = true;
+        settingsChanged();
     }
 }
 
@@ -127,8 +142,27 @@ void settingsStoreSetBinds(const bindList_t *list)
     (void)bindListSerialize(list, buf, sizeof(buf));
     if (memcmp(settingsData.binds, buf, sizeof(buf)) != 0) {
         memcpy(settingsData.binds, buf, sizeof(buf));
-        settingsDirty = true;
+        settingsChanged();
     }
+}
+
+uint32_t settingsStoreSetLaneReferences(const uint16_t reference[LANE_MAX_LANES])
+{
+    if (memcmp(settingsData.laneReference, reference, sizeof(settingsData.laneReference)) != 0) {
+        memcpy(settingsData.laneReference, reference, sizeof(settingsData.laneReference));
+        settingsChanged();
+    }
+    return settingsChangeGen;
+}
+
+uint8_t settingsStoreSaveState(uint32_t ticket)
+{
+    return (uint8_t)settingsRecordSaveState(settingsSavedGen, settingsFailedGen, ticket);
+}
+
+bool settingsStoreLostAtBoot(void)
+{
+    return settingsLost;
 }
 
 static bool settingsPageErased(uint8_t page)
@@ -144,6 +178,7 @@ static bool settingsPageErased(uint8_t page)
 
 static ctrlStatus_e settingsFail(ctrlStatus_e status)
 {
+    settingsFailedGen   = settingsWritingGen;   /* this attempt's data did not reach the flash */
     settingsState       = SETTINGS_IDLE;
     settingsLastWriteMs = HAL_GetTick();   /* retry after the interval, dirty stays */
     settingsEverWritten = true;
@@ -158,6 +193,7 @@ ctrlStatus_e settingsStoreRun(bool allowed)
             || (settingsEverWritten && HAL_GetTick() - settingsLastWriteMs < SETTINGS_STORE_MIN_INTERVAL_MS)) {
             return CTRL_OK;
         }
+        settingsWritingGen = settingsChangeGen;
         settingsRecordLen = settingsRecordEncode((const uint8_t *)&settingsData, (uint16_t)sizeof(settingsData),
                                                  settingsSequence + 1U, settingsRecord, sizeof(settingsRecord));
         if (settingsRecordLen == 0U) {
@@ -210,6 +246,7 @@ ctrlStatus_e settingsStoreRun(bool allowed)
         }
         settingsSequence++;
         settingsWrites++;
+        settingsSavedGen = settingsWritingGen;
         /* The old page: a failed erase start only means the next write
          * erases it first (it is the next target). */
         settingsState = (settingsActive <= 1U && flashDrvEraseStart(settingsPageAddr(settingsActive)) == CTRL_OK)

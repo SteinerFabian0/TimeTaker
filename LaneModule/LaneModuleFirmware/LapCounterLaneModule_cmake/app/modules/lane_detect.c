@@ -178,6 +178,23 @@ void laneDetectCalibrate(laneDetect_t *d)
     d->learnCount = 0U;
 }
 
+void laneDetectSetReference(laneDetect_t *d, uint16_t value)
+{
+    laneDetectCalibrate(d);   /* abandons a pass, restarts learning */
+    d->hasPrev = false;
+    if (value == 0U) {
+        d->baselineQ8 = 0U;
+        d->noiseQ8    = 0U;
+        d->reference  = 0U;
+        return;
+    }
+    d->baselineQ8 = (uint32_t)value << 8;
+    d->noiseQ8    = 0U;
+    d->reference  = value;
+    laneDetectThresholds(d);
+    d->state = DETECT_STATE_FREE;
+}
+
 void laneDetectBreak(laneDetect_t *d)
 {
     d->hasPrev = false;
@@ -202,6 +219,7 @@ bool laneDetectSample(laneDetect_t *d, uint32_t t, uint16_t raw, laneDetectEvent
         if (d->learnCount >= DETECT_LEARN_SAMPLES) {
             d->baselineQ8 = (d->learnSum * 256U) / d->learnCount;
             d->noiseQ8    = 0U;
+            d->reference  = laneDetectBaselineRaw(d);
             laneDetectThresholds(d);
             d->state = DETECT_STATE_FREE;
         }
@@ -321,4 +339,56 @@ uint16_t laneDetectBaseline(const laneDetect_t *d)
 uint16_t laneDetectNoise(const laneDetect_t *d)
 {
     return (uint16_t)((d->noiseQ8 + 128U) >> 8);
+}
+
+uint16_t laneDetectReference(const laneDetect_t *d)
+{
+    return d->reference;
+}
+
+void laneRawWindowInit(laneRawWindow_t *w)
+{
+    memset(w, 0, sizeof(*w));
+}
+
+void laneRawWindowAdd(laneRawWindow_t *w, uint16_t raw)
+{
+    if (!w->curHas) {
+        w->curHas = true;
+        w->curMin = raw;
+        w->curMax = raw;
+        return;
+    }
+    if (raw < w->curMin) {
+        w->curMin = raw;
+    }
+    if (raw > w->curMax) {
+        w->curMax = raw;
+    }
+}
+
+void laneRawWindowTake(laneRawWindow_t *w, uint16_t last, uint16_t *min, uint16_t *max)
+{
+    if (w->curHas) {
+        if (!w->outHas) {
+            w->outHas = true;
+            w->outMin = w->curMin;
+            w->outMax = w->curMax;
+        } else {
+            if (w->curMin < w->outMin) {
+                w->outMin = w->curMin;
+            }
+            if (w->curMax > w->outMax) {
+                w->outMax = w->curMax;
+            }
+        }
+        w->curHas = false;
+    }
+    *min = w->outHas ? w->outMin : last;
+    *max = w->outHas ? w->outMax : last;
+}
+
+void laneRawWindowConfirm(laneRawWindow_t *w)
+{
+    w->outHas = false;
 }

@@ -486,9 +486,9 @@ static const uint8_t goldenLaneRawStreamRequestPayload[] = { 0x03, 0x00, 0x04, 0
 static const uint8_t goldenLaneRawStreamRequestWire[] = { 0x02, 0x27, 0x04, 0x27, 0x10, 0x03, 0x02, 0x04, 0x03, 0x45, 0x23, 0x00 };
 
 /* LANE_CALIBRATE request */
-static const hpLaneCalibrateReq_t goldenLaneCalibrateRequestFixed = { .laneMask = 1U };
-static const uint8_t goldenLaneCalibrateRequestPayload[] = { 0x01 };
-static const uint8_t goldenLaneCalibrateRequestWire[] = { 0x02, 0x28, 0x06, 0x28, 0x10, 0x01, 0xA0, 0x27, 0x00 };
+static const hpLaneCalibrateReq_t goldenLaneCalibrateRequestFixed = { .laneMask = 1U, .action = 0U };
+static const uint8_t goldenLaneCalibrateRequestPayload[] = { 0x01, 0x00 };
+static const uint8_t goldenLaneCalibrateRequestWire[] = { 0x02, 0x28, 0x04, 0x28, 0x10, 0x01, 0x03, 0x85, 0xF4, 0x00 };
 
 /* LANE_CALIBRATE response */
 static const int16_t goldenLaneCalibrateResponseFixed = -21;
@@ -635,6 +635,18 @@ static const uint8_t goldenEvtFaultWire[] = {
     0xFF, 0x80, 0x4F, 0x12, 0x01, 0x01, 0x01, 0x01, 0x03, 0x71, 0x18, 0x00
 };
 
+/* EVT_LANE_CALIBRATED body */
+static const hpEvtLaneCalibrated_t goldenEvtLaneCalibratedFixed = { .evSeq = 10U, .lane = 2U, .result = 1U, .reference = 3870U, .noise = 12U, .reserved = 0U, .sysUs = UINT64_C(30000000) };
+static const uint8_t goldenEvtLaneCalibratedPayload[] = {
+    0x0A, 0x00, 0x00, 0x00, 0x02, 0x01, 0x1E, 0x0F, 0x0C, 0x00, 0x00, 0x00,
+    0x80, 0xC3, 0xC9, 0x01, 0x00, 0x00, 0x00, 0x00
+};
+static const uint8_t goldenEvtLaneCalibratedWire[] = {
+    0x03, 0xCA, 0x02, 0x01, 0x02, 0x0A, 0x01, 0x01, 0x06, 0x02, 0x01, 0x1E,
+    0x0F, 0x0C, 0x01, 0x01, 0x05, 0x80, 0xC3, 0xC9, 0x01, 0x01, 0x01, 0x01,
+    0x03, 0x1E, 0x16, 0x00
+};
+
 /* STR_RAW_SAMPLES body */
 static const hpStrRawSamples_t goldenStrRawSamplesFixed = { .lane = 1U, .reserved = 0U, .chunkSeq = 9U, .periodUs = 1000U, .firstUs = UINT64_C(5000000) };
 static const uint16_t goldenStrRawSamplesTail[] = { 4000U, 3990U, 1200U, 0U, 65535U };
@@ -777,7 +789,7 @@ static const goldenMsgCase_t goldenMsgCases[] = {
       goldenLaneRawStreamRequestPayload, 4U, goldenLaneRawStreamRequestWire, 12U },
     { "LANE_CALIBRATE request", { .msgId = 0x28U, .flags = 0x00U, .tag = 0x1028U },
       &goldenLaneCalibrateRequestFixed, HP_LANE_CALIBRATE_REQ_BYTES, NULL, 0U,
-      goldenLaneCalibrateRequestPayload, 1U, goldenLaneCalibrateRequestWire, 9U },
+      goldenLaneCalibrateRequestPayload, 2U, goldenLaneCalibrateRequestWire, 10U },
     { "LANE_CALIBRATE response", { .msgId = 0x28U, .flags = 0x01U, .tag = 0x1028U },
       &goldenLaneCalibrateResponseFixed, sizeof(int16_t), NULL, 0U,
       goldenLaneCalibrateResponsePayload, 2U, goldenLaneCalibrateResponseWire, 10U },
@@ -823,6 +835,9 @@ static const goldenMsgCase_t goldenMsgCases[] = {
     { "EVT_FAULT body", { .msgId = 0xC9U, .flags = 0x02U, .tag = 0x0000U },
       &goldenEvtFaultFixed, HP_EVT_FAULT_BYTES, NULL, 0U,
       goldenEvtFaultPayload, 16U, goldenEvtFaultWire, 24U },
+    { "EVT_LANE_CALIBRATED body", { .msgId = 0xCAU, .flags = 0x02U, .tag = 0x0000U },
+      &goldenEvtLaneCalibratedFixed, HP_EVT_LANE_CALIBRATED_BYTES, NULL, 0U,
+      goldenEvtLaneCalibratedPayload, 20U, goldenEvtLaneCalibratedWire, 28U },
     { "STR_RAW_SAMPLES body", { .msgId = 0xE0U, .flags = 0x04U, .tag = 0x0000U },
       &goldenStrRawSamplesFixed, HP_STR_RAW_SAMPLES_BYTES, goldenStrRawSamplesTail, sizeof(goldenStrRawSamplesTail),
       goldenStrRawSamplesPayload, 26U, goldenStrRawSamplesWire, 34U },

@@ -58,7 +58,7 @@ settingsPageState_e settingsRecordCheck(const uint8_t *page, uint32_t pageBytes,
 
     settingsRecordHeader_t hdr;
     memcpy(&hdr, page, sizeof(hdr));
-    if (hdr.magic != SETTINGS_RECORD_MAGIC || hdr.version != SETTINGS_RECORD_VERSION
+    if (hdr.magic != SETTINGS_RECORD_MAGIC || hdr.version < SETTINGS_RECORD_VERSION_MIN || hdr.version > SETTINGS_RECORD_VERSION
         || SETTINGS_RECORD_BYTES(hdr.length) > pageBytes) {
         return SETTINGS_PAGE_CORRUPT;
     }
@@ -76,6 +76,25 @@ settingsPageState_e settingsRecordCheck(const uint8_t *page, uint32_t pageBytes,
         *payload = page + sizeof(hdr);
     }
     return SETTINGS_PAGE_VALID;
+}
+
+uint16_t settingsRecordLoad(const settingsRecordHeader_t *header, const uint8_t *payload,
+                            uint8_t *out, uint16_t outLen)
+{
+    const uint16_t n = (header->length < outLen) ? header->length : outLen;
+    memcpy(out, payload, n);
+    return n;
+}
+
+settingsSave_e settingsRecordSaveState(uint32_t savedGen, uint32_t failedGen, uint32_t ticket)
+{
+    if ((int32_t)(savedGen - ticket) >= 0) {
+        return SETTINGS_SAVE_WRITTEN;
+    }
+    if ((int32_t)(failedGen - ticket) >= 0) {
+        return SETTINGS_SAVE_FAILED;
+    }
+    return SETTINGS_SAVE_PENDING;
 }
 
 void settingsRecordSelect(const uint8_t *page0, const uint8_t *page1, uint32_t pageBytes,

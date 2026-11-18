@@ -10,11 +10,13 @@
 import { laneMask, ALL_LANES } from '../src/device/deviceApi.ts';
 import { DeviceError } from '../src/device/deviceSession.ts';
 import { SimDevice } from '../src/device/simDevice.ts';
-import { BoardType, LedMode, NodeClass, NodeState, SamplingMode, Transport as HpTransport, BindState } from '../src/protocol/generated.ts';
+import { HealthMonitor } from '../src/health/monitor.ts';
+import type { LaneSample } from '../src/health/monitor.ts';
+import { BoardType, CalibrateAction, LedMode, NodeClass, NodeState, SamplingMode, Transport as HpTransport, BindState } from '../src/protocol/generated.ts';
 import type { LaneConfig } from '../src/protocol/generated.ts';
 import { fromHex, toHex } from '../src/util/bytes.ts';
 import { realScheduler, VirtualClock } from '../src/util/clock.ts';
-import { Bench, formatStream, hex32, nameOf } from './lib/bench.ts';
+import { Bench, formatOutcome, formatReport, formatSample, formatStream, hex32, nameOf } from './lib/bench.ts';
 import { runSuites, SUITES } from './lib/benchSuites.ts';
 import { listPorts } from './lib/ttyTransport.ts';
 
@@ -25,7 +27,9 @@ usage: node tools/tt.ts [--port PATH | --sim [--cars]] [--seconds N] <command>
   ports                              list /dev/ttyACM* with USB identity
   hello                              HELLO and session facts
   nodes                              NODE_LIST
-  status                             STATUS
+  status [--raw]                     health report (self check of every part); --raw: the STATUS fields
+  sensors                            live per-lane readout from the health monitor (--seconds, default 3)
+  calibrate LANES|all [--forget]     learn and save each lane's reference (lanes free!), or forget it
   settings [set name=NAME ble=0|1]   SETTINGS_GET / SETTINGS_SET
   lane power on|off
   lane scan
@@ -35,7 +39,7 @@ usage: node tools/tt.ts [--port PATH | --sim [--cars]] [--seconds N] <command>
   lane led MASK off|on|blink [level]
   lane status LANE
   lane raw LANE [decimation]         stream raw samples (--seconds, default 2)
-  lane calibrate MASK
+  lane calibrate MASK [forget]       raw LANE_CALIBRATE (outcomes arrive as events; prefer \`calibrate\`)
   watch                              print events as they come (--seconds, default forever)
   start [lights step holdMin holdMax pulseMs pulses]
   abort
@@ -67,6 +71,7 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
   const useSim = flag('--sim') || simIn !== undefined;
   const cars = flag('--cars');
   const json = flag('--json');
+  const rawOut = flag('--raw');
   const port = opt('--port');
   const seconds = opt('--seconds');
   const [cmd, ...rest] = args;
@@ -79,7 +84,8 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
   }
 
   const realTime = cmd === 'watch' || (cmd === 'lane' && rest[0] === 'raw');
-  const clock = useSim && !realTime ? new VirtualClock() : realScheduler;
+  // A simulator handed in keeps its own clock (a VirtualClock in tests, so state carries across commands).
+  const clock = simIn ? simIn.scheduler : useSim && !realTime ? new VirtualClock() : realScheduler;
   const sim = simIn ?? (useSim ? new SimDevice({ scheduler: clock, seed: 7 }) : null);
   const bench = new Bench({ clock, sim, port, out, interactive: process.stdin.isTTY === true });
   const print = (v: unknown): void => out(json ? JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x instanceof Uint8Array ? toHex(x) : x)) : String(v));
@@ -89,6 +95,19 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
     const api = bench.api;
     if (sim && cars) { await api.lanePower(true); await bench.sleep(400); sim.carsPractice(); }
     const sub = rest[0];
+    const monitor = (): HealthMonitor => {
+      const m = new HealthMonitor({ api, scheduler: clock });
+      bench.onEvent = (e) => m.onEvent(e);
+      m.setConnected(true);
+      m.start();
+      return m;
+    };
+    /** --sim: the simulator starts with the lane rail off; switch it on for the lane commands. */
+    const simLanes = async (): Promise<void> => {
+      if (!sim || sim.lanesPowered) return;
+      await api.lanePower(true);
+      await bench.sleep(400);
+    };
     switch (cmd) {
       case 'hello': {
         const h = bench.session.hello!;
@@ -104,9 +123,51 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
         }
         break;
       case 'status': {
-        const s = await api.status();
-        if (json) print(s); else for (const [k, v] of Object.entries(s)) out(`${k.padEnd(15)} ${String(v)}`);
+        if (rawOut) {
+          const s = await api.status();
+          if (json) print(s); else for (const [k, v] of Object.entries(s)) out(`${k.padEnd(16)} ${String(v)}`);
+          break;
+        }
+        const mon = monitor();
+        const r = await mon.runSelfCheck();
+        mon.stop();
+        if (json) print(r); else for (const l of formatReport(r)) out(l);
+        return r.overall === 'fail' ? 1 : 0;
+      }
+      case 'sensors': {
+        await simLanes();
+        const mon = monitor();
+        const ms = Number(seconds ?? 3) * 1000;
+        let next = clock.now() + 1000;
+        const latest = new Map<number, LaneSample>();
+        mon.subscribe((u) => {
+          if (u.type === 'sample') latest.set(u.lane, u.sample);
+          if (u.type === 'marker') out(`  * lane ${u.lane}: ${u.marker.label}`);
+        });
+        const end = clock.now() + ms;
+        while (clock.now() < end) {
+          await bench.sleep(Math.max(1, next - clock.now()));
+          next += 1000;
+          if (json) { print(Object.fromEntries(latest)); continue; }
+          if (!latest.size) out('no lane present (lane power on?)');
+          for (const [lane, smp] of [...latest].sort((a, b) => a[0] - b[0])) out(formatSample(lane, smp));
+        }
+        mon.stop();
         break;
+      }
+      case 'calibrate': {
+        await simLanes();
+        const forget = rest.includes('--forget');
+        const which = rest.filter((x) => x !== '--forget')[0];
+        if (!which) throw new Error('calibrate LANES|all [--forget]');
+        const lanes = which === 'all' ? 'all' as const : which.split(',').map((x) => int(x, 'lane'));
+        const mon = monitor();
+        await mon.runSelfCheck();
+        out(forget ? 'forgetting the saved references…' : 'learning (keep the lanes free; the save can take up to 10 s)…');
+        const res = forget ? await mon.forget(lanes) : await mon.calibrate(lanes);
+        mon.stop();
+        if (json) print(res); else for (const o of res) out(formatOutcome(o));
+        return res.some((o) => o.result === 'failed') ? 1 : 0;
       }
       case 'settings':
         if (sub === 'set') {
@@ -160,7 +221,7 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
             for (const s of bench.streams.slice(mark)) out(formatStream(s));
             break;
           }
-          case 'calibrate': await api.laneCalibrate(parseMask(a)); out('ok'); break;
+          case 'calibrate': await api.laneCalibrate(parseMask(a), rest[2] === 'forget' ? CalibrateAction.FORGET : CalibrateAction.LEARN); out('ok (outcomes follow as EVT_LANE_CALIBRATED)'); break;
           default: throw new Error('lane power|scan|config|sampling|led|status|raw|calibrate');
         }
         break;

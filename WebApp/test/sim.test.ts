@@ -137,6 +137,7 @@ describe('lane requests', () => {
       await assert.rejects(api.laneLed(1, { mode: LedMode.ON, level: 1001 }), status(Status.ERR_INVALID_ARG));
       await api.laneCalibrate(ALL_LANES);
       await assert.rejects(api.laneCalibrate(laneMask([5])), status(Status.ERR_LANE_ABSENT));
+      await t.until(() => named(rec, 'EVT_LANE_CALIBRATED').length === 2);   // one outcome per present lane
       await assert.rejects(api.laneRawStream(4, 1), status(Status.ERR_LANE_ABSENT));
       const st = await api.laneStatus(1);
       assert.equal(st.samplingMode, SamplingMode.ON);

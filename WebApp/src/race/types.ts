@@ -30,7 +30,8 @@ export interface RaceEntry {
 export type RaceMode = 'laps' | 'time';
 
 /** RACE_RULES.md "False start": what happens. */
-export type FalseStartAction = 'flag' | 'timePenalty' | 'disqualify';
+/** A false start never disqualifies (RACE_RULES.md): flag only, or a time penalty. */
+export type FalseStartAction = 'flag' | 'timePenalty';
 
 /**
  * How a false-start time penalty applies.

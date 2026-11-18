@@ -135,3 +135,12 @@ bool nrfLinkCreditsResync(nrfLinkCredits_t *c, uint8_t slotsFree, uint32_t nowMs
     c->credits = slotsFree;
     return true;
 }
+
+nrfLinkBridge_e nrfLinkProtoBridge(bool helloSeen, const bleCtrlNrfHello_t *hello, uint32_t lastCtrlMs,
+                                   uint32_t nowMs)
+{
+    if (!helloSeen || nowMs - lastCtrlMs >= NRF_LINK_BRIDGE_SILENT_MS) {
+        return NRF_LINK_BRIDGE_ABSENT;
+    }
+    return nrfLinkProtoVersionOk(hello) ? NRF_LINK_BRIDGE_OK : NRF_LINK_BRIDGE_VERSION_MISMATCH;
+}

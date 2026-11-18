@@ -1,6 +1,6 @@
 /*
  * SimDevice: a simulated TimeTaker control module (+ lanes, nRF bridge, cars)
- * that speaks host protocol 0.4 byte for byte.
+ * that speaks host protocol 0.6 byte for byte.
  *
  * It is how the web app is built and tested before the PCBs exist, and it is
  * the REFERENCE THE FIRMWARE IS COMPARED AGAINST: every behaviour below is
@@ -151,23 +151,82 @@
  *   - BLE button presses are published as EVT_BUTTON{BLE_BIND}. BTN2 LONG on
  *     the panel aborts a running sequence (reason BUTTON).
  *
+ * Lane signal and calibration (0.6; lane_protocol.h "Reference", lane_detect.h)
+ *   - Each lane's optical signal is a pure function of (seed, lane, time):
+ *     bare-foil level (3000 + 85·lane counts) × a slow ambient drift
+ *     (±1.5 %, 5 min period) × dirt, minus the car passes (depth × 2.2),
+ *     plus Gaussian noise (6 + lane counts), sampled every samplePeriodUs and
+ *     clipped to 0..65535. LANE_STATUS polls and raw streams do not consume
+ *     the simulator's RNG, so they cannot change a recorded race. [A22]
+ *   - At every join: a saved reference (control module flash, per lane
+ *     INDEX) is pushed as SET_REFERENCE: baseline = reference = saved,
+ *     CALIBRATED at once. Without one the lane learns for 64 samples
+ *     (DETECT_LEARN_SAMPLES) and reference = the learned level. The baseline
+ *     then tracks the bare level with a 2.048 s time constant
+ *     (DETECT_BASELINE_SHIFT 11); the reference does not move.
+ *   - LANE_STATUS flags: SYNC_LOCKED|SYNC_ALIGNED (configured, SYNC ok),
+ *     SYNC_LOST, SENSOR_OK, CONFIG_VALID, CALIBRATED (not learning), BLOCKED
+ *     (raw below thrLow now), FIFO_OVERFLOW (droppedEvents > 0).
+ *     rawMin/rawMax: min/max of every sample since the previous LANE_STATUS
+ *     of that lane (or its join); a read resets the window. Both = raw when
+ *     no sample was taken since.
+ *   - LANE_CALIBRATE while a start sequence runs: ERR_SEQ_RUNNING.
+ *   - LEARN: each CONFIGURED lane in the mask learns for 100 ms (mean of the
+ *     samples: a car passing spoils it, lanes must be free; sampling OFF
+ *     does not matter). Other masked lanes are skipped silently; no
+ *     configured lane in the mask: ERR_LANE_ABSENT. The lane uses the new
+ *     reference at once (LANE_STATUS shows it, rawMin/rawMax window reset);
+ *     EVT_LANE_CALIBRATED SAVED follows the deferred settings write (at once
+ *     after an idle period, up to 10 s later after a recent write, never
+ *     during a sequence). Flash write failing: NOT_SAVED (used until
+ *     power-off). The lane leaving the bus while it learns, or a broken
+ *     sensor: FAILED, reference 0, at once. A second LEARN of a lane still
+ *     learning restarts it (one event). [A23]
+ *   - FORGET: every masked lane INDEX, present or not, never
+ *     ERR_LANE_ABSENT; FORGOTTEN (reference 0) per masked lane after the
+ *     settings write (NOT_SAVED, reference 0, if it fails). Present lanes
+ *     re-learn as at boot at once. [A24]
+ *   - A faulted lane that recovers publishes EVT_LANE_STATE CONFIGURED.
+ *     A broken sensor (sensorFault) is a lane FAULT (ERR_HAL), SENSOR_OK
+ *     clear, raw 0; it stays broken across re-joins until repaired.
+ *
+ * BLE bridge (0.6 STATUS)
+ *   - bleBridge: OK while the nRF heartbeats (STATS every second), ABSENT
+ *     3 s after it went silent (nrfAlive(false)) or when no module is fitted,
+ *     VERSION_MISMATCH by knob. A silent or mismatched nRF accepts no BLE
+ *     connection; a phone connected when the nRF dies is gone at once, and
+ *     the control module publishes EVT_BLE_LINK DOWN (supervision timeout)
+ *     when it declares the bridge ABSENT. [A25]
+ *   - bleRssi: the knob value (default -58 dBm) while a phone is connected
+ *     and the bridge is OK with a STATS received (1 s after boot), 127
+ *     otherwise. bleCrcErrors / bleUartErrors / bleDataDropped (nRF STATS,
+ *     0 before the first STATS) / nrfLinkCrcErrors: knob values,
+ *     saturating at 65535.
+ *   - settingsDefaults: 1 after a boot that found the settings corrupt
+ *     (corruptSettings()): settings, bind list, lane table and references
+ *     back to defaults, EVT_FAULT{SETTINGS, ERR_SETTINGS_CORRUPT} after
+ *     EVT_BOOT.
+ *
  * No bootloader (protocol 0.4, SYSTEM_ARCHITECTURE §10): v1 flashes the
  *   control module over SWD. REBOOT{BOOTLOADER} → ERR_UNSUPPORTED; the old
  *   update ids (0xA0–0xAF) are unknown requests → ERR_UNSUPPORTED. NODE_LIST
  *   reports the CTRL imageCrc as 0 (unknown), like the firmware. [A17]
  *
  * Test hooks: unplug/replug USB, BLE out of range, unplug/replug/reset a
- * lane, SYNC loss, lane fault, lost lane events, dropped event frames,
- * failing lane schedules, faults, buttons, power cycle, scripted cars, and
- * the ground truth of every car crossing (detected or not).
+ * lane, SYNC loss, lane fault and recovery, lost lane events, dropped event
+ * frames, failing lane schedules, faults, buttons, power cycle, scripted
+ * cars, and the ground truth of every car crossing (detected or not).
+ * Diagnostics knobs (0.6): nRF silent / version mismatch, RSSI and link
+ * counters, loop time, corrupt settings, failing flash writes, and per lane
+ * dirty strip, noisy sensor, saturated sensor, broken sensor.
  */
 
 import { FrameDecoder, frameEncode } from '../protocol/codec.ts';
 import { decodePacket, encodePacket } from '../protocol/packet.ts';
 import {
   ABORT_SEQUENCE_RSP, BIND_ALLOW_REQ, BIND_ALLOW_RSP, BIND_LIST_REQ, BIND_LIST_RSP, BIND_REMOVE_REQ, BIND_REMOVE_RSP,
-  BindChange, BindState, BleLinkState, BoardType, ButtonId, ClientKind, DBG_LOG, EVT_BIND_CHANGED,
-  EVT_BLE_LINK, EVT_BOOT, EVT_BUTTON, EVT_CROSSING, EVT_FAULT, EVT_LANE_STATE, EVT_LIGHTS_OUT, EVT_SEQ_ABORTED,
+  BindChange, BindState, BleBridgeState, BleLinkState, BoardType, ButtonId, CalibrateAction, CalibrateResult, ClientKind,
+  DBG_LOG, EVT_BIND_CHANGED, EVT_BLE_LINK, EVT_BOOT, EVT_BUTTON, EVT_CROSSING, EVT_FAULT, EVT_LANE_CALIBRATED, EVT_LANE_STATE, EVT_LIGHTS_OUT, EVT_SEQ_ABORTED,
   EVT_SEQ_STARTED, FaultSource, HELLO_REQ, HELLO_RSP, HeaderFlag, LANE_CALIBRATE_REQ, LANE_CALIBRATE_RSP,
   LANE_CONFIG_GET_REQ, LANE_CONFIG_GET_RSP, LANE_CONFIG_SET_REQ, LANE_CONFIG_SET_RSP, LANE_LED_REQ, LANE_LED_RSP,
   LANE_POWER_REQ, LANE_POWER_RSP, LANE_RAW_STREAM_REQ, LANE_RAW_STREAM_RSP, LANE_SAMPLING_REQ, LANE_SAMPLING_RSP,
@@ -188,6 +247,7 @@ import type { Scheduler, TimerHandle } from '../util/clock.ts';
 import { bytesEqual, isZero } from '../util/bytes.ts';
 import { makeRng, subSeed } from '../util/rng.ts';
 import type { Rng } from '../util/rng.ts';
+import { LaneStatusFlag } from './laneFlags.ts';
 import { DEFAULT_CAR, SimCar } from './sim/simCars.ts';
 import type { CarProfile, CarScript, CrossingDetail, CrossingKind } from './sim/simCars.ts';
 
@@ -271,13 +331,36 @@ interface LaneSlot {
   led: LedState;
   syncOk: boolean;
   fault: number;
-  baseline: number;
-  noise: number;
+  /** Tracked baseline (lane_detect): null until learned. atUs = sysUs of the last update. */
+  base: { val: number; atUs: number } | null;
+  /** Saved/learned clean level (0 = none yet). */
+  reference: number;
+  /** Learning in progress (boot learn or LEARN): ends at untilUs (sysUs). */
+  learning: { gen: number; untilUs: number; fromUs: number; report: boolean } | null;
+  learnGen: number;
+  /** rawMin/rawMax window start (sysUs). */
+  winFromUs: number;
   passes: { startUs: number; endUs: number; depth: number }[];
   droppedEvents: number;
   syncShifts: number;
   badWrites: number;
   lateActions: number;
+}
+
+/** The physical lane: survives reboots and re-joins (sim knobs). */
+interface LaneHw {
+  /** Bare-foil level (counts) with a clean strip. */
+  bare0: number;
+  /** Noise standard deviation (counts). */
+  noiseSd: number;
+  /** Dirty strip: bare level × dirt (1 = clean). */
+  dirt: number;
+  /** Noisy sensor: noise × this. */
+  noiseFactor: number;
+  /** IR current too high for the foil: the sensor clips at 65535. */
+  saturated: boolean;
+  /** The VCNL4040 does not answer. */
+  sensorBroken: boolean;
 }
 
 interface BindRec { clientId: Uint8Array; clientName: string; lastUsed: number }
@@ -288,6 +371,8 @@ interface Flash {
   settings: { deviceName: string; bleEnabled: number };
   binds: BindRec[];
   laneTable: LaneConfig[];
+  /** Saved lane references by lane index (0 = none). */
+  references: number[];
 }
 
 interface Sequence {
@@ -319,6 +404,22 @@ const HCI_REMOTE_USER = 0x13;
 const HCI_LOCAL_HOST = 0x16;
 const HCI_SUPERVISION_TIMEOUT = 0x08;
 const MAX_LANES = 6;
+/** lane_detect.h DETECT_LEARN_SAMPLES (boot learn, FORGET). */
+const LEARN_BOOT_SAMPLES = 64;
+/** LANE_CALIBRATE LEARN duration. */
+const LEARN_MS = 100;
+/** Baseline tracking time constant: 2^DETECT_BASELINE_SHIFT samples of 1 ms. */
+const BASELINE_TAU_US = 2_048_000;
+/** Ambient drift: amplitude and period. */
+const DRIFT_AMPLITUDE = 0.015;
+const DRIFT_PERIOD_MS = 300_000;
+/** Dip of a passing car per unit of depth. */
+const DIP_PER_DEPTH = 2.2;
+/** At most this many samples are evaluated for one rawMin/rawMax window (longer windows are strided). */
+const WINDOW_MAX_EVAL = 4000;
+/** The nRF heartbeats every second; ABSENT after 3 s of silence (bleBridgeState doc). */
+const NRF_SILENT_MS = 3000;
+const RSSI_UNKNOWN = 127;
 
 export const SIM_APP_FW: Firmware = { major: 0, minor: 2, patch: 0, gitRev: 0x51d0052 };
 const SIM_LANE_FW: Firmware = { major: 0, minor: 1, patch: 0, gitRev: 0x1a9e000 };
@@ -333,6 +434,32 @@ export function defaultLaneConfig(lane: number): LaneConfig {
     holdoffUs: 0, holdoffSamplePeriodUs: 0, thrDropPermille: 300, hystPermille: 100, minDwell10us: 200,
     rawDecimation: 1, irCurrent: 7, psIntegration: 3, psMultiPulse: 0, reserved: 0,
   };
+}
+
+const sat16 = (n: number): number => Math.max(0, Math.min(0xffff, Math.round(n)));
+
+function defaultFlash(): Flash {
+  return {
+    settings: { deviceName: 'TimeTaker', bleEnabled: 1 },
+    binds: [],
+    laneTable: Array.from({ length: MAX_LANES + 1 }, (_, i) => defaultLaneConfig(Math.max(1, i))),
+    references: new Array<number>(MAX_LANES + 1).fill(0),
+  };
+}
+
+/** 32-bit integer hash (deterministic noise without consuming an RNG). */
+function hash32(a: number, b: number, c: number): number {
+  let h = (a ^ Math.imul(b, 0x9e3779b1) ^ Math.imul(c, 0x85ebca77)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** Standard normal value for (seed, lane, sample index): Box-Muller over two hashes. */
+function gauss(seed: number, lane: number, idx: number): number {
+  const u1 = (hash32(seed, lane * 2 + 1, idx) + 1) / 4294967297;
+  const u2 = hash32(seed, lane * 2 + 2, idx) / 4294967296;
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
 const BODY_ID = new Map<StructDesc, number>();
@@ -379,6 +506,18 @@ export class SimDevice implements SimLinkHost<Link> {
   #dropEvents = 0;
   #timers = new Set<TimerHandle>();
   #disposed = false;
+  #hw: LaneHw[] = [];
+  #signalSeed: number;
+  /** nRF: silentSinceMs = scheduler ms it stopped heartbeating (null = alive). */
+  #nrf: { silentSinceMs: number | null; mismatch: boolean; downTimer: TimerHandle | null } = { silentSinceMs: null, mismatch: false, downTimer: null };
+  #bleRssi = -58;
+  #bleStats = { bleCrcErrors: 0, bleUartErrors: 0, bleDataDropped: 0, nrfLinkCrcErrors: 0 };
+  #loopMaxMs = 2;
+  #corruptAtNextBoot = false;
+  #settingsDefaults = 0;
+  #flashFails = false;
+  /** Calibration outcomes waiting for the deferred settings write (SAVED / FORGOTTEN / NOT_SAVED follow it). */
+  #pendingFlash = new Map<number, { action: number; reference: number }>();
 
   constructor(opts: SimOptions = {}) {
     this.scheduler = opts.scheduler ?? realScheduler;
@@ -389,11 +528,11 @@ export class SimDevice implements SimLinkHost<Link> {
     } as Required<Omit<SimOptions, 'scheduler' | 'cars'>>;
     this.#rng = makeRng(subSeed(this.#opts.seed, 1));
     this.#chainLength = Math.max(0, Math.min(MAX_LANES, this.#opts.lanes));
-    this.#flash = {
-      settings: { deviceName: 'TimeTaker', bleEnabled: 1 },
-      binds: [],
-      laneTable: Array.from({ length: MAX_LANES + 1 }, (_, i) => defaultLaneConfig(Math.max(1, i))),
-    };
+    this.#flash = defaultFlash();
+    this.#signalSeed = subSeed(this.#opts.seed, 7);
+    this.#hw = Array.from({ length: MAX_LANES + 1 }, (_, i) => ({
+      bare0: 3000 + i * 85, noiseSd: 6 + i, dirt: 1, noiseFactor: 1, saturated: false, sensorBroken: false,
+    }));
     const host = { scheduler: this.scheduler, onCross: (l: number, at: number, k: CrossingKind, d: CrossingDetail) => this.#onCross(l, at, k, d) };
     for (let lane = 1; lane <= MAX_LANES; lane++) {
       const carRng = makeRng(subSeed(this.#opts.seed, 100 + lane));
@@ -540,6 +679,9 @@ export class SimDevice implements SimLinkHost<Link> {
       this.#leaveFrom(n);
       slot.laneSeq = 0;
       slot.lastEventUs = null;
+      slot.base = null;
+      slot.reference = 0;
+      slot.fault = 0;
       slot.bootMs = this.scheduler.now();
       slot.resetCause = ResetCause.WATCHDOG;
       this.#later(LANE_BOOT_MS, () => this.#hotJoin());
@@ -568,6 +710,88 @@ export class SimDevice implements SimLinkHost<Link> {
     this.#noteError(status);
     this.#laneState(n, LaneState.FAULT, status);
   }
+
+  /** A faulted lane recovers: CONFIGURED again (0.6: the control module publishes it). */
+  laneRecover(n: number): void {
+    const s = this.#lanes[n];
+    if (!s?.present || !s.fault) return;
+    s.fault = 0;
+    this.#laneState(n, LaneState.CONFIGURED, 0);
+  }
+
+  // ---- diagnostics knobs (0.6) ---------------------------------------------------------
+
+  /** The nRF stops (false) or resumes (true) heartbeating. ABSENT 3 s after it went silent. */
+  nrfAlive(alive: boolean): void {
+    if (alive) {
+      this.#nrf.silentSinceMs = null;
+      this.scheduler.clearTimeout(this.#nrf.downTimer);
+      this.#nrf.downTimer = null;
+      return;
+    }
+    if (this.#nrf.silentSinceMs !== null) return;
+    this.#nrf.silentSinceMs = this.scheduler.now();
+    const hadPhone = [...this.#links].some((l) => l.kind === 'ble');
+    for (const l of [...this.#links]) if (l.kind === 'ble') this.#dropLink(l, 'BLE bridge stopped', HCI_SUPERVISION_TIMEOUT, false);
+    this.#nrf.downTimer = this.#later(NRF_SILENT_MS, () => {
+      this.#nrf.downTimer = null;
+      if (hadPhone && this.#nrf.silentSinceMs !== null) this.#bleLinkEvent(false, HCI_SUPERVISION_TIMEOUT);
+    });
+  }
+
+  /** The nRF reports another link protocol MAJOR: BLE data refused. */
+  nrfVersionMismatch(on: boolean): void {
+    this.#nrf.mismatch = on;
+    if (on) for (const l of [...this.#links]) if (l.kind === 'ble') this.#dropLink(l, 'BLE link protocol mismatch', HCI_LOCAL_HOST);
+  }
+
+  get bleBridge(): number {
+    if (!this.#opts.bleModule) return BleBridgeState.ABSENT;
+    if (this.#nrf.silentSinceMs !== null && this.scheduler.now() - this.#nrf.silentSinceMs >= NRF_SILENT_MS) return BleBridgeState.ABSENT;
+    if (this.#nrf.mismatch) return BleBridgeState.VERSION_MISMATCH;
+    return BleBridgeState.OK;
+  }
+
+  /** RSSI (dBm) the nRF reports for the connected phone. */
+  setBleRssi(dbm: number): void { this.#bleRssi = Math.max(-128, Math.min(126, Math.round(dbm))); }
+
+  /** nRF STATS and the STM's own link CRC counter (STATUS reports them saturated to 16 bits). */
+  setBleStats(st: Partial<{ bleCrcErrors: number; bleUartErrors: number; bleDataDropped: number; nrfLinkCrcErrors: number }>): void {
+    this.#bleStats = { ...this.#bleStats, ...st };
+  }
+
+  /** The longest super-loop pass STATUS reports. */
+  setLoopMaxMs(ms: number): void { this.#loopMaxMs = Math.max(0, Math.min(0xffff, Math.round(ms))); }
+
+  /** The settings store fails its CRC at the next boot: defaults, settingsDefaults = 1, EVT_FAULT SETTINGS. */
+  corruptSettings(): void { this.#corruptAtNextBoot = true; }
+
+  /** Flash writes fail: a LEARN ends NOT_SAVED. */
+  failFlashWrites(on: boolean): void { this.#flashFails = on; }
+
+  /** Dirty strip: the bare level drops to factor × clean (1 = clean again). */
+  setLaneDirt(lane: number, factor: number): void { const hw = this.#hw[lane]; if (hw) hw.dirt = Math.max(0, factor); }
+
+  /** Noisy sensor: noise × factor (1 = normal). */
+  setLaneNoise(lane: number, factor: number): void { const hw = this.#hw[lane]; if (hw) hw.noiseFactor = Math.max(0, factor); }
+
+  /** IR current too high for the foil: every sample clips at 65535. */
+  setLaneSaturated(lane: number, on: boolean): void { const hw = this.#hw[lane]; if (hw) hw.saturated = on; }
+
+  /** The lane's sensor stops answering (FAULT ERR_HAL, SENSOR_OK clear, raw 0); false repairs it (CONFIGURED). */
+  sensorFault(lane: number, on: boolean): void {
+    const hw = this.#hw[lane];
+    if (!hw || hw.sensorBroken === on) return;
+    hw.sensorBroken = on;
+    if (on) this.laneFault(lane, Status.ERR_HAL);
+    else this.laneRecover(lane);
+  }
+
+  /** The lane's bare level now (no car, no noise), for tests: what a LEARN should find. */
+  laneBareLevel(lane: number): number { return Math.min(0xffff, Math.round(this.#bare(lane, this.#sysUsNow()))); }
+
+  /** The saved reference of a lane index (control module flash), 0 = none. */
+  savedReference(lane: number): number { return this.#flash.references[lane] ?? 0; }
 
   /** The lane's FIFO overflows: n events lost on the lane (laneSeq jumps). */
   loseLaneEvents(lane: number, n: number): void {
@@ -598,6 +822,7 @@ export class SimDevice implements SimLinkHost<Link> {
     this.scheduler.clearTimeout(this.#settingsTimer);
     if (this.#window) this.scheduler.clearTimeout(this.#window.timer);
     if (this.#raw) this.scheduler.clearInterval(this.#raw.timer);
+    this.scheduler.clearTimeout(this.#nrf.downTimer);
     for (const s of this.#seq?.timers ?? []) this.scheduler.clearTimeout(s);
     for (const l of [...this.#links]) this.#dropLink(l, 'simulator disposed');
   }
@@ -611,7 +836,8 @@ export class SimDevice implements SimLinkHost<Link> {
       if (!this.#usbPlugged || now < this.#usbReadyAtMs) throw new Error('no TimeTaker on USB (unplugged or re-enumerating)');
       if ([...this.#links].some((l) => l.kind === 'usb')) throw new Error('USB port busy');
     } else {
-      if (!this.#opts.bleModule || !this.#flash.settings.bleEnabled || !this.#bleInRange) throw new Error('no TimeTaker advertising');
+      if (!this.#opts.bleModule || !this.#flash.settings.bleEnabled || !this.#bleInRange || this.#nrf.silentSinceMs !== null
+          || this.#nrf.mismatch) throw new Error('no TimeTaker advertising');
       if ([...this.#links].some((l) => l.kind === 'ble')) throw new Error('TimeTaker is connected to another central');
     }
     const link: Link = {
@@ -654,6 +880,13 @@ export class SimDevice implements SimLinkHost<Link> {
     if (this.#window) this.scheduler.clearTimeout(this.#window.timer);
     this.#window = null;
     this.#failSchedule.clear();
+    this.#pendingFlash.clear();
+    this.#settingsDefaults = 0;
+    if (this.#corruptAtNextBoot) {
+      this.#corruptAtNextBoot = false;
+      this.#flash = defaultFlash();
+      this.#settingsDefaults = 1;
+    }
     this.#laneTable = this.#flash.laneTable.map((c) => ({ ...c }));
     this.#sampling = new Array<number>(MAX_LANES + 1).fill(SamplingMode.ON);
     this.#lanes = Array.from({ length: MAX_LANES + 1 }, (_, i) => this.#newSlot(i));
@@ -669,6 +902,10 @@ export class SimDevice implements SimLinkHost<Link> {
     this.#log = new Array(this.#opts.logCapacity);
     this.#next = 0;
     this.#publish(EVT_BOOT, { resetCause: cause, reserved: new Uint8Array(3), bootId: this.#bootId, sysUs: 0n });
+    if (this.#settingsDefaults) {
+      this.#noteError(Status.ERR_SETTINGS_CORRUPT);
+      this.#publish(EVT_FAULT, { source: FaultSource.SETTINGS, reserved: 0, status: Status.ERR_SETTINGS_CORRUPT, sysUs: 0n });
+    }
     if ([...this.#links].some((l) => l.kind === 'ble')) this.#bleLinkEvent(true, 0);
   }
 
@@ -914,13 +1151,20 @@ export class SimDevice implements SimLinkHost<Link> {
       }
       case MsgId.STATUS: {
         if (!empty()) return;
+        // nRF STATS come every second: RSSI and the nRF counters are known from the first one on.
+        const stats = this.bleBridge === BleBridgeState.OK && this.scheduler.now() - this.#bootMs >= 1000;
         reply(Status.OK, STATUS_RSP, {
-          lastError: this.#lastError, loopMaxMs: 2, errorCount: this.#errorCount,
+          lastError: this.#lastError, loopMaxMs: this.#loopMaxMs, errorCount: this.#errorCount,
           uptimeMs: Math.floor(this.#sysUsNow() / 1000) >>> 0, lanesPresent: this.#presentCount(),
           lanesPowered: this.#rail === 'on' ? 1 : 0,
           bleLink: [...this.#links].some((l) => l.kind === 'ble') ? BleLinkState.UP : BleLinkState.DOWN,
           seqRunning: this.#seq ? 1 : 0, usbFaults: this.#usbFaults, settingsWrites: this.#settingsWrites,
           logOldestSeq: this.#oldest(), logNextSeq: this.#next,
+          bleBridge: this.bleBridge,
+          bleRssi: stats && [...this.#links].some((l) => l.kind === 'ble') ? this.#bleRssi : RSSI_UNKNOWN,
+          bleCrcErrors: stats ? sat16(this.#bleStats.bleCrcErrors) : 0, bleUartErrors: stats ? sat16(this.#bleStats.bleUartErrors) : 0,
+          bleDataDropped: stats ? sat16(this.#bleStats.bleDataDropped) : 0, nrfLinkCrcErrors: sat16(this.#bleStats.nrfLinkCrcErrors),
+          settingsDefaults: this.#settingsDefaults, reserved: 0,
         });
         return;
       }
@@ -1021,17 +1265,7 @@ export class SimDevice implements SimLinkHost<Link> {
         if (lane < 1 || lane > MAX_LANES) { reply(Status.ERR_INVALID_ARG); return; }
         const s = this.#lanes[lane]!;
         if (!s.present) { reply(Status.ERR_LANE_ABSENT); return; }
-        const cfg = this.#laneTable[lane]!;
-        const mode = this.#effectiveMode(lane);
-        const thrLow = Math.round(s.baseline * (1000 - cfg.thrDropPermille) / 1000);
-        reply(Status.OK, LANE_STATUS_RSP, {
-          lane, state: !s.configured ? LaneBusState.ENUMERATED : mode === SamplingMode.OFF ? LaneBusState.IDLE : LaneBusState.SAMPLING,
-          samplingMode: mode, fifoCount: 0, flags: 0, droppedEvents: s.droppedEvents & 0xffff, syncShifts: s.syncShifts & 0xffff,
-          badWrites: s.badWrites, lateActions: s.lateActions, lastError: s.fault, resetCause: s.resetCause, faultId: 0,
-          uptimeMs: Math.floor(this.scheduler.now() - s.bootMs) >>> 0, raw: this.#sample(lane, this.#sysUsNow()),
-          baseline: s.baseline, thrLow, thrHigh: Math.min(0xffff, thrLow + Math.round(s.baseline * cfg.hystPermille / 1000)),
-          noise: s.noise, reserved: 0,
-        });
+        reply(Status.OK, LANE_STATUS_RSP, this.#laneStatus(lane));
         return;
       }
       case MsgId.LANE_RAW_STREAM: {
@@ -1050,14 +1284,24 @@ export class SimDevice implements SimLinkHost<Link> {
         const req = parse(LANE_CALIBRATE_REQ);
         if (!req) return;
         const mask = req['laneMask'] as number;
-        if (!this.#maskOk(mask)) { reply(Status.ERR_INVALID_ARG); return; }
-        const lanes = this.#presentIn(mask);
-        if (lanes.length === 0) { reply(Status.ERR_LANE_ABSENT); return; }
-        for (const l of lanes) {
-          const s = this.#lanes[l]!;
-          s.baseline = Math.round(s.baseline + this.#rng.normal(0, 15));
+        const action = req['action'] as number;
+        if (!this.#maskOk(mask) || action > CalibrateAction.FORGET) { reply(Status.ERR_INVALID_ARG); return; }
+        if (this.#seq) { reply(Status.ERR_SEQ_RUNNING); return; }
+        if (action === CalibrateAction.LEARN) {
+          const lanes = this.#presentIn(mask).filter((l) => this.#lanes[l]!.configured);
+          if (lanes.length === 0) { reply(Status.ERR_LANE_ABSENT); return; }
+          reply(Status.OK, LANE_CALIBRATE_RSP, {});
+          for (const l of lanes) this.#learn(l, LEARN_MS, true);
+          return;
         }
         reply(Status.OK, LANE_CALIBRATE_RSP, {});
+        for (let l = 1; l <= MAX_LANES; l++) {
+          if (!(mask & (1 << (l - 1)))) continue;
+          this.#pendingFlash.set(l, { action: CalibrateAction.FORGET, reference: 0 });
+          const s = this.#lanes[l]!;
+          if (s.present && s.configured) this.#learn(l, this.#learnBootMs(l), false);
+        }
+        this.#markSettingsDirty();
         return;
       }
       case MsgId.START_SEQUENCE: {
@@ -1182,8 +1426,15 @@ export class SimDevice implements SimLinkHost<Link> {
     if (!this.#settingsDirty || this.#disposed) return;
     if (this.#seq) { this.#settingsTimer = this.scheduler.setTimeout(() => this.#writeSettings(), 500); return; }
     this.#settingsDirty = false;
-    this.#settingsWrites++;
     this.#lastSettingsWriteMs = this.scheduler.now();
+    const pending = [...this.#pendingFlash].sort((a, b) => a[0] - b[0]);
+    this.#pendingFlash.clear();
+    if (!this.#flashFails) this.#settingsWrites++;
+    for (const [lane, p] of pending) {
+      if (this.#flashFails) { this.#calibrated(lane, CalibrateResult.NOT_SAVED, p.reference); continue; }
+      this.#flash.references[lane] = p.reference;
+      this.#calibrated(lane, p.action === CalibrateAction.LEARN ? CalibrateResult.SAVED : CalibrateResult.FORGOTTEN, p.reference);
+    }
   }
 
   #noteError(status: number): void {
@@ -1197,7 +1448,8 @@ export class SimDevice implements SimLinkHost<Link> {
     return {
       index, present: false, configured: false, laneSeq: 0, lastEventUs: null, bootMs: this.scheduler.now(),
       resetCause: ResetCause.POWER_ON, led: { ...LED_OFF }, syncOk: true, fault: 0,
-      baseline: 3000 + index * 85, noise: 6 + index, passes: [], droppedEvents: 0, syncShifts: 0, badWrites: 0, lateActions: 0,
+      base: null, reference: 0, learning: null, learnGen: 0, winFromUs: 0,
+      passes: [], droppedEvents: 0, syncShifts: 0, badWrites: 0, lateActions: 0,
     };
   }
 
@@ -1233,7 +1485,7 @@ export class SimDevice implements SimLinkHost<Link> {
       this.#stopRaw();
       for (let l = 1; l <= MAX_LANES; l++) {
         const s = this.#lanes[l]!;
-        if (s.present) { s.present = false; s.configured = false; this.#laneState(l, LaneState.LEFT, 0); }
+        if (s.present) { s.present = false; s.configured = false; this.#laneGone(l); this.#laneState(l, LaneState.LEFT, 0); }
         s.led = { ...LED_OFF };
       }
       this.#rail = 'off';
@@ -1247,7 +1499,7 @@ export class SimDevice implements SimLinkHost<Link> {
       for (let l = 1; l <= MAX_LANES; l++) {
         const s = this.#lanes[l]!;
         s.laneSeq = 0; s.lastEventUs = null; s.bootMs = this.scheduler.now(); s.resetCause = ResetCause.POWER_ON;
-        s.syncOk = true; s.fault = 0;
+        s.syncOk = true; s.fault = 0; s.base = null; s.reference = 0;
       }
       this.#dbg(LogLevel.INFO, 'LANE rail on, SYNC on');
       this.#startEnumeration(LANE_BOOT_MS);
@@ -1277,7 +1529,9 @@ export class SimDevice implements SimLinkHost<Link> {
     this.#later(CONFIG_PUSH_MS, () => {
       if (gen !== this.#enumGen || !s.present) return;
       s.configured = true;
+      this.#seedReference(n);
       this.#laneState(n, LaneState.CONFIGURED, 0);
+      if (this.#hw[n]!.sensorBroken) this.laneFault(n, Status.ERR_HAL);
       this.#later(LANE_JOIN_STEP_MS, () => this.#tryJoin(n + 1, gen));
     });
   }
@@ -1291,6 +1545,7 @@ export class SimDevice implements SimLinkHost<Link> {
       s.configured = false;
       any = true;
       if (this.#raw?.lane === l) this.#stopRaw();
+      this.#laneGone(l);
       this.#laneState(l, LaneState.LEFT, 0);
       if (this.#seq?.lanes.includes(l)) this.#abortSequence(SeqAbortReason.LANE_LEFT);
     }
@@ -1348,11 +1603,156 @@ export class SimDevice implements SimLinkHost<Link> {
 
   // ---- raw stream -------------------------------------------------------------------------------
 
+  /** The bare-foil level (no car) at sysUs tUs: clean level × dirt × ambient drift; saturated: clipped above 65535. */
+  #bare(lane: number, tUs: number): number {
+    const hw = this.#hw[lane]!;
+    if (hw.saturated) return 90000;
+    const absMs = this.#bootMs + tUs / 1000;
+    const drift = 1 + DRIFT_AMPLITUDE * Math.sin(2 * Math.PI * absMs / DRIFT_PERIOD_MS + lane * 1.1);
+    return hw.bare0 * hw.dirt * drift;
+  }
+
+  /** The PS sample the lane takes at sysUs tUs (a pure function of seed, lane and time). */
   #sample(lane: number, tUs: number): number {
+    const hw = this.#hw[lane]!;
+    if (hw.sensorBroken) return 0;
     const s = this.#lanes[lane]!;
-    let v = s.baseline + this.#rng.normal(0, s.noise);
-    for (const p of s.passes) if (tUs >= p.startUs && tUs <= p.endUs) v -= p.depth * 2.2;
+    const periodUs = this.#laneTable[lane]!.samplePeriodUs;
+    const idx = Math.floor((this.#bootMs * 1000 + tUs) / periodUs);
+    let v = this.#bare(lane, tUs) + gauss(this.#signalSeed, lane, idx) * hw.noiseSd * hw.noiseFactor;
+    for (const p of s.passes) if (tUs >= p.startUs && tUs <= p.endUs) v -= p.depth * DIP_PER_DEPTH * hw.dirt;
     return Math.max(0, Math.min(0xffff, Math.round(v)));
+  }
+
+  /** Sample times (sysUs) of the lane in [fromUs, toUs]. */
+  #sampleTimes(lane: number, fromUs: number, toUs: number, maxEval = Number.POSITIVE_INFINITY): number[] {
+    const periodUs = this.#laneTable[lane]!.samplePeriodUs;
+    const first = Math.ceil(fromUs / periodUs);
+    const last = Math.floor(toUs / periodUs);
+    if (last < first) return [];
+    const stride = Math.max(1, Math.ceil((last - first + 1) / maxEval));
+    const out: number[] = [];
+    for (let i = first; i <= last; i += stride) out.push(i * periodUs);
+    return out;
+  }
+
+  /** The tracked baseline now (tracks the bare level with BASELINE_TAU_US; frozen while the sensor is broken). */
+  #baseline(lane: number, nowUs: number): number {
+    const s = this.#lanes[lane]!;
+    if (!s.base) return 0;
+    const dt = nowUs - s.base.atUs;
+    if (dt > 0 && !this.#hw[lane]!.sensorBroken) {
+      const target = Math.min(0xffff, this.#bare(lane, nowUs));
+      s.base.val += (target - s.base.val) * (1 - Math.exp(-dt / BASELINE_TAU_US));
+      s.base.atUs = nowUs;
+    }
+    return Math.max(0, Math.min(0xffff, Math.round(s.base.val)));
+  }
+
+  #learnBootMs(lane: number): number {
+    return LEARN_BOOT_SAMPLES * this.#laneTable[lane]!.samplePeriodUs / 1000;
+  }
+
+  /** Starts learning the bare level for ms; report = publish EVT_LANE_CALIBRATED (LEARN) when done. */
+  #learn(lane: number, ms: number, report: boolean): void {
+    const s = this.#lanes[lane]!;
+    const gen = ++s.learnGen;
+    const fromUs = this.#sysUsNow();
+    s.learning = { gen, fromUs, untilUs: fromUs + ms * 1000, report };
+    this.#later(ms, () => {
+      if (s.learning?.gen !== gen || !s.present) return;
+      s.learning = null;
+      const hw = this.#hw[lane]!;
+      if (hw.sensorBroken) {
+        if (report) this.#calibrated(lane, CalibrateResult.FAILED, 0);
+        return;
+      }
+      const nowUs = this.#sysUsNow();
+      const times = this.#sampleTimes(lane, fromUs, nowUs);
+      const level = times.length ? times.reduce((a, t) => a + this.#sample(lane, t), 0) / times.length : this.#sample(lane, nowUs);
+      const ref = Math.max(1, Math.min(0xffff, Math.round(level)));
+      s.base = { val: ref, atUs: nowUs };
+      s.reference = ref;               // in use at once: LANE_STATUS shows it before the flash write
+      if (!report) return;
+      s.winFromUs = nowUs + 1;          // the calibration's own SIGNAL read resets rawMin/rawMax
+      this.#pendingFlash.set(lane, { action: CalibrateAction.LEARN, reference: ref });
+      this.#markSettingsDirty();
+    });
+  }
+
+  #laneNoise(lane: number): number {
+    const hw = this.#hw[lane]!;
+    if (hw.saturated || hw.sensorBroken) return 0;
+    return Math.round(hw.noiseSd * hw.noiseFactor);
+  }
+
+  #calibrated(lane: number, result: number, reference: number): void {
+    this.#publish(EVT_LANE_CALIBRATED, {
+      lane, result, reference, noise: this.#laneNoise(lane), reserved: 0, sysUs: this.#sysUsBig(),
+    });
+  }
+
+  /** At CONFIGURED: SET_REFERENCE with the saved value, or learn as at boot. */
+  #seedReference(lane: number): void {
+    const s = this.#lanes[lane]!;
+    const saved = this.#flash.references[lane] ?? 0;
+    s.winFromUs = this.#sysUsNow();
+    if (saved) {
+      s.learning = null;
+      s.learnGen++;
+      s.base = { val: saved, atUs: this.#sysUsNow() };
+      s.reference = saved;
+    } else if (!s.base && !s.learning) {
+      this.#learn(lane, this.#learnBootMs(lane), false);
+    }
+  }
+
+  /** A lane dropped off the bus: a LEARN in progress fails. */
+  #laneGone(lane: number): void {
+    const s = this.#lanes[lane]!;
+    const pending = s.learning;
+    s.learning = null;
+    s.learnGen++;
+    if (pending?.report) this.#calibrated(lane, CalibrateResult.FAILED, 0);
+  }
+
+  #laneStatus(lane: number): Record<string, unknown> {
+    const s = this.#lanes[lane]!;
+    const hw = this.#hw[lane]!;
+    const cfg = this.#laneTable[lane]!;
+    const mode = this.#effectiveMode(lane);
+    const nowUs = this.#sysUsNow();
+    const raw = this.#sample(lane, nowUs);
+    const baseline = this.#baseline(lane, nowUs);
+    const thrLow = Math.round(baseline * (1000 - cfg.thrDropPermille) / 1000);
+    const thrHigh = Math.min(0xffff, thrLow + Math.round(baseline * cfg.hystPermille / 1000));
+    let rawMin = raw;
+    let rawMax = raw;
+    const times = this.#sampleTimes(lane, s.winFromUs, nowUs, WINDOW_MAX_EVAL);
+    for (const p of s.passes) {
+      if (p.endUs >= s.winFromUs && p.startUs <= nowUs) times.push(Math.max(s.winFromUs, Math.min(nowUs, (p.startUs + p.endUs) / 2)));
+    }
+    for (const t of times) {
+      const v = this.#sample(lane, t);
+      if (v < rawMin) rawMin = v;
+      if (v > rawMax) rawMax = v;
+    }
+    s.winFromUs = nowUs + 1;
+    let flags = 0;
+    if (s.configured && s.syncOk) flags |= LaneStatusFlag.SYNC_LOCKED | LaneStatusFlag.SYNC_ALIGNED;
+    if (!s.syncOk) flags |= LaneStatusFlag.SYNC_LOST;
+    if (!hw.sensorBroken) flags |= LaneStatusFlag.SENSOR_OK;
+    if (s.configured) flags |= LaneStatusFlag.CONFIG_VALID;
+    if (s.base && !s.learning) flags |= LaneStatusFlag.CALIBRATED;
+    if (s.base && raw < thrLow) flags |= LaneStatusFlag.BLOCKED;
+    if (s.droppedEvents > 0) flags |= LaneStatusFlag.FIFO_OVERFLOW;
+    return {
+      lane, state: !s.configured ? LaneBusState.ENUMERATED : mode === SamplingMode.OFF ? LaneBusState.IDLE : LaneBusState.SAMPLING,
+      samplingMode: mode, fifoCount: 0, flags, droppedEvents: s.droppedEvents & 0xffff, syncShifts: s.syncShifts & 0xffff,
+      badWrites: s.badWrites, lateActions: s.lateActions, lastError: s.fault, resetCause: s.resetCause, faultId: 0,
+      uptimeMs: Math.floor(this.scheduler.now() - s.bootMs) >>> 0, raw, baseline, thrLow, thrHigh,
+      noise: this.#laneNoise(lane), reference: s.reference, rawMin, rawMax,
+    };
   }
 
   #startRaw(lane: number, decimation: number): void {
@@ -1478,13 +1878,15 @@ export class SimDevice implements SimLinkHost<Link> {
       state: NodeState.OK, fwMajor: fw.major, fwMinor: fw.minor, fwPatch: fw.patch, protoMinor: PROTO.minor,
       fwGitRev: fw.gitRev, imageCrc: 0,   // no image header since 0.4: unknown
     }];
-    if (this.#opts.bleModule) {
-      nodes.push({
-        nodeClass: NodeClass.BLE, index: 0, boardType: BoardType.BLE_BRIDGE, state: NodeState.OK,
-        fwMajor: SIM_BLE_FW.major, fwMinor: SIM_BLE_FW.minor, fwPatch: SIM_BLE_FW.patch, protoMinor: SIM_BLE_LINK_MINOR,
-        fwGitRev: SIM_BLE_FW.gitRev, imageCrc: 0,
-      });
-    }
+    // Like host_manager: the BLE node is always listed; its state follows the
+    // bridge liveness (ctrlPolicyBleNodeState: ABSENT / OK / mismatch = FAULT).
+    const bleState = this.bleBridge === BleBridgeState.ABSENT ? NodeState.ABSENT
+      : this.bleBridge === BleBridgeState.VERSION_MISMATCH ? NodeState.FAULT : NodeState.OK;
+    nodes.push({
+      nodeClass: NodeClass.BLE, index: 0, boardType: BoardType.BLE_BRIDGE, state: bleState,
+      fwMajor: SIM_BLE_FW.major, fwMinor: SIM_BLE_FW.minor, fwPatch: SIM_BLE_FW.patch, protoMinor: SIM_BLE_LINK_MINOR,
+      fwGitRev: SIM_BLE_FW.gitRev, imageCrc: 0,
+    });
     for (let lane = 1; lane <= MAX_LANES; lane++) {
       const s = this.#lanes[lane]!;
       if (!s.present) continue;

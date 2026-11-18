@@ -169,8 +169,21 @@ static void testPanel(void)
           && !ctrlPolicyButtonAborts(HP_BUTTON_BTN3, HP_PRESS_LONG, true));
 }
 
+static void testBridge(void)
+{
+    check("ble node: ABSENT -> ABSENT", ctrlPolicyBleNodeState(HP_BLE_BRIDGE_ABSENT) == HP_NODE_STATE_ABSENT);
+    check("ble node: OK -> OK", ctrlPolicyBleNodeState(HP_BLE_BRIDGE_OK) == HP_NODE_STATE_OK);
+    check("ble node: VERSION_MISMATCH -> FAULT",
+          ctrlPolicyBleNodeState(HP_BLE_BRIDGE_VERSION_MISMATCH) == HP_NODE_STATE_FAULT);
+    check("ble rssi: OK with STATS -> its rssi", ctrlPolicyBleRssi(HP_BLE_BRIDGE_OK, true, -60) == -60);
+    check("ble rssi: no STATS yet -> 127", ctrlPolicyBleRssi(HP_BLE_BRIDGE_OK, false, -60) == 127);
+    check("ble rssi: bridge ABSENT -> 127 (stale)", ctrlPolicyBleRssi(HP_BLE_BRIDGE_ABSENT, true, -60) == 127);
+    check("ble rssi: VERSION_MISMATCH -> 127", ctrlPolicyBleRssi(HP_BLE_BRIDGE_VERSION_MISMATCH, true, -60) == 127);
+}
+
 int main(void)
 {
+    testBridge();
     testSequence();
     testBind();
     testPanel();

@@ -145,16 +145,11 @@ describe('start', () => {
     assert.equal(fold(cfg(), log).standings[0]?.lane, 2);
   });
 
-  test('false start → disqualify: from the false-start crossing; nothing after counts, lap 1 is TLF', () => {
-    const log = start().x(1, 7500).x(1, 37_500).x(1, 67_500).x(2, 8700).x(2, 38_800).events;
-    const s = fold(cfg({ falseStart: { action: 'disqualify' } }), log);
-    const c = car(s, 1);
-    assert.equal(c.status, 'disqualified');
-    assert.equal(c.laps, 0);
-    assert.equal(c.tlfLap, 1);
-    assert.equal(c.penaltiesMs, 0);
-    assert.deepEqual(c.rejected.map((r) => r.reason), ['disqualified', 'disqualified']);
-    assert.equal(s.standings.at(-1)?.lane, 1);
+  test('a false start never disqualifies: disqualify is not an accepted action', () => {
+    assert.throws(() => cfg({ falseStart: { action: 'disqualify' } } as unknown as Partial<RaceConfigInput>), RangeError);
+    const c = car(fold(cfg(), start().x(1, 7500).x(1, 37_500).events), 1);
+    assert.notEqual(c.status, 'disqualified');
+    assert.equal(c.laps, 1);
   });
 
   test('a second crossing before lights out is rejected (beforeStart)', () => {

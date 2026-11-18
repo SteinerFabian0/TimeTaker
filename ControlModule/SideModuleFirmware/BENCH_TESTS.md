@@ -100,6 +100,30 @@ honoured by the lane firmware.
 from 1. Also LANE_STATUS{3}: a full status (deferred answer), and {7} →
 ERR_INVALID_ARG, an absent lane → ERR_LANE_ABSENT.
 
+**L-5 Calibrate, power-cycle, reference applied.** Two lanes, both free,
+sampling OFF (the default). LANE_CALIBRATE{0x03, LEARN}.
+*Expect:* response OK; within ~200 ms each lane samples (LED/scope) and
+EVT_LANE_CALIBRATED{1, SAVED, reference≈the bare-foil level, noise} and {2,
+…} arrive (up to 10 s later if a settings write happened just before);
+sampling is OFF again afterwards; STATUS settingsWrites +1 (one write for
+both). LANE_STATUS{1}: `reference` equals the event's value. Now park a
+car (or a finger) on lane 1's sensor and power-cycle the board (or LANE_POWER
+0/1). *Expect:* after CONFIGURED, LANE_STATUS{1} `reference` = the saved
+value and `baseline` near it (not the covered level); on the scope/I3C
+trace, `COMMAND 08` (SET_REFERENCE) right after the CONFIG write. Then
+LANE_CALIBRATE{0x01, FORGET}: EVT {1, FORGOTTEN}; after the next power cycle
+no SET_REFERENCE is sent. Also: LANE_CALIBRATE during a start sequence →
+ERR_SEQ_RUNNING; {0x01, LEARN} twice quickly → second ERR_BUSY; a mask of
+absent lanes → ERR_LANE_ABSENT; a lane held covered so learning never
+settles, or unplugged while learning → FAILED.
+*If not:* DBG "LANE n CALIBRATED result=3" = timeout: STATUS flags never
+showed CALIBRATED clear then set (lane firmware < lane_protocol 0.4?).
+
+**L-6 Fault cleared.** Make a lane report a fault (e.g. a sensor error that
+sets lastError), then clear it (COMMAND CLEAR_COUNTERS or fix the cause).
+*Expect:* EVT_LANE_STATE{n, FAULT, status} then, within 1 s of the clearing,
+{n, CONFIGURED, 0}.
+
 ## C2 — Event pipeline
 
 **E-1 Crossings.** Lanes sampling ON (LANE_SAMPLING{0x3f,1}). Hand through
@@ -167,6 +191,16 @@ no missing edge, USB stays up (the pages are in bank 2, RWW).
 bleLink DOWN (no central). Scope PB6/PB7: STM_HELLO at boot, 460800 baud.
 *If not:* `nrfLinkStats` badFrames (baud error, BLE guide §5.1), BLE node
 FAULT = link MAJOR mismatch (EVT_BLE_LINK{VERSION_MISMATCH}).
+
+**B-1b Bridge liveness.** nRF running: STATUS bleBridge OK (1), bleRssi 127
+(no central), nrfLinkCrcErrors stays 0; with a central connected bleRssi
+shows its dBm. Now hold the nRF in reset (probe: `-rst` held, or pull its
+nRESET low) or unplug its UART.
+*Expect:* within 3 s STATUS bleBridge ABSENT (0), bleRssi 127, NODE_LIST
+BLE node ABSENT. Release: NRF_HELLO, bleBridge OK again within ~1 s. An nRF
+image with another link MAJOR: bleBridge VERSION_MISMATCH (2), node FAULT.
+*If not:* the nRF image does not send STATS every second (BLE firmware
+older than the heartbeat).
 
 **B-2 Echo test.** `CTRL_ENABLE_NRF_LINK_ECHO = 1`. nRF Connect app: connect
 to "TimeTaker", enable notifications, write bytes to the RX characteristic.

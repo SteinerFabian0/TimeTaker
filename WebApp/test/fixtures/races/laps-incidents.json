@@ -1,7 +1,7 @@
 {
  "format": "timetaker-race",
  "version": 1,
- "protocol": "0.5",
+ "protocol": "0.6",
  "exportedAt": "2026-11-17T20:00:00.000Z",
  "race": {
   "id": "laps-incidents",

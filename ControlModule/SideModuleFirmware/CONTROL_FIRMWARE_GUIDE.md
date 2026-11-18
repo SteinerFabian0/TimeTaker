@@ -276,8 +276,12 @@ RSTDAA, all lanes `LEFT`, then step 2.
 - **The control module keeps the lane config table**, one entry per index,
   with compiled defaults until the host writes it (`LANE_CONFIG_SET`). The
   lane keeps nothing across a reset (LANE_FIRMWARE_GUIDE §5).
-- **On every JOINED,** push from the table: `CONFIG`, then `SYNC_ALIGN`,
-  then the sampling mode with `COMMAND`. Read `STATUS` back. When it shows
+- **On every JOINED,** push from the table: `CONFIG`, then (only if a
+  reference is saved for the lane index, see "Calibration") `COMMAND
+  SET_REFERENCE{value}`, then `SYNC_ALIGN`, then the sampling mode with
+  `COMMAND`. The same order on every re-push (a lane that lost its config);
+  a `BUS_IDLE_SAFE` re-push sends `SET_REFERENCE` (if saved) before the
+  sampling `COMMAND`. The order is `laneLogicPushNext` (host-tested). Read `STATUS` back. When it shows
   the config applied and SYNC aligned, publish `EVT_LANE_STATE{n,
   CONFIGURED}`. **A lane that resets mid-race comes back configured and
   sampling without the host doing anything.** The host only sees LEFT,
@@ -349,7 +353,11 @@ net. LANE_FIRMWARE_GUIDE §3.6 already says: never depend on IBI alone.
 
 - Read `STATUS` of each lane once a second. Publish changes only:
   `FAULT` (with the lane's last error mapped to a status), `SYNC_LOST`,
-  `SYNC_OK`.
+  `SYNC_OK`. FAULT means STATUS `lastError != 0` or state `PARKED`.
+- **Fault cleared:** when a lane that reported FAULT stops doing so
+  (`lastError` back to 0 and not PARKED), `EVT_LANE_STATE{n, CONFIGURED}`
+  with status 0 goes out once, so the host sees it recover. Not for a lane
+  whose config push gave up (that FAULT stays until it rejoins).
 - **Three failed transfers in a row** to a lane → `LEFT`. Its downstream
   will usually fail too. Do not re-address anyone: wait for the hot-joins.
 - **Lane power off** publishes `LEFT` for every lane.
@@ -367,6 +375,48 @@ SYSTEM_ARCHITECTURE §7.5's ranges):
 | 0x25 | `LANE_LED` | Off / on / level / blink for a lane mask |
 | 0x26 | `LANE_STATUS` | One lane's STATUS, decoded |
 | 0x27 | `LANE_RAW_STREAM` | Start/stop `STR_RAW_SAMPLES` for one lane, with decimation |
+
+#### Calibration (`LANE_CALIBRATE`, protocol 0.6, lane_protocol 0.4)
+
+The lane's *reference* is its bare-foil level (lane_protocol.h
+"Reference"). The control module saves one per lane index in the settings
+record (version 2; a version-1 record loads with all references 0) and seeds
+it at every configure, so a car parked on the line at power-up cannot spoil
+the baseline.
+
+- `LANE_CALIBRATE{laneMask, action}`; the response only acknowledges, each
+  lane's outcome follows as `EVT_LANE_CALIBRATED{lane, result, reference,
+  noise}`. Rejections, in order: `ERR_SEQ_RUNNING` while a start sequence
+  runs (host_manager); mask 0 / beyond lane 6 / unknown action →
+  `ERR_INVALID_ARG`; a lane of the mask still calibrating → `ERR_BUSY`;
+  LEARN with no lane of the mask CONFIGURED → `ERR_LANE_ABSENT`
+  (`laneLogicCalAccept`). Masked lanes that are not CONFIGURED are skipped
+  without an event.
+- **LEARN**, per lane, as a state machine in `laneManagerRun` (never
+  blocks): `COMMAND CALIBRATE`, then `COMMAND SAMPLING ON` if the lane's
+  table mode is OFF (the lane learns and shows CALIBRATED only while
+  sampling; OFF is restored when learning ends — this order also means a
+  set flag after a clear one can only be the new baseline). `STATUS` every
+  10 ms until `CALIBRATED` was seen clear and is set again (learning is 64
+  samples ≈ 64 ms at 1 kHz; 1000 ms at most, else `FAILED`). Then `SIGNAL`:
+  `reference` (0 → `FAILED`) and `noise`. A lane that leaves meanwhile:
+  `FAILED`.
+- **Save:** once no lane is learning any more, every finished lane's
+  reference goes to `settings_store` in one change, so a multi-lane
+  calibration is one flash write. The write's outcome (save ticket,
+  `settingsStoreSaveState`) gives `SAVED`, or `NOT_SAVED` when it failed (the
+  lane keeps the learned value until power-off; the store retries the write
+  later on its own). The usual write rules apply (no write while a start
+  sequence runs, at most one every 10 s), so the event can come up to 10 s
+  late.
+- **FORGET:** references 0 for every lane of the mask (present or not: the
+  reference belongs to the index), `SET_REFERENCE{0}` to those on the bus
+  (they learn as at boot), then the write: `FORGOTTEN` per lane, or
+  `NOT_SAVED`.
+- The calibration's `SIGNAL` read resets the lane's `rawMin`/`rawMax`, as
+  every `SIGNAL` read does.
+- `LANE_STATUS` carries `reference`, `rawMin`, `rawMax` from the `SIGNAL`
+  read.
 
 `NODE_LIST` gains one `nodeInfo` per lane: board type, versions, image CRC
 from the lane's `ID`, state from the table.
@@ -506,6 +556,12 @@ copied here as `ble_link_protocol.h`.
   the last 20 ms, the credit count is set to `slotsFree`, up or down
   (`nrfLinkCreditsResync`, counted in `creditResyncs`). A recent DATA frame
   blocks it, a disconnected link ignores it.
+- **Bridge liveness:** the nRF sends `CTRL STATS` once a second, connected
+  or not. `nrf_link` keeps the time of the last valid CTRL frame and the
+  latest STATS. STATUS `bleBridge` (and the BLE node of NODE_LIST:
+  ABSENT / OK / FAULT) is `ABSENT` before `NRF_HELLO` or after 3000 ms
+  without a CTRL frame, `VERSION_MISMATCH` (node FAULT) on another link
+  MAJOR, else `OK` (`nrfLinkProtoBridge`, `ctrlPolicyBleNodeState`).
 - **CTRL frames** go to small handlers: `NRF_HELLO` (versions, address) →
   the BLE node in NODE_LIST; `LINK_UP` / `LINK_DOWN` → session reset and
   stats; `BUTTON` → bind policy; `CREDIT` → TX.
@@ -578,7 +634,24 @@ power cycles).
   10 s. A page erase stalls flash reads on the same bank for milliseconds;
   check on the bench that SYNC (hardware) and USB survive it.
 - Contents: bind list (8 × {clientId 16 B, name 24 B, LRU u32}), lane config
-  table (6 entries), device name, BLE enabled flag.
+  table (6 entries), device name, BLE enabled flag, and (record version 2)
+  the saved reference of each lane index. Fields are only ever appended: an
+  older record loads with the defaults for the newer fields
+  (`settingsRecordLoad`); a newer version than the firmware knows is
+  treated as corrupt.
+- STATUS `settingsDefaults` = 1 when stored data was found at boot but none
+  was valid (defaults loaded; the same case as `ERR_SETTINGS_CORRUPT`). A
+  new board (both pages erased) is 0.
+
+#### STATUS fields (protocol 0.6)
+
+| Field | Source |
+|---|---|
+| `bleBridge` | nRF liveness, see §5.4 "Bridge liveness" |
+| `bleRssi` | rssi of the latest STATS while `bleBridge` is OK, else 127 |
+| `bleCrcErrors`, `bleUartErrors`, `bleDataDropped` | the nRF's counters from its latest STATS (0 before the first) |
+| `nrfLinkCrcErrors` | `nrfLinkStats.badFrames`: link frames from the nRF that failed CRC/COBS/length on the STM (saturates) |
+| `settingsDefaults` | `settingsStoreLostAtBoot()` |
 
 ### 5.6 Robustness (`fault_guard`, `sys_power`, faults)
 

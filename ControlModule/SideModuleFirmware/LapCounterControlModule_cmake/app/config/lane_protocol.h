@@ -58,7 +58,7 @@
  * ------------------------------------------------------------------------- */
 
 #define LANE_PROTO_MAJOR             0U
-#define LANE_PROTO_MINOR             3U
+#define LANE_PROTO_MINOR             4U
 
 #define LANE_MAX_LANES               6U
 
@@ -196,6 +196,8 @@ typedef enum {
     LANE_CMD_RELEASE_CHAIN    = 5,    /* drop address and CHAIN_OUT         */
     LANE_CMD_RESET            = 6,    /* software reset                     */
     LANE_CMD_CLEAR_COUNTERS   = 7,    /* droppedEvents, badWrites, ...      */
+    LANE_CMD_SET_REFERENCE    = 8,    /* value = saved reference (0.4+), see
+                                       * "Reference" below                  */
     LANE_CMD_ENTER_BOOTLOADER = 0x7F, /* reserved: future I3C lane bootloader;
                                        * an APP image rejects it (badWrites++) */
 } laneCommand_e;
@@ -283,6 +285,21 @@ typedef struct __attribute__((packed)) {
 #define LANE_FIFO_COUNT_MAX          255U
 #define LANE_FIFO_READ_BYTES         (sizeof(laneFifoHeader_t) + LANE_FIFO_READ_MAX * sizeof(laneEvent_t))
 
+/*
+ * Reference (0.4+): the bare-foil level of the last calibration, the
+ * "clean" value the tracked baseline is compared against.
+ *   - COMMAND CALIBRATE learns a new baseline (DETECT_LEARN_SAMPLES with the
+ *     lane free); when learning ends, reference = that baseline.
+ *   - COMMAND SET_REFERENCE (value != 0) seeds both: baseline = reference =
+ *     value, no learning, CALIBRATED set at once. The control module sends it
+ *     after CONFIG with the value it saved, so a car parked on the line at
+ *     power-up cannot spoil the baseline. value 0 = forget: learn as at boot.
+ *   - Without either, the lane learns at boot and reference = that baseline.
+ * The baseline keeps tracking slowly while the lane is free (ambient light);
+ * the reference does not move. baseline far below reference means a dirty
+ * strip or a moved module: recalibrate.
+ */
+
 /* SIGNAL (R): the detector's view, for diagnostics and calibration. */
 typedef struct __attribute__((packed)) {
     uint16_t raw;              /* last PS sample                                  */
@@ -290,8 +307,12 @@ typedef struct __attribute__((packed)) {
     uint16_t thrLow;           /* "car present" threshold in use                  */
     uint16_t thrHigh;          /* "car gone" threshold in use                     */
     uint16_t noise;            /* estimated noise (same units as raw)             */
-    uint16_t reserved;
+    uint16_t reference;        /* see "Reference"; 0 = none yet (0.4+, was reserved) */
     uint64_t sampleUs;         /* sysUs of `raw`                                  */
+    uint16_t rawMin;           /* lowest / highest sample since the previous     */
+    uint16_t rawMax;           /* SIGNAL read (0.4+), so a slow poll still sees a
+                                * passing car. Both = raw when nothing was
+                                * sampled since. Reset by every SIGNAL read.     */
 } laneSignal_t;
 
 /*
@@ -372,7 +393,8 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint8_t  cmd;              /* laneCommand_e                                   */
     uint8_t  arg;
-    uint16_t reserved;
+    uint16_t value;            /* SET_REFERENCE: the reference (0.4+, was reserved,
+                                * ignored by every other command)                 */
 } laneCommand_t;
 
 /* SYNC_ALIGN (W): names the control module's tick. Measured just before the
@@ -407,7 +429,7 @@ _Static_assert(sizeof(laneIndex_t)      ==  1, "laneIndex_t");
 _Static_assert(sizeof(laneStatus_t)     == 24, "laneStatus_t");
 _Static_assert(sizeof(laneEvent_t)      == 16, "laneEvent_t");
 _Static_assert(sizeof(laneFifoHeader_t) ==  4, "laneFifoHeader_t");
-_Static_assert(sizeof(laneSignal_t)     == 20, "laneSignal_t");
+_Static_assert(sizeof(laneSignal_t)     == 24, "laneSignal_t");
 _Static_assert(sizeof(laneConfig_t)     == 36, "laneConfig_t");
 _Static_assert(sizeof(laneLed_t)        == 12, "laneLed_t");
 _Static_assert(sizeof(laneSchedule_t)   == 16, "laneSchedule_t");

@@ -108,22 +108,144 @@ static void testHealth(void)
     laneHealthView_t v = { 0 };
     laneStatus_t st = { .state = LANE_STATE_SAMPLING, .flags = LANE_STATUS_CONFIG_VALID | LANE_STATUS_SYNC_ALIGNED };
     uint8_t out[3];
-    check("health: first healthy STATUS publishes nothing", laneLogicHealth(&v, &st, out) == 0 && v.known);
+    check("health: first healthy STATUS publishes nothing", laneLogicHealth(&v, &st, true, out) == 0 && v.known);
     st.flags |= LANE_STATUS_SYNC_LOST;
-    check("health: SYNC_LOST on the rising flag", laneLogicHealth(&v, &st, out) == 1 && out[0] == HP_LANE_STATE_SYNC_LOST);
-    check("health: ... once", laneLogicHealth(&v, &st, out) == 0);
+    check("health: SYNC_LOST on the rising flag", laneLogicHealth(&v, &st, true, out) == 1 && out[0] == HP_LANE_STATE_SYNC_LOST);
+    check("health: ... once", laneLogicHealth(&v, &st, true, out) == 0);
     st.flags &= (uint16_t)~LANE_STATUS_SYNC_LOST;
-    check("health: SYNC_OK when it clears", laneLogicHealth(&v, &st, out) == 1 && out[0] == HP_LANE_STATE_SYNC_OK);
+    check("health: SYNC_OK when it clears", laneLogicHealth(&v, &st, true, out) == 1 && out[0] == HP_LANE_STATE_SYNC_OK);
     st.lastError = -5;
-    check("health: FAULT on a new lastError", laneLogicHealth(&v, &st, out) == 1 && out[0] == HP_LANE_STATE_FAULT);
-    check("health: ... once", laneLogicHealth(&v, &st, out) == 0);
+    check("health: FAULT on a new lastError", laneLogicHealth(&v, &st, true, out) == 1 && out[0] == HP_LANE_STATE_FAULT);
+    check("health: ... once", laneLogicHealth(&v, &st, true, out) == 0);
     st.lastError = -7;
-    check("health: FAULT again on another error", laneLogicHealth(&v, &st, out) == 1);
+    check("health: FAULT again on another error", laneLogicHealth(&v, &st, true, out) == 1);
     st.lastError = 0;
     st.state = LANE_STATE_PARKED;
     laneHealthView_t v2 = { 0 };
     check("health: PARKED is a fault on the first STATUS",
-          laneLogicHealth(&v2, &st, out) == 1 && out[0] == HP_LANE_STATE_FAULT);
+          laneLogicHealth(&v2, &st, true, out) == 1 && out[0] == HP_LANE_STATE_FAULT);
+}
+
+static void testFaultCleared(void)
+{
+    laneHealthView_t v = { 0 };
+    laneStatus_t st = { .state = LANE_STATE_SAMPLING, .flags = LANE_STATUS_CONFIG_VALID | LANE_STATUS_SYNC_ALIGNED,
+                        .lastError = -5 };
+    uint8_t out[3];
+    (void)laneLogicHealth(&v, &st, true, out);
+    st.lastError = 0;
+    check("fault cleared: lastError back to 0 -> CONFIGURED",
+          laneLogicHealth(&v, &st, true, out) == 1 && out[0] == HP_LANE_STATE_CONFIGURED);
+    check("fault cleared: ... once", laneLogicHealth(&v, &st, true, out) == 0);
+
+    laneHealthView_t p = { 0 };
+    st.state = LANE_STATE_PARKED;
+    (void)laneLogicHealth(&p, &st, true, out);
+    st.state = LANE_STATE_IDLE;
+    check("fault cleared: PARKED left -> CONFIGURED",
+          laneLogicHealth(&p, &st, true, out) == 1 && out[0] == HP_LANE_STATE_CONFIGURED);
+
+    laneHealthView_t f = { 0 };
+    st.lastError = -5;
+    (void)laneLogicHealth(&f, &st, false, out);
+    st.lastError = 0;
+    check("fault cleared: push not done -> nothing (stays FAULT)", laneLogicHealth(&f, &st, false, out) == 0);
+
+    laneHealthView_t h = { 0 };
+    check("fault cleared: a healthy first STATUS -> nothing", laneLogicHealth(&h, &st, true, out) == 0);
+    st.flags |= LANE_STATUS_SYNC_LOST;
+    st.lastError = -1;
+    (void)laneLogicHealth(&h, &st, true, out);
+    st.flags &= (uint16_t)~LANE_STATUS_SYNC_LOST;
+    st.lastError = 0;
+    check("fault cleared: with SYNC_OK in the same STATUS -> both",
+          laneLogicHealth(&h, &st, true, out) == 2 && out[0] == HP_LANE_STATE_SYNC_OK
+          && out[1] == HP_LANE_STATE_CONFIGURED);
+}
+
+static void testPushOrder(void)
+{
+    check("push: ID -> LANE_ID", laneLogicPushNext(LANE_PUSH_ID, 0) == LANE_PUSH_LANE_ID);
+    check("push: LANE_ID -> CONFIG", laneLogicPushNext(LANE_PUSH_LANE_ID, 0) == LANE_PUSH_CONFIG);
+    check("push: CONFIG with a saved reference -> SET_REFERENCE",
+          laneLogicPushNext(LANE_PUSH_CONFIG, 1234) == LANE_PUSH_REFERENCE);
+    check("push: CONFIG without one (0) -> ALIGN", laneLogicPushNext(LANE_PUSH_CONFIG, 0) == LANE_PUSH_ALIGN);
+    check("push: SET_REFERENCE -> ALIGN", laneLogicPushNext(LANE_PUSH_REFERENCE, 1234) == LANE_PUSH_ALIGN);
+    check("push: ALIGN -> MODE", laneLogicPushNext(LANE_PUSH_ALIGN, 1234) == LANE_PUSH_MODE);
+    check("push: MODE -> VERIFY", laneLogicPushNext(LANE_PUSH_MODE, 1234) == LANE_PUSH_VERIFY);
+}
+
+static void testCalibration(void)
+{
+    uint8_t run = 0xFF;
+    const uint8_t L1 = LANE_LOGIC_MASK(1), L2 = LANE_LOGIC_MASK(2), L3 = LANE_LOGIC_MASK(3);
+
+    /* Accept: one broken rule per rejection. */
+    check("cal accept: LEARN on configured lanes -> those",
+          laneLogicCalAccept(L1 | L2, HP_CALIB_LEARN, L1 | L2, 0, &run) == CTRL_OK && run == (L1 | L2));
+    check("cal accept: LEARN skips lanes not configured",
+          laneLogicCalAccept(L1 | L3, HP_CALIB_LEARN, L1 | L2, 0, &run) == CTRL_OK && run == L1);
+    check("cal accept: mask 0 -> INVALID_ARG",
+          laneLogicCalAccept(0, HP_CALIB_LEARN, L1, 0, &run) == CTRL_ERR_INVALID_ARG && run == 0);
+    check("cal accept: lane 7 bit -> INVALID_ARG",
+          laneLogicCalAccept(L1 | 0x40, HP_CALIB_LEARN, L1, 0, &run) == CTRL_ERR_INVALID_ARG);
+    check("cal accept: unknown action -> INVALID_ARG",
+          laneLogicCalAccept(L1, HP_CALIB_FORGET + 1, L1, 0, &run) == CTRL_ERR_INVALID_ARG);
+    check("cal accept: a masked lane still calibrating -> BUSY",
+          laneLogicCalAccept(L1 | L2, HP_CALIB_LEARN, L1 | L2, L2, &run) == CTRL_ERR_BUSY && run == 0);
+    check("cal accept: another lane calibrating is no reason",
+          laneLogicCalAccept(L1, HP_CALIB_LEARN, L1 | L2, L2, &run) == CTRL_OK && run == L1);
+    check("cal accept: LEARN, no masked lane configured -> LANE_ABSENT",
+          laneLogicCalAccept(L3, HP_CALIB_LEARN, L1 | L2, 0, &run) == CTRL_ERR_LANE_ABSENT && run == 0);
+    check("cal accept: FORGET runs on absent lanes too",
+          laneLogicCalAccept(L3, HP_CALIB_FORGET, 0, 0, &run) == CTRL_OK && run == L3);
+    check("cal accept: FORGET while that lane calibrates -> BUSY",
+          laneLogicCalAccept(L3, HP_CALIB_FORGET, 0, L3, &run) == CTRL_ERR_BUSY);
+
+    /* Poll. */
+    bool seen = false;
+    const uint16_t CAL = LANE_STATUS_CALIBRATED | LANE_STATUS_CONFIG_VALID;
+    check("cal poll: still set (command not applied yet) -> again",
+          laneLogicCalPoll(&seen, true, CAL, 10) == LANE_CAL_POLL_AGAIN && !seen);
+    check("cal poll: clear (learning) -> again, seen",
+          laneLogicCalPoll(&seen, true, LANE_STATUS_CONFIG_VALID, 20) == LANE_CAL_POLL_AGAIN && seen);
+    check("cal poll: failed read -> again", laneLogicCalPoll(&seen, false, CAL, 30) == LANE_CAL_POLL_AGAIN);
+    check("cal poll: set again after clear -> LEARNED", laneLogicCalPoll(&seen, true, CAL, 80) == LANE_CAL_LEARNED);
+    seen = false;
+    check("cal poll: set at the timeout, never seen clear -> TIMEOUT",
+          laneLogicCalPoll(&seen, true, CAL, LANE_LOGIC_CAL_TIMEOUT_MS) == LANE_CAL_TIMEOUT);
+    check("cal poll: one ms before the timeout -> again",
+          laneLogicCalPoll(&seen, true, CAL, LANE_LOGIC_CAL_TIMEOUT_MS - 1U) == LANE_CAL_POLL_AGAIN);
+    seen = true;
+    check("cal poll: learned read at the timeout wins",
+          laneLogicCalPoll(&seen, true, CAL, LANE_LOGIC_CAL_TIMEOUT_MS + 5U) == LANE_CAL_LEARNED);
+    seen = true;
+    check("cal poll: still learning at the timeout -> TIMEOUT",
+          laneLogicCalPoll(&seen, true, 0, LANE_LOGIC_CAL_TIMEOUT_MS) == LANE_CAL_TIMEOUT);
+    check("cal poll: learning (64 samples at 1 kHz) fits the timeout with margin",
+          64U + 3U * LANE_LOGIC_CAL_POLL_MS < LANE_LOGIC_CAL_TIMEOUT_MS);
+
+    /* Reference and results. */
+    laneSignal_t sig = { .reference = 900, .noise = 4 };
+    check("cal ref: read ok, reference != 0 -> save", laneLogicCalReferenceOk(true, &sig));
+    check("cal ref: read failed -> no", !laneLogicCalReferenceOk(false, &sig));
+    sig.reference = 0;
+    check("cal ref: reference 0 -> FAILED", !laneLogicCalReferenceOk(true, &sig));
+    check("cal result: learn written -> SAVED", laneLogicCalSaveResult(false, true) == HP_CALIB_RESULT_SAVED);
+    check("cal result: learn not written -> NOT_SAVED", laneLogicCalSaveResult(false, false) == HP_CALIB_RESULT_NOT_SAVED);
+    check("cal result: forget written -> FORGOTTEN", laneLogicCalSaveResult(true, true) == HP_CALIB_RESULT_FORGOTTEN);
+    check("cal result: forget not written -> NOT_SAVED", laneLogicCalSaveResult(true, false) == HP_CALIB_RESULT_NOT_SAVED);
+
+    hpEvtLaneCalibrated_t e;
+    laneLogicCalEvent(2, HP_CALIB_RESULT_SAVED, 900, 4, 77, &e);
+    check("cal event: SAVED carries reference and noise", e.lane == 2 && e.result == HP_CALIB_RESULT_SAVED
+          && e.reference == 900 && e.noise == 4 && e.sysUs == 77 && e.reserved == 0 && e.evSeq == 0);
+    laneLogicCalEvent(2, HP_CALIB_RESULT_NOT_SAVED, 900, 4, 77, &e);
+    check("cal event: NOT_SAVED of a learn carries them too", e.reference == 900 && e.noise == 4);
+    laneLogicCalEvent(2, HP_CALIB_RESULT_FAILED, 900, 4, 77, &e);
+    check("cal event: FAILED -> reference and noise 0", e.result == HP_CALIB_RESULT_FAILED && e.reference == 0 && e.noise == 0);
+    laneLogicCalEvent(2, HP_CALIB_RESULT_FORGOTTEN, 900, 4, 77, &e);
+    check("cal event: FORGOTTEN -> reference and noise 0", e.reference == 0 && e.noise == 0);
 }
 
 static void testIdleSafe(void)
@@ -223,13 +345,15 @@ static void testMapping(void)
 {
     laneStatus_t st = { .state = 3, .samplingMode = 2, .flags = 0x1234, .fifoCount = 5, .droppedEvents = 6, .syncShifts = 7,
                         .badWrites = 8, .lateActions = 9, .lastError = -10, .resetCause = 2, .faultId = 4, .uptimeMs = 99 };
-    laneSignal_t sig = { .raw = 1, .baseline = 2, .thrLow = 3, .thrHigh = 4, .noise = 5 };
+    laneSignal_t sig = { .raw = 1, .baseline = 2, .thrLow = 3, .thrHigh = 4, .noise = 5, .reference = 6,
+                         .sampleUs = 1234, .rawMin = 7, .rawMax = 8 };
     hpLaneStatusRsp_t r;
     laneLogicStatusRsp(4, &st, &sig, &r);
     check("status: every field mapped", r.lane == 4 && r.state == 3 && r.samplingMode == 2 && r.flags == 0x1234
           && r.fifoCount == 5 && r.droppedEvents == 6 && r.syncShifts == 7 && r.badWrites == 8 && r.lateActions == 9
           && r.lastError == -10 && r.resetCause == 2 && r.faultId == 4 && r.uptimeMs == 99 && r.raw == 1
-          && r.baseline == 2 && r.thrLow == 3 && r.thrHigh == 4 && r.noise == 5);
+          && r.baseline == 2 && r.thrLow == 3 && r.thrHigh == 4 && r.noise == 5
+          && r.reference == 6 && r.rawMin == 7 && r.rawMax == 8);
     laneId_t id = { .boardType = 2, .protoMinor = 1, .fwMajor = 1, .fwMinor = 2, .fwPatch = 3, .fwGitRev = 0xabc, .imageCrc = 0xdead };
     hpNodeInfo_t n;
     laneLogicNodeInfo(5, &id, HP_NODE_STATE_OK, &n);
@@ -286,6 +410,9 @@ int main(void)
     testFifo();
     testCrossing();
     testHealth();
+    testFaultCleared();
+    testPushOrder();
+    testCalibration();
     testConfigured();
     testConfigCheck();
     testMapping();

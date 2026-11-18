@@ -128,7 +128,19 @@ bool laneLogicNeedsModePush(const laneStatus_t *st)
     return (st->flags & LANE_STATUS_BUS_IDLE_SAFE) != 0U;
 }
 
-uint8_t laneLogicHealth(laneHealthView_t *view, const laneStatus_t *st, uint8_t out[3])
+uint8_t laneLogicPushNext(uint8_t done, uint16_t savedReference)
+{
+    switch (done) {
+    case LANE_PUSH_ID:        return (uint8_t)LANE_PUSH_LANE_ID;
+    case LANE_PUSH_LANE_ID:   return (uint8_t)LANE_PUSH_CONFIG;
+    case LANE_PUSH_CONFIG:    return (savedReference != 0U) ? (uint8_t)LANE_PUSH_REFERENCE : (uint8_t)LANE_PUSH_ALIGN;
+    case LANE_PUSH_REFERENCE: return (uint8_t)LANE_PUSH_ALIGN;
+    case LANE_PUSH_ALIGN:     return (uint8_t)LANE_PUSH_MODE;
+    default:                  return (uint8_t)LANE_PUSH_VERIFY;
+    }
+}
+
+uint8_t laneLogicHealth(laneHealthView_t *view, const laneStatus_t *st, bool pushDone, uint8_t out[3])
 {
     uint8_t n = 0U;
 
@@ -143,6 +155,8 @@ uint8_t laneLogicHealth(laneHealthView_t *view, const laneStatus_t *st, uint8_t 
 
     if (faultedNow && (!view->known || !view->faulted || st->lastError != view->lastError)) {
         out[n++] = (uint8_t)HP_LANE_STATE_FAULT;
+    } else if (!faultedNow && view->known && view->faulted && pushDone) {
+        out[n++] = (uint8_t)HP_LANE_STATE_CONFIGURED;   /* recovered */
     }
 
     view->known     = true;
@@ -209,6 +223,67 @@ void laneLogicDefaultConfig(uint8_t lane, hpLaneConfig_t *cfg)
     cfg->psMultiPulse          = 0U;
 }
 
+ctrlStatus_e laneLogicCalAccept(uint8_t laneMask, uint8_t action, uint8_t configuredMask, uint8_t busyMask,
+                                uint8_t *runMask)
+{
+    *runMask = 0U;
+    if (laneMask == 0U || (laneMask & (uint8_t)~LANE_LOGIC_ALL_MASK) != 0U
+        || action > (uint8_t)HP_CALIB_FORGET) {
+        return CTRL_ERR_INVALID_ARG;
+    }
+    if ((laneMask & busyMask) != 0U) {
+        return CTRL_ERR_BUSY;
+    }
+    if (action == (uint8_t)HP_CALIB_FORGET) {
+        *runMask = laneMask;
+        return CTRL_OK;
+    }
+    const uint8_t run = (uint8_t)(laneMask & configuredMask);
+    if (run == 0U) {
+        return CTRL_ERR_LANE_ABSENT;
+    }
+    *runMask = run;
+    return CTRL_OK;
+}
+
+laneCalPoll_e laneLogicCalPoll(bool *seenClear, bool readOk, uint16_t flags, uint32_t elapsedMs)
+{
+    if (readOk) {
+        if ((flags & LANE_STATUS_CALIBRATED) == 0U) {
+            *seenClear = true;
+        } else if (*seenClear) {
+            return LANE_CAL_LEARNED;
+        }
+    }
+    return (elapsedMs >= LANE_LOGIC_CAL_TIMEOUT_MS) ? LANE_CAL_TIMEOUT : LANE_CAL_POLL_AGAIN;
+}
+
+bool laneLogicCalReferenceOk(bool readOk, const laneSignal_t *sig)
+{
+    return readOk && sig->reference != 0U;
+}
+
+uint8_t laneLogicCalSaveResult(bool forget, bool written)
+{
+    if (!written) {
+        return (uint8_t)HP_CALIB_RESULT_NOT_SAVED;
+    }
+    return forget ? (uint8_t)HP_CALIB_RESULT_FORGOTTEN : (uint8_t)HP_CALIB_RESULT_SAVED;
+}
+
+void laneLogicCalEvent(uint8_t lane, uint8_t result, uint16_t reference, uint16_t noise, uint64_t sysUs,
+                       hpEvtLaneCalibrated_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    const bool learned = reference != 0U
+                         && (result == (uint8_t)HP_CALIB_RESULT_SAVED || result == (uint8_t)HP_CALIB_RESULT_NOT_SAVED);
+    out->lane      = lane;
+    out->result    = result;
+    out->reference = learned ? reference : 0U;
+    out->noise     = learned ? noise : 0U;
+    out->sysUs     = sysUs;
+}
+
 void laneLogicStatusRsp(uint8_t lane, const laneStatus_t *st, const laneSignal_t *sig,
                         hpLaneStatusRsp_t *out)
 {
@@ -231,6 +306,9 @@ void laneLogicStatusRsp(uint8_t lane, const laneStatus_t *st, const laneSignal_t
     out->thrLow        = sig->thrLow;
     out->thrHigh       = sig->thrHigh;
     out->noise         = sig->noise;
+    out->reference     = sig->reference;
+    out->rawMin        = sig->rawMin;
+    out->rawMax        = sig->rawMax;
 }
 
 void laneLogicNodeInfo(uint8_t lane, const laneId_t *id, uint8_t nodeState, hpNodeInfo_t *out)

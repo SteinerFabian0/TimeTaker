@@ -52,7 +52,7 @@
 
 [protocol]
 major = 0
-minor = 5
+minor = 6
 max_payload = 240   # header 4 + payload 240 = 244 raw bytes; the nRF link adds 1 channel byte (245)
 max_event_payload = 24   # events incl. evSeq: the control module's event log slot (event_log.h)
 
@@ -472,6 +472,34 @@ values = [
 ]
 
 [[enum]]
+name = "bleBridgeState"
+prefix = "BLE_BRIDGE"
+doc = "Is the nRF52805 itself alive (independent of any phone being connected)"
+values = [
+  { name = "ABSENT", value = 0, doc = "No NRF_HELLO yet, or no CTRL frame from the nRF for 3 s (it sends STATS every second)" },
+  { name = "OK", value = 1 },
+  { name = "VERSION_MISMATCH", value = 2, doc = "nRF link protocol MAJOR differs: BLE data refused" },
+]
+
+[[enum]]
+name = "calibrateAction"
+prefix = "CALIB"
+values = [
+  { name = "LEARN", value = 0, doc = "Learn the bare-foil level now (lanes free!) and save it as the reference" },
+  { name = "FORGET", value = 1, doc = "Drop the saved reference: the lane learns at every power-up again" },
+]
+
+[[enum]]
+name = "calibrateResult"
+prefix = "CALIB_RESULT"
+values = [
+  { name = "SAVED", value = 1, doc = "Learned and saved; reference and noise are the new values" },
+  { name = "FORGOTTEN", value = 2, doc = "Saved reference dropped (FORGET)" },
+  { name = "FAILED", value = 3, doc = "The lane did not finish learning in time, or left the bus" },
+  { name = "NOT_SAVED", value = 4, doc = "Learned, but the flash write failed: the lane uses it until power-off" },
+]
+
+[[enum]]
 name = "bleLinkState"
 prefix = "BLE_LINK"
 values = [
@@ -722,6 +750,14 @@ response = [
   { name = "settingsWrites", type = "u16", doc = "Flash writes since boot" },
   { name = "logOldestSeq", type = "u32" },
   { name = "logNextSeq", type = "u32" },
+  { name = "bleBridge", type = "u8", enum = "bleBridgeState", doc = "The nRF itself (0.6+); bleLink above is the phone connection" },
+  { name = "bleRssi", type = "i8", doc = "dBm of the connected central, 127 = unknown / not connected" },
+  { name = "bleCrcErrors", type = "u16", doc = "Bad link frames the nRF got from the STM (nRF STATS, saturates)" },
+  { name = "bleUartErrors", type = "u16", doc = "nRF UART framing/overrun errors (nRF STATS, saturates)" },
+  { name = "bleDataDropped", type = "u16", doc = "Data the nRF had to drop (nRF STATS, saturates)" },
+  { name = "nrfLinkCrcErrors", type = "u16", doc = "Bad link frames the STM got from the nRF (saturates)" },
+  { name = "settingsDefaults", type = "u8", doc = "1 = stored settings were lost at boot and defaults loaded" },
+  { name = "reserved", type = "u8" },
 ]
 example_request = {}
 
@@ -864,7 +900,9 @@ response = [
   { name = "thrLow", type = "u16" },
   { name = "thrHigh", type = "u16" },
   { name = "noise", type = "u16" },
-  { name = "reserved", type = "u16" },
+  { name = "reference", type = "u16", doc = "Saved/learned clean level (lane_protocol.h \"Reference\"), 0 = none (0.6+, was reserved)" },
+  { name = "rawMin", type = "u16", doc = "Lowest sample since the previous LANE_STATUS of this lane (0.6+)" },
+  { name = "rawMax", type = "u16", doc = "Highest sample since the previous LANE_STATUS of this lane (0.6+)" },
 ]
 example_request = { lane = 4 }
 example_response = { status = -21 }
@@ -886,11 +924,12 @@ response = []
 id = 0x28
 name = "LANE_CALIBRATE"
 kind = "request"
-example_request = { laneMask = 0x01 }
+example_request = { laneMask = 0x01, action = 0 }
 example_response = { status = -21 }
-doc = "The lanes in laneMask re-learn their baseline. Only meaningful with the lane free."
+doc = "LEARN: the lanes in laneMask (bit n-1 = lane n) learn their bare-foil level (lanes must be free) and the control module saves it as each lane's reference. FORGET drops the saved references. The response only acknowledges; each lane's outcome follows as EVT_LANE_CALIBRATED."
 request = [
   { name = "laneMask", type = "u8" },
+  { name = "action", type = "u8", enum = "calibrateAction" },
 ]
 response = []
 
@@ -1075,6 +1114,21 @@ fields = [
   { name = "source", type = "u8", enum = "faultSource" },
   { name = "reserved", type = "u8" },
   { name = "status", type = "i16" },
+  { name = "sysUs", type = "u64" },
+]
+
+[[message]]
+id = 0xCA
+name = "EVT_LANE_CALIBRATED"
+kind = "event"
+example = { evSeq = 10, lane = 2, result = 1, reference = 3870, noise = 12, reserved = 0, sysUs = 30000000 }
+doc = "Outcome of LANE_CALIBRATE for one lane."
+fields = [
+  { name = "lane", type = "u8" },
+  { name = "result", type = "u8", enum = "calibrateResult" },
+  { name = "reference", type = "u16", doc = "The new reference (SAVED / NOT_SAVED), else 0" },
+  { name = "noise", type = "u16", doc = "Noise estimate when learning ended" },
+  { name = "reserved", type = "u16" },
   { name = "sysUs", type = "u64" },
 ]
 

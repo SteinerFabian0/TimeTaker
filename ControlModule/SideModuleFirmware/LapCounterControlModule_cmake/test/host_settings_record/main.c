@@ -9,6 +9,7 @@
 
 #include "crc32.h"
 #include "settings_record.h"
+#include "settings_store.h"   /* settingsData_t layout only */
 #include "../test_check.h"
 
 #define PAGE 1024U
@@ -167,8 +168,96 @@ static void testSelect(void)
     check("select: corrupt + empty -> none, corrupt reported", s.active == -1 && s.corrupt && s.writeTarget == 0);
 }
 
+/* A record of any version, CRC fine (as an older/newer firmware wrote it). */
+static uint32_t writeVersion(uint8_t *page, uint16_t version, const uint8_t *payload, uint16_t len, uint32_t seq)
+{
+    erase(page);
+    uint32_t n = settingsRecordEncode(payload, len, seq, page, PAGE);
+    settingsRecordHeader_t h;
+    memcpy(&h, page, sizeof(h));
+    h.version = version;
+    memcpy(page, &h, sizeof(h));
+    uint32_t crc = crc32Compute(page, sizeof(h) + len);
+    memcpy(page + sizeof(h) + len, &crc, 4);
+    return n;
+}
+
+static void testMigration(void)
+{
+    _Static_assert(SETTINGS_RECORD_BYTES(sizeof(settingsData_t)) <= PAGE, "test page holds a record");
+    settingsData_t old;
+    memset(&old, 0, sizeof(old));
+    uint8_t *raw = (uint8_t *)&old;
+    for (uint32_t i = 0U; i < SETTINGS_DATA_V1_BYTES; i++) {
+        raw[i] = (uint8_t)(i * 7U + 3U);   /* every v1 byte distinct-ish, none of it 0 by design */
+    }
+
+    /* A version-1 record: exactly the bytes before laneReference. */
+    writeVersion(p0, 1U, raw, (uint16_t)SETTINGS_DATA_V1_BYTES, 4);
+    settingsRecordHeader_t h;
+    const uint8_t *pl = NULL;
+    check("migrate: version 1 record -> VALID",
+          settingsRecordCheck(p0, PAGE, &h, &pl) == SETTINGS_PAGE_VALID && h.version == 1U);
+
+    settingsData_t d;
+    memset(&d, 0, sizeof(d));                 /* defaults: references 0 */
+    d.laneReference[2] = 0xBEEF;              /* a default the old record must not touch */
+    uint16_t n = settingsRecordLoad(&h, pl, (uint8_t *)&d, (uint16_t)sizeof(d));
+    check("migrate: v1 copies its whole payload", n == SETTINGS_DATA_V1_BYTES);
+    check("migrate: every v1 field kept (device, lane table, modes, binds)",
+          memcmp(&d, raw, SETTINGS_DATA_V1_BYTES) == 0);
+    check("migrate: references keep the defaults", d.laneReference[0] == 0 && d.laneReference[2] == 0xBEEF
+          && d.laneReference[5] == 0);
+
+    /* The current version round-trips with the references. */
+    settingsData_t cur = old;
+    for (uint8_t i = 0U; i < LANE_MAX_LANES; i++) {
+        cur.laneReference[i] = (uint16_t)(1000U + i);
+    }
+    erase(p1);
+    settingsRecordEncode((const uint8_t *)&cur, (uint16_t)sizeof(cur), 5, p1, PAGE);
+    check("migrate: version 2 record -> VALID", settingsRecordCheck(p1, PAGE, &h, &pl) == SETTINGS_PAGE_VALID
+          && h.version == SETTINGS_RECORD_VERSION && SETTINGS_RECORD_VERSION == 2U);
+    memset(&d, 0, sizeof(d));
+    settingsRecordLoad(&h, pl, (uint8_t *)&d, (uint16_t)sizeof(d));
+    check("migrate: v2 loads the references", memcmp(&d, &cur, sizeof(d)) == 0);
+
+    settingsSelect_t sel;
+    settingsRecordSelect(p0, p1, PAGE, &sel);
+    check("migrate: v1 + newer v2 -> the v2 one", sel.active == 1 && sel.sequence == 5U);
+
+    writeVersion(p0, 0U, raw, (uint16_t)SETTINGS_DATA_V1_BYTES, 4);
+    check("migrate: version 0 -> CORRUPT", settingsRecordCheck(p0, PAGE, &h, NULL) == SETTINGS_PAGE_CORRUPT);
+    writeVersion(p0, SETTINGS_RECORD_VERSION + 1U, raw, (uint16_t)SETTINGS_DATA_V1_BYTES, 4);
+    check("migrate: a newer version than known -> CORRUPT",
+          settingsRecordCheck(p0, PAGE, &h, NULL) == SETTINGS_PAGE_CORRUPT);
+
+    /* A longer (future) payload is cut at what this firmware knows. */
+    uint8_t big[sizeof(settingsData_t) + 8];
+    memset(big, 0x5A, sizeof(big));
+    settingsRecordHeader_t hb = { .length = (uint16_t)sizeof(big) };
+    memset(&d, 0, sizeof(d));
+    check("load: longer payload cut to the struct",
+          settingsRecordLoad(&hb, big, (uint8_t *)&d, (uint16_t)sizeof(d)) == sizeof(d));
+}
+
+static void testSaveState(void)
+{
+    check("save: nothing written yet -> pending", settingsRecordSaveState(0, 0, 1) == SETTINGS_SAVE_PENDING);
+    check("save: written at the ticket -> WRITTEN", settingsRecordSaveState(3, 0, 3) == SETTINGS_SAVE_WRITTEN);
+    check("save: written past the ticket -> WRITTEN", settingsRecordSaveState(5, 0, 3) == SETTINGS_SAVE_WRITTEN);
+    check("save: an older write only -> pending", settingsRecordSaveState(2, 0, 3) == SETTINGS_SAVE_PENDING);
+    check("save: write covering it failed -> FAILED", settingsRecordSaveState(2, 3, 3) == SETTINGS_SAVE_FAILED);
+    check("save: an older write failed -> pending", settingsRecordSaveState(2, 2, 3) == SETTINGS_SAVE_PENDING);
+    check("save: failed, then a later success -> WRITTEN", settingsRecordSaveState(4, 3, 3) == SETTINGS_SAVE_WRITTEN);
+    check("save: generation wrap", settingsRecordSaveState(1U, 0U, 0xFFFFFFFFU) == SETTINGS_SAVE_WRITTEN);
+    check("save: no change since boot (ticket 0) -> WRITTEN", settingsRecordSaveState(0, 0, 0) == SETTINGS_SAVE_WRITTEN);
+}
+
 int main(void)
 {
+    testMigration();
+    testSaveState();
     testCrc();
     testEncode();
     testCheck();

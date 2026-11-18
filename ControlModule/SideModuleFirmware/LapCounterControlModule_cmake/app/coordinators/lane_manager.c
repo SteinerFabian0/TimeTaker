@@ -20,6 +20,7 @@
 #include "i3c_ctrl.h"
 #include "sys_time.h"
 #include "settings_store.h"
+#include "settings_record.h"
 #include "log_line.h"
 #include "host_manager.h"
 
@@ -44,7 +45,12 @@ typedef enum {
     OP_SCHED_VERIFY,
     OP_REQ_STATUS,
     OP_REQ_SIGNAL,
+    OP_REFERENCE,      /* push step: COMMAND SET_REFERENCE */
+    OP_CAL_CMD,        /* COMMAND CALIBRATE (not sequenced) */
+    OP_CAL_STATUS,     /* STATUS while learning (not sequenced) */
+    OP_CAL_SIGNAL,     /* SIGNAL after learning (not sequenced) */
 } laneOp_e;
+_Static_assert(OP_CAL_SIGNAL <= 0x1F, "op fits the tag's 5 bits");
 
 #define LANE_TAG(lane, op, gen)  ((uint16_t)(((uint16_t)(gen) << 8) | ((uint16_t)(op) << 3) | (uint16_t)(lane)))
 #define LANE_TAG_LANE(tag)       ((uint8_t)((tag) & 0x7U))
@@ -79,14 +85,29 @@ typedef enum {
     SLOT_FAILED,        /* push gave up or wrong protocol: health only */
 } laneSlotState_e;
 
+/* Calibration of one lane (kept apart from laneSlot_t: it outlives a LEFT
+ * long enough to report it, and the save phase runs without the lane). */
 typedef enum {
-    PUSH_ID = 0,
-    PUSH_LANE_ID,
-    PUSH_CONFIG,
-    PUSH_ALIGN,
-    PUSH_MODE,
-    PUSH_VERIFY,
-} lanePushStep_e;
+    CAL_IDLE = 0,
+    CAL_POLL_WAIT,      /* next STATUS read at nextPollMs */
+    CAL_READING,        /* STATUS read in flight */
+    CAL_SIGNAL,         /* SIGNAL read in flight */
+    CAL_SAVE_WAIT,      /* reference taken (or forgotten): waits for the batch */
+    CAL_SAVING,         /* settings_store write covering `ticket` */
+} laneCalState_e;
+
+typedef struct {
+    uint8_t  state;              /* laneCalState_e */
+    bool     forget;
+    bool     seenClear;          /* CALIBRATED seen clear since the command */
+    bool     restoreOff;         /* sampling was switched ON for learning */
+    uint32_t startMs;
+    uint32_t nextPollMs;
+    uint16_t reference;
+    uint16_t noise;
+    uint32_t ticket;
+    uint8_t  buf[sizeof(laneSignal_t) > sizeof(laneStatus_t) ? sizeof(laneSignal_t) : sizeof(laneStatus_t)];
+} laneCal_t;
 
 typedef struct {
     uint8_t          state;              /* laneSlotState_e */
@@ -141,6 +162,8 @@ static laneSlot_t       laneSlots[LANE_MAX_LANES + 1U];   /* index 1..6 */
 
 static hpLaneConfig_t   laneTable[LANE_MAX_LANES];
 static uint8_t          laneTableMode[LANE_MAX_LANES];
+static uint16_t         laneRef[LANE_MAX_LANES];     /* saved reference per index, 0 = none */
+static laneCal_t        laneCal[LANE_MAX_LANES + 1U];
 
 static uint8_t          laneRawLane;         /* 0 = none */
 static uint16_t         laneRawDecimation;
@@ -258,9 +281,47 @@ static void laneCommand(uint8_t lane, uint8_t cmd, uint8_t arg)
     laneWrite(lane, LANE_REG_COMMAND, &c, (uint8_t)sizeof(c));
 }
 
+static void laneSetReference(uint8_t lane, uint16_t value)
+{
+    const laneCommand_t c = { .cmd = LANE_CMD_SET_REFERENCE, .arg = 0U, .value = value };
+    laneWrite(lane, LANE_REG_COMMAND, &c, (uint8_t)sizeof(c));
+}
+
 static bool laneOnBus(uint8_t lane)
 {
     return lane >= 1U && lane <= LANE_MAX_LANES && laneSlots[lane].state != SLOT_ABSENT;
+}
+
+
+/* --- Calibration helpers ------------------------------------------------------------ */
+
+static bool laneCalLearning(uint8_t lane)
+{
+    const uint8_t st = laneCal[lane].state;
+    return st == CAL_POLL_WAIT || st == CAL_READING || st == CAL_SIGNAL;
+}
+
+/* Sampling back OFF if it was switched ON for learning and the table still
+ * says OFF (a start sequence's armSampling may have turned it ON since). */
+static void laneCalRestoreMode(uint8_t lane)
+{
+    laneCal_t *c = &laneCal[lane];
+    if (c->restoreOff && laneOnBus(lane) && laneModeFor(lane) == (uint8_t)LANE_SAMPLING_OFF) {
+        laneCommand(lane, LANE_CMD_SAMPLING, LANE_SAMPLING_OFF);
+    }
+    c->restoreOff = false;
+}
+
+static void laneCalFinish(uint8_t lane, uint8_t result)
+{
+    laneCal_t *c = &laneCal[lane];
+    laneCalRestoreMode(lane);
+    hpEvtLaneCalibrated_t evt;
+    laneLogicCalEvent(lane, result, c->reference, c->noise, sysTimeNowUs(), &evt);
+    (void)hostManagerPublishEvent(HP_MSG_EVT_LANE_CALIBRATED, &evt, sizeof(evt));
+    laneLog((result == (uint8_t)HP_CALIB_RESULT_SAVED || result == (uint8_t)HP_CALIB_RESULT_FORGOTTEN)
+            ? HP_LOG_INFO : HP_LOG_WARN, "CALIBRATED", lane, "result", result);
+    memset(c, 0, sizeof(*c));
 }
 
 
@@ -284,6 +345,9 @@ static void laneMarkLeft(uint8_t lane, ctrlStatus_e reason)
     }
     lanePublishState(lane, (uint8_t)HP_LANE_STATE_LEFT, reason);
     laneLog(HP_LOG_INFO, "LEFT", lane, "status", reason);
+    if (laneCalLearning(lane)) {
+        laneCalFinish(lane, (uint8_t)HP_CALIB_RESULT_FAILED);   /* slot already ABSENT: no restore write */
+    }
 }
 
 static void laneStartPush(uint8_t lane, uint8_t fromStep)
@@ -300,7 +364,7 @@ static void laneJoined(uint8_t lane)
     const uint8_t gen = s->gen;
     memset(s, 0, sizeof(*s));
     s->gen = gen;
-    laneStartPush(lane, PUSH_ID);
+    laneStartPush(lane, LANE_PUSH_ID);
     lanePublishState(lane, (uint8_t)HP_LANE_STATE_JOINED, CTRL_OK);
     laneLog(HP_LOG_INFO, "JOINED", lane, "addr", LANE_DYN_ADDR(lane));
 }
@@ -319,7 +383,7 @@ static void laneConfigured(uint8_t lane, const laneStatus_t *st)
     s->lastPollMs  = now;
     s->lastHealthMs = now + (uint32_t)lane * 150U;    /* stagger the 1 s reads */
     s->lastAlignMs  = now + (uint32_t)lane * 150U + 75U;
-    (void)laneLogicHealth(&s->health, st, (uint8_t[3]){ 0 });
+    (void)laneLogicHealth(&s->health, st, true, (uint8_t[3]){ 0 });
     lanePublishState(lane, (uint8_t)HP_LANE_STATE_CONFIGURED, CTRL_OK);
     laneLog(HP_LOG_INFO, "CONFIGURED", lane, "seq", s->nextSeq);
 }
@@ -329,28 +393,33 @@ static void lanePushNext(uint8_t lane)
 {
     laneSlot_t *s = &laneSlots[lane];
     switch (s->pushStep) {
-    case PUSH_ID:
+    case LANE_PUSH_ID:
         laneStep(lane, OP_ID, LANE_REG_ID, NULL, 0U, s->rx, (uint16_t)sizeof(laneId_t), NULL);
         break;
-    case PUSH_LANE_ID: {
+    case LANE_PUSH_LANE_ID: {
         const laneIndex_t idx = { .laneIndex = lane };
         laneStep(lane, OP_LANE_ID, LANE_REG_LANE_ID, &idx, (uint8_t)sizeof(idx), NULL, 0U, NULL);
         break;
     }
-    case PUSH_CONFIG: {
+    case LANE_PUSH_CONFIG: {
         const laneConfig_t c = laneConfigFor(lane);
         laneStep(lane, OP_CONFIG, LANE_REG_CONFIG, &c, (uint8_t)sizeof(c), NULL, 0U, NULL);
         break;
     }
-    case PUSH_ALIGN:
+    case LANE_PUSH_REFERENCE: {
+        const laneCommand_t c = { .cmd = LANE_CMD_SET_REFERENCE, .arg = 0U, .value = laneRef[lane - 1U] };
+        laneStep(lane, OP_REFERENCE, LANE_REG_COMMAND, &c, (uint8_t)sizeof(c), NULL, 0U, NULL);
+        break;
+    }
+    case LANE_PUSH_ALIGN:
         laneSendAlign(lane, OP_ALIGN);
         break;
-    case PUSH_MODE: {
+    case LANE_PUSH_MODE: {
         const laneCommand_t c = { .cmd = LANE_CMD_SAMPLING, .arg = laneModeFor(lane) };
         laneStep(lane, OP_MODE, LANE_REG_COMMAND, &c, (uint8_t)sizeof(c), NULL, 0U, NULL);
         break;
     }
-    case PUSH_VERIFY:
+    case LANE_PUSH_VERIFY:
         if ((int32_t)(HAL_GetTick() - s->nextVerifyMs) >= 0) {
             laneStep(lane, OP_VERIFY, LANE_REG_STATUS, NULL, 0U, s->rx, (uint16_t)sizeof(laneStatus_t), NULL);
         }
@@ -373,7 +442,7 @@ static void laneVerifyResult(uint8_t lane, const laneStatus_t *st)
     }
     if (++s->pushTries < LANE_MANAGER_PUSH_TRIES) {
         laneLog(HP_LOG_WARN, "REPUSH", lane, "flags", st->flags);
-        laneStartPush(lane, PUSH_CONFIG);
+        laneStartPush(lane, LANE_PUSH_CONFIG);
         return;
     }
     s->state = SLOT_FAILED;
@@ -449,7 +518,7 @@ static void laneHealthResult(uint8_t lane, const laneStatus_t *st)
 {
     laneSlot_t *s = &laneSlots[lane];
     uint8_t     out[3];
-    const uint8_t n = laneLogicHealth(&s->health, st, out);
+    const uint8_t n = laneLogicHealth(&s->health, st, s->state == SLOT_CONFIGURED, out);
     for (uint8_t i = 0U; i < n; i++) {
         const ctrlStatus_e why = (out[i] == (uint8_t)HP_LANE_STATE_FAULT) ? (ctrlStatus_e)st->lastError : CTRL_OK;
         lanePublishState(lane, out[i], why);
@@ -465,9 +534,12 @@ static void laneHealthResult(uint8_t lane, const laneStatus_t *st)
     }
     if (s->state == SLOT_CONFIGURED && laneLogicNeedsPush(st)) {
         laneLog(HP_LOG_WARN, "LOST CONFIG", lane, "state", st->state);
-        laneStartPush(lane, PUSH_LANE_ID);
+        laneStartPush(lane, LANE_PUSH_LANE_ID);
     } else if (s->state == SLOT_CONFIGURED && laneLogicNeedsModePush(st)) {
         laneLog(HP_LOG_WARN, "BUS IDLE SAFE", lane, "mode", laneModeFor(lane));
+        if (laneRef[lane - 1U] != 0U) {
+            laneSetReference(lane, laneRef[lane - 1U]);   /* the saved reference first, as in a push */
+        }
         laneCommand(lane, LANE_CMD_SAMPLING, laneModeFor(lane));
     }
 }
@@ -546,6 +618,123 @@ static void laneJoinStart(void)
 }
 
 
+/* --- Calibration -------------------------------------------------------------------- */
+
+static void laneCalDone(uint8_t lane, uint8_t op, ctrlStatus_e status, uint16_t rxLen)
+{
+    laneCal_t     *c   = &laneCal[lane];
+    const uint32_t now = HAL_GetTick();
+
+    if (op == OP_CAL_CMD) {
+        if (status != CTRL_OK && laneCalLearning(lane)) {
+            laneCalFinish(lane, (uint8_t)HP_CALIB_RESULT_FAILED);   /* the lane never got CALIBRATE */
+        }
+        return;
+    }
+    if (op == OP_CAL_STATUS && c->state == CAL_READING) {
+        laneStatus_t st;
+        memcpy(&st, c->buf, sizeof(st));
+        const laneCalPoll_e v = laneLogicCalPoll(&c->seenClear, status == CTRL_OK && rxLen >= sizeof(st),
+                                                 st.flags, now - c->startMs);
+        if (v == LANE_CAL_TIMEOUT) {
+            laneCalFinish(lane, (uint8_t)HP_CALIB_RESULT_FAILED);
+        } else if (v == LANE_CAL_LEARNED
+                   && laneSubmit(lane, OP_CAL_SIGNAL, LANE_REG_SIGNAL, NULL, 0U, c->buf,
+                                 (uint16_t)sizeof(laneSignal_t), NULL, false) == CTRL_OK) {
+            c->state = CAL_SIGNAL;
+        } else {
+            c->state      = CAL_POLL_WAIT;   /* also a SIGNAL read that could not be queued: polled again */
+            c->nextPollMs = now + LANE_LOGIC_CAL_POLL_MS;
+        }
+        return;
+    }
+    if (op == OP_CAL_SIGNAL && c->state == CAL_SIGNAL) {
+        laneSignal_t sig;
+        memcpy(&sig, c->buf, sizeof(sig));
+        const bool readOk = status == CTRL_OK && rxLen >= sizeof(sig);
+        if (!readOk) {
+            c->state      = CAL_POLL_WAIT;   /* still learned: the next STATUS asks again */
+            c->nextPollMs = now + LANE_LOGIC_CAL_POLL_MS;
+        } else if (!laneLogicCalReferenceOk(readOk, &sig)) {
+            laneCalFinish(lane, (uint8_t)HP_CALIB_RESULT_FAILED);
+        } else {
+            c->reference        = sig.reference;
+            c->noise            = sig.noise;
+            laneRef[lane - 1U]  = sig.reference;
+            laneCalRestoreMode(lane);
+            c->state            = CAL_SAVE_WAIT;
+        }
+    }
+}
+
+/* Every pass, bus up or not (the save phase needs no lane). */
+static void laneCalService(uint32_t now)
+{
+    bool learning = false;
+    bool waiting  = false;
+
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        laneCal_t *c = &laneCal[n];
+        switch (c->state) {
+        case CAL_POLL_WAIT:
+            learning = true;
+            if ((int32_t)(now - c->nextPollMs) < 0) {
+                break;
+            }
+            if (!laneOnBus(n)) {
+                laneCalFinish(n, (uint8_t)HP_CALIB_RESULT_FAILED);
+            } else if (laneSubmit(n, OP_CAL_STATUS, LANE_REG_STATUS, NULL, 0U, c->buf,
+                                  (uint16_t)sizeof(laneStatus_t), NULL, false) == CTRL_OK) {
+                c->state = CAL_READING;
+            } else if (now - c->startMs >= LANE_LOGIC_CAL_TIMEOUT_MS) {
+                laneCalFinish(n, (uint8_t)HP_CALIB_RESULT_FAILED);   /* queue full the whole time */
+            } else {
+                c->nextPollMs = now + LANE_LOGIC_CAL_POLL_MS;
+            }
+            break;
+        case CAL_READING:
+        case CAL_SIGNAL:
+            learning = true;
+            break;
+        case CAL_SAVE_WAIT:
+            waiting = true;
+            break;
+        case CAL_SAVING: {
+            const uint8_t v = settingsStoreSaveState(c->ticket);
+            if (v != (uint8_t)SETTINGS_SAVE_PENDING) {
+                laneCalFinish(n, laneLogicCalSaveResult(c->forget, v == (uint8_t)SETTINGS_SAVE_WRITTEN));
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    /* One settings change (one flash write) for every lane that finished. */
+    if (waiting && !learning) {
+        const uint32_t ticket = settingsStoreSetLaneReferences(laneRef);
+        for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+            if (laneCal[n].state == CAL_SAVE_WAIT) {
+                laneCal[n].state  = CAL_SAVING;
+                laneCal[n].ticket = ticket;
+            }
+        }
+    }
+}
+
+static uint8_t laneCalBusyMask(void)
+{
+    uint8_t m = 0U;
+    for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
+        if (laneCal[n].state != CAL_IDLE) {
+            m |= LANE_LOGIC_MASK(n);
+        }
+    }
+    return m;
+}
+
+
 /* --- Completion (main loop, from i3cCtrlRun) ------------------------------------------ */
 
 static void laneBusDone(uint8_t op, ctrlStatus_e status, uint16_t rxLen)
@@ -606,7 +795,8 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
     }
 
     const bool sequenced = op != OP_WRITE && op != OP_SCHED && op != OP_SCHED_VERIFY
-                           && op != OP_REQ_STATUS && op != OP_REQ_SIGNAL;
+                           && op != OP_REQ_STATUS && op != OP_REQ_SIGNAL
+                           && op != OP_CAL_CMD && op != OP_CAL_STATUS && op != OP_CAL_SIGNAL;
     if (sequenced) {
         s->opPending = false;
     }
@@ -630,6 +820,8 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
         } else {
             s->schedResult = (v == LANE_SCHED_VERIFY_OK) ? LANE_SCHED_RESULT_OK : LANE_SCHED_RESULT_FAILED;
         }
+    } else if (op == OP_CAL_CMD || op == OP_CAL_STATUS || op == OP_CAL_SIGNAL) {
+        laneCalDone(lane, op, status, rxLen);
     } else if (op == OP_REQ_STATUS || op == OP_REQ_SIGNAL) {
         if (laneReqLane != lane || laneReqDone) {
             return;
@@ -677,13 +869,16 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
             lanePublishState(lane, (uint8_t)HP_LANE_STATE_FAULT, CTRL_ERR_PROTO_MISMATCH);
             laneLog(HP_LOG_ERROR, "PROTO MISMATCH", lane, "major", s->id.protoMajor);
         } else {
-            s->pushStep = PUSH_LANE_ID;
+            s->pushStep = laneLogicPushNext(LANE_PUSH_ID, laneRef[lane - 1U]);
         }
         break;
-    case OP_LANE_ID: s->pushStep = PUSH_CONFIG; break;
-    case OP_CONFIG:  s->pushStep = PUSH_ALIGN;  break;
-    case OP_ALIGN:   s->pushStep = PUSH_MODE;   s->lastAlignMs = HAL_GetTick(); break;
-    case OP_MODE:    s->pushStep = PUSH_VERIFY; s->nextVerifyMs = HAL_GetTick(); break;
+    case OP_LANE_ID:
+    case OP_CONFIG:
+    case OP_REFERENCE:
+        s->pushStep = laneLogicPushNext(s->pushStep, laneRef[lane - 1U]);
+        break;
+    case OP_ALIGN:   s->pushStep = laneLogicPushNext(LANE_PUSH_ALIGN, 0U); s->lastAlignMs = HAL_GetTick(); break;
+    case OP_MODE:    s->pushStep = laneLogicPushNext(LANE_PUSH_MODE, 0U);  s->nextVerifyMs = HAL_GetTick(); break;
     case OP_VERIFY: {
         laneStatus_t st;
         memcpy(&st, s->rx, sizeof(st));
@@ -810,6 +1005,8 @@ ctrlStatus_e laneManagerInit(void)
     const settingsData_t *set = settingsStoreData();
     memcpy(laneTable, set->laneConfig, sizeof(laneTable));
     memcpy(laneTableMode, set->laneSampling, sizeof(laneTableMode));
+    memcpy(laneRef, set->laneReference, sizeof(laneRef));
+    memset(laneCal, 0, sizeof(laneCal));
     for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
         if (laneLogicCheckConfig(&laneTable[n - 1U]) != CTRL_OK || laneTableMode[n - 1U] > (uint8_t)HP_SAMPLING_ON) {
             laneLogicDefaultConfig(n, &laneTable[n - 1U]);
@@ -839,6 +1036,8 @@ ctrlStatus_e laneManagerRun(void)
 {
     const uint32_t now    = HAL_GetTick();
     ctrlStatus_e   result = CTRL_OK;
+
+    laneCalService(now);
 
     if (laneManagerPower == LANE_POWER_SETTLING && now - laneManagerRailOnMs >= LANE_MANAGER_SETTLE_MS) {
         ctrlStatus_e status = sysTimeSetSyncOutput(true);
@@ -1030,17 +1229,41 @@ ctrlStatus_e laneManagerSetLed(uint8_t laneMask, const laneLed_t *led)
     return any ? CTRL_OK : CTRL_ERR_LANE_ABSENT;
 }
 
-ctrlStatus_e laneManagerCalibrate(uint8_t laneMask)
+ctrlStatus_e laneManagerCalibrate(uint8_t laneMask, uint8_t action)
 {
-    CTRL_RETURN_IF_ERR(laneCheckMask(laneMask));
-    bool any = false;
+    uint8_t run = 0U;
+    CTRL_RETURN_IF_ERR(laneLogicCalAccept(laneMask, action, laneManagerConfiguredMask(), laneCalBusyMask(), &run));
+    const uint32_t now = HAL_GetTick();
+
     for (uint8_t n = 1U; n <= LANE_MAX_LANES; n++) {
-        if ((laneMask & LANE_LOGIC_MASK(n)) != 0U && laneOnBus(n)) {
-            laneCommand(n, LANE_CMD_CALIBRATE, 0U);
-            any = true;
+        if ((run & LANE_LOGIC_MASK(n)) == 0U) {
+            continue;
         }
+        laneCal_t *c = &laneCal[n];
+        memset(c, 0, sizeof(*c));
+        if (action == (uint8_t)HP_CALIB_FORGET) {
+            laneRef[n - 1U] = 0U;
+            c->forget = true;
+            c->state  = CAL_SAVE_WAIT;
+            if (laneOnBus(n)) {
+                laneSetReference(n, 0U);   /* the lane learns as at boot */
+            }
+            continue;
+        }
+        /* CALIBRATE first, then SAMPLING ON if needed: the lane reports
+         * CALIBRATED only while sampling, so with this order a set flag
+         * after a clear one can only be the new baseline. */
+        const laneCommand_t cmd = { .cmd = LANE_CMD_CALIBRATE, .arg = 0U, .value = 0U };
+        (void)laneSubmit(n, OP_CAL_CMD, LANE_REG_COMMAND, &cmd, (uint8_t)sizeof(cmd), NULL, 0U, NULL, false);
+        if (laneModeFor(n) == (uint8_t)LANE_SAMPLING_OFF) {
+            laneCommand(n, LANE_CMD_SAMPLING, LANE_SAMPLING_ON);
+            c->restoreOff = true;
+        }
+        c->state      = CAL_POLL_WAIT;
+        c->startMs    = now;
+        c->nextPollMs = now + LANE_LOGIC_CAL_POLL_MS;
     }
-    return any ? CTRL_OK : CTRL_ERR_LANE_ABSENT;
+    return CTRL_OK;
 }
 
 static void laneRawStop(void)

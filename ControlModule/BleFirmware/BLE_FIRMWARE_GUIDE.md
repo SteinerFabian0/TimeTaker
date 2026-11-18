@@ -228,7 +228,7 @@ STM, 0x41–0x7F go STM → nRF. **`ble_link_protocol.h` is the authority**
 | 0x03 | `LINK_DOWN` | `hciReason u8` | On disconnect |
 | 0x04 | `BUTTON` | `press u8` (`SHORT` 1, `LONG` 2, `VERY_LONG` 3: the same values as the host protocol's `pressKind`) | On release (§7.1) |
 | 0x05 | `CREDIT` | `count u8` | When DATA slots free up (§5.4) |
-| 0x06 | `STATS` | `rssi i8, slotsFree u8, dataDropped u16, linkCrcErrors u16, uartErrors u16` (8 B) | Once a second while connected (task B4; optional before) |
+| 0x06 | `STATS` | `rssi i8, slotsFree u8, dataDropped u16, linkCrcErrors u16, uartErrors u16` (8 B) | Once a second, connected or not: the STM uses it as the nRF heartbeat (3 s silent = bridge ABSENT) |
 
 **STM → nRF:**
 

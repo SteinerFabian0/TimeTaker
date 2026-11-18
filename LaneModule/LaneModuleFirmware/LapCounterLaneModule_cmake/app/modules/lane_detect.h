@@ -38,6 +38,25 @@
  * be free), then tracked by a slow IIR while FREE only. Noise is the IIR of
  * |raw − baseline| while FREE, for SIGNAL.
  *
+ * Reference (lane_protocol.h "Reference"): the baseline as it stood when
+ * learning last finished (boot, laneDetectCalibrate()), or the value given to
+ * laneDetectSetReference(). Unlike the baseline it never moves with the IIR;
+ * 0 = none yet. A relearn keeps the old reference until it has a new one.
+ *
+ * Raw window (laneRawWindow_t): lowest/highest sample since the last SIGNAL
+ * read. Two contexts share it, the caller makes each call atomic against the
+ * other (sense manager: irq_guard around every call):
+ *   - main loop, once per sample:        laneRawWindowAdd()
+ *   - I3C ISR, when the SIGNAL response
+ *     is built (also speculatively after
+ *     every read):                       laneRawWindowTake()
+ *   - I3C ISR, when the read-done hook
+ *     says the response was clocked out: laneRawWindowConfirm()
+ * Take is not destructive: what it hands out stays "in flight" and is merged
+ * into the next Take until Confirm drops it, so a response that is built but
+ * never read, or rebuilt, loses nothing. A sample added after a Take lands in
+ * the next window; none is lost or split.
+ *
  * Time: local µs (TIM2 counts), u32, wrap-safe for intervals below 2^31 µs.
  * The sense manager maps tEntry onto the mainboard axis when it emits.
  */
@@ -86,12 +105,23 @@ typedef struct {
     uint32_t dwellUs;
 } laneDetectEvent_t;
 
+/* Lowest/highest raw sample since the last confirmed SIGNAL read. */
+typedef struct {
+    bool     curHas;        /* samples added since the last Take               */
+    uint16_t curMin;
+    uint16_t curMax;
+    bool     outHas;        /* handed out by Take, not yet confirmed           */
+    uint16_t outMin;
+    uint16_t outMax;
+} laneRawWindow_t;
+
 typedef struct {
     laneDetectConfig_t cfg;
     laneDetectState_e  state;
 
     uint32_t baselineQ8;    /* raw counts × 256                               */
     uint32_t noiseQ8;
+    uint16_t reference;     /* bare-foil level of the last calibration, 0 = none */
     uint32_t learnSum;
     uint32_t learnCount;
     uint16_t thrLow;
@@ -138,6 +168,14 @@ laneStatus_e laneDetectSetConfig(laneDetect_t *d, const laneDetectConfig_t *cfg)
  * abandoned without an event. */
 void laneDetectCalibrate(laneDetect_t *d);
 
+/*
+ * COMMAND SET_REFERENCE. value != 0: baseline = reference = value, no
+ * learning, calibrated at once (state FREE); a pass in progress is abandoned
+ * without an event and no crossing is interpolated across the jump. value 0:
+ * forget, learn again exactly as after init (reference 0 until done).
+ */
+void laneDetectSetReference(laneDetect_t *d, uint16_t value);
+
 /* The sample stream was interrupted (sampler stopped/restarted): the next
  * sample is not adjacent to the last, so no crossing is interpolated across. */
 void laneDetectBreak(laneDetect_t *d);
@@ -159,3 +197,15 @@ bool laneDetectIsCalibrated(const laneDetect_t *d);
 
 uint16_t laneDetectBaseline(const laneDetect_t *d);
 uint16_t laneDetectNoise(const laneDetect_t *d);
+
+/* Reference level, 0 until the first learning has finished or one was set. */
+uint16_t laneDetectReference(const laneDetect_t *d);
+
+/* Raw window, see above. Init empties it. */
+void laneRawWindowInit(laneRawWindow_t *w);
+void laneRawWindowAdd(laneRawWindow_t *w, uint16_t raw);
+/* Window since the last confirmed read (in-flight part included); *min and
+ * *max are `last` (the latest sample) when nothing was added. */
+void laneRawWindowTake(laneRawWindow_t *w, uint16_t last, uint16_t *min, uint16_t *max);
+/* What the last Take handed out reached the controller. */
+void laneRawWindowConfirm(laneRawWindow_t *w);

@@ -24,7 +24,7 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "host protocol structs assume a little-endian target");
 
 #define HP_PROTO_MAJOR      0U
-#define HP_PROTO_MINOR      5U
+#define HP_PROTO_MINOR      6U
 #define HP_MAX_PAYLOAD      240U
 #define HP_MAX_FRAME_RAW    (4U + HP_MAX_PAYLOAD)  /* header + payload, before CRC and COBS */
 
@@ -239,6 +239,25 @@ typedef enum {
     HP_FAULT_SRC_SETTINGS   = 4, /* Stored settings failed their CRC; defaults loaded */
 } hpFaultSource_e;
 
+/* Is the nRF52805 itself alive (independent of any phone being connected) */
+typedef enum {
+    HP_BLE_BRIDGE_ABSENT           = 0, /* No NRF_HELLO yet, or no CTRL frame from the nRF for 3 s (it sends STATS every second) */
+    HP_BLE_BRIDGE_OK               = 1,
+    HP_BLE_BRIDGE_VERSION_MISMATCH = 2, /* nRF link protocol MAJOR differs: BLE data refused */
+} hpBleBridgeState_e;
+
+typedef enum {
+    HP_CALIB_LEARN  = 0, /* Learn the bare-foil level now (lanes free!) and save it as the reference */
+    HP_CALIB_FORGET = 1, /* Drop the saved reference: the lane learns at every power-up again */
+} hpCalibrateAction_e;
+
+typedef enum {
+    HP_CALIB_RESULT_SAVED     = 1, /* Learned and saved; reference and noise are the new values */
+    HP_CALIB_RESULT_FORGOTTEN = 2, /* Saved reference dropped (FORGET) */
+    HP_CALIB_RESULT_FAILED    = 3, /* The lane did not finish learning in time, or left the bus */
+    HP_CALIB_RESULT_NOT_SAVED = 4, /* Learned, but the flash write failed: the lane uses it until power-off */
+} hpCalibrateResult_e;
+
 typedef enum {
     HP_BLE_LINK_DOWN             = 0,
     HP_BLE_LINK_UP               = 1,
@@ -348,6 +367,7 @@ _Static_assert(sizeof(hpDeviceSettings_t) == 28U, "hpDeviceSettings_t layout");
 #define HP_MSG_EVT_BIND_CHANGED 0xC7U  /* event */
 #define HP_MSG_EVT_BLE_LINK     0xC8U  /* event */
 #define HP_MSG_EVT_FAULT        0xC9U  /* event */
+#define HP_MSG_EVT_LANE_CALIBRATED 0xCAU  /* event */
 #define HP_MSG_STR_RAW_SAMPLES  0xE0U  /* stream */
 #define HP_MSG_DBG_LOG          0xF0U  /* stream */
 
@@ -530,22 +550,30 @@ _Static_assert(sizeof(hpRebootRsp_t) == 2U, "hpRebootRsp_t layout");
 
 /* STATUS response */
 typedef struct __attribute__((packed)) {
-    int16_t  status;         /* ctrlStatus_e. On error the payload is this field only. */
-    int16_t  lastError;      /* ctrlStatus_e of the last error, 0 = none */
-    uint16_t loopMaxMs;      /* Longest super-loop pass since boot */
+    int16_t  status;           /* ctrlStatus_e. On error the payload is this field only. */
+    int16_t  lastError;        /* ctrlStatus_e of the last error, 0 = none */
+    uint16_t loopMaxMs;        /* Longest super-loop pass since boot */
     uint32_t errorCount;
     uint32_t uptimeMs;
-    uint8_t  lanesPresent;   /* Lanes enumerated (contiguous from 1) */
-    uint8_t  lanesPowered;   /* 1 = lane rail settled and SYNC running */
-    uint8_t  bleLink;        /* hpBleLinkState_e */
-    uint8_t  seqRunning;     /* 1 = a start sequence is running */
-    uint16_t usbFaults;      /* USB_FAULT trips since boot */
-    uint16_t settingsWrites; /* Flash writes since boot */
+    uint8_t  lanesPresent;     /* Lanes enumerated (contiguous from 1) */
+    uint8_t  lanesPowered;     /* 1 = lane rail settled and SYNC running */
+    uint8_t  bleLink;          /* hpBleLinkState_e */
+    uint8_t  seqRunning;       /* 1 = a start sequence is running */
+    uint16_t usbFaults;        /* USB_FAULT trips since boot */
+    uint16_t settingsWrites;   /* Flash writes since boot */
     uint32_t logOldestSeq;
     uint32_t logNextSeq;
+    uint8_t  bleBridge;        /* hpBleBridgeState_e; The nRF itself (0.6+); bleLink above is the phone connection */
+    int8_t   bleRssi;          /* dBm of the connected central, 127 = unknown / not connected */
+    uint16_t bleCrcErrors;     /* Bad link frames the nRF got from the STM (nRF STATS, saturates) */
+    uint16_t bleUartErrors;    /* nRF UART framing/overrun errors (nRF STATS, saturates) */
+    uint16_t bleDataDropped;   /* Data the nRF had to drop (nRF STATS, saturates) */
+    uint16_t nrfLinkCrcErrors; /* Bad link frames the STM got from the nRF (saturates) */
+    uint8_t  settingsDefaults; /* 1 = stored settings were lost at boot and defaults loaded */
+    uint8_t  reserved;
 } hpStatusRsp_t;
-_Static_assert(sizeof(hpStatusRsp_t) == 30U, "hpStatusRsp_t layout");
-#define HP_STATUS_RSP_BYTES 30U
+_Static_assert(sizeof(hpStatusRsp_t) == 42U, "hpStatusRsp_t layout");
+#define HP_STATUS_RSP_BYTES 42U
 
 /* ---- 0x13 SETTINGS_GET (request) ---------------------------------
  * Reads the persistent device settings.
@@ -729,10 +757,12 @@ typedef struct __attribute__((packed)) {
     uint16_t thrLow;
     uint16_t thrHigh;
     uint16_t noise;
-    uint16_t reserved;
+    uint16_t reference;     /* Saved/learned clean level (lane_protocol.h "Reference"), 0 = none (0.6+, was reserved) */
+    uint16_t rawMin;        /* Lowest sample since the previous LANE_STATUS of this lane (0.6+) */
+    uint16_t rawMax;        /* Highest sample since the previous LANE_STATUS of this lane (0.6+) */
 } hpLaneStatusRsp_t;
-_Static_assert(sizeof(hpLaneStatusRsp_t) == 36U, "hpLaneStatusRsp_t layout");
-#define HP_LANE_STATUS_RSP_BYTES 36U
+_Static_assert(sizeof(hpLaneStatusRsp_t) == 40U, "hpLaneStatusRsp_t layout");
+#define HP_LANE_STATUS_RSP_BYTES 40U
 
 /* ---- 0x27 LANE_RAW_STREAM (request) ------------------------------
  * Streams one lane's raw samples as STR_RAW_SAMPLES (puts it in RAW mode; lane 0 stops and restores the previous mode). One lane at a time.
@@ -755,15 +785,16 @@ _Static_assert(sizeof(hpLaneRawStreamRsp_t) == 2U, "hpLaneRawStreamRsp_t layout"
 #define HP_LANE_RAW_STREAM_RSP_BYTES 2U
 
 /* ---- 0x28 LANE_CALIBRATE (request) -------------------------------
- * The lanes in laneMask re-learn their baseline. Only meaningful with the lane free.
+ * LEARN: the lanes in laneMask (bit n-1 = lane n) learn their bare-foil level (lanes must be free) and the control module saves it as each lane's reference. FORGET drops the saved references. The response only acknowledges; each lane's outcome follows as EVT_LANE_CALIBRATED.
  */
 
 /* LANE_CALIBRATE request */
 typedef struct __attribute__((packed)) {
     uint8_t laneMask;
+    uint8_t action;   /* hpCalibrateAction_e */
 } hpLaneCalibrateReq_t;
-_Static_assert(sizeof(hpLaneCalibrateReq_t) == 1U, "hpLaneCalibrateReq_t layout");
-#define HP_LANE_CALIBRATE_REQ_BYTES 1U
+_Static_assert(sizeof(hpLaneCalibrateReq_t) == 2U, "hpLaneCalibrateReq_t layout");
+#define HP_LANE_CALIBRATE_REQ_BYTES 2U
 
 /* LANE_CALIBRATE response */
 typedef struct __attribute__((packed)) {
@@ -970,6 +1001,23 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(hpEvtFault_t) == 16U, "hpEvtFault_t layout");
 #define HP_EVT_FAULT_BYTES 16U
 
+/* ---- 0xCA EVT_LANE_CALIBRATED (event) ----------------------------
+ * Outcome of LANE_CALIBRATE for one lane.
+ */
+
+/* EVT_LANE_CALIBRATED */
+typedef struct __attribute__((packed)) {
+    uint32_t evSeq;     /* Event sequence number within this boot (bootId) */
+    uint8_t  lane;
+    uint8_t  result;    /* hpCalibrateResult_e */
+    uint16_t reference; /* The new reference (SAVED / NOT_SAVED), else 0 */
+    uint16_t noise;     /* Noise estimate when learning ended */
+    uint16_t reserved;
+    uint64_t sysUs;
+} hpEvtLaneCalibrated_t;
+_Static_assert(sizeof(hpEvtLaneCalibrated_t) == 20U, "hpEvtLaneCalibrated_t layout");
+#define HP_EVT_LANE_CALIBRATED_BYTES 20U
+
 /* ---- 0xE0 STR_RAW_SAMPLES (stream) -------------------------------
  * Decimated raw sensor samples of one lane for the diagnostics view. Sample i was taken at firstUs + i*periodUs.
  */
@@ -1044,6 +1092,7 @@ static inline const char *hpMsgName(uint8_t msgId)
     case HP_MSG_EVT_BIND_CHANGED: return "EVT_BIND_CHANGED";
     case HP_MSG_EVT_BLE_LINK: return "EVT_BLE_LINK";
     case HP_MSG_EVT_FAULT: return "EVT_FAULT";
+    case HP_MSG_EVT_LANE_CALIBRATED: return "EVT_LANE_CALIBRATED";
     case HP_MSG_STR_RAW_SAMPLES: return "STR_RAW_SAMPLES";
     case HP_MSG_DBG_LOG: return "DBG_LOG";
     default: return "?";

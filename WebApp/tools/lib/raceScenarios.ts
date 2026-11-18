@@ -172,7 +172,7 @@ export function oracle(config: RaceConfig, truth: readonly TruthCrossing[], stor
   for (const e of config.entries) {
     let cs = truth.filter((c) => c.lane === e.lane && c.detected && c.kind !== 'double' && !(c.bootId === startBoot && c.tEntryUs < t0Us));
     const fs = cs[0]?.kind === 'falseStart';
-    const out = fs && config.falseStart.action === 'disqualify' ? cs[0]!.tEntryUs : adjust[e.lane]?.outFromUs;
+    const out = adjust[e.lane]?.outFromUs;
     if (out !== undefined) {
       cs = cs.filter((c) => c.bootId !== startBoot || c.tEntryUs <= out);
     }
@@ -211,7 +211,7 @@ export function oracle(config: RaceConfig, truth: readonly TruthCrossing[], stor
     if (timed.length) best.set(e.lane, Math.min(...timed));
     const last = counted.at(-1);
     const a = adjust[e.lane] ?? {};
-    const dq = a.status === 'disqualified' || (fs && config.falseStart.action === 'disqualify');
+    const dq = a.status === 'disqualified';
     const car: CarExpect = {
       laps: counted.length, status: dq ? 'disqualified' : a.status ?? (finished ? 'finished' : 'running'), falseStart: fs,
       reactionMs: first && first.bootId === startBoot ? (first.tEntryUs - toutUs) / 1000 : null, lapMs,

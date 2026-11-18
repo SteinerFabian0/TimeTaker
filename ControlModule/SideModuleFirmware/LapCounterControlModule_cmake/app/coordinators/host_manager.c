@@ -26,12 +26,18 @@
 #include "log_line.h"
 #include "usb_cdc.h"
 #include "nrf_link.h"
+#include "nrf_link_proto.h"
 #include "sys_time.h"
 #include "device_id.h"
 #include "settings_store.h"
 #include "ctrl_master.h"
 #include "lane_manager.h"
 #include "sequence_manager.h"
+
+_Static_assert((int)NRF_LINK_BRIDGE_ABSENT == (int)HP_BLE_BRIDGE_ABSENT
+               && (int)NRF_LINK_BRIDGE_OK == (int)HP_BLE_BRIDGE_OK
+               && (int)NRF_LINK_BRIDGE_VERSION_MISMATCH == (int)HP_BLE_BRIDGE_VERSION_MISMATCH,
+               "nrfLinkBridge_e = hpBleBridgeState_e");
 
 /* A REBOOT answer has to reach the host before the reset cuts USB. */
 #define HOST_MANAGER_REBOOT_DELAY_MS  100U
@@ -60,7 +66,6 @@ static uint32_t   hostManagerBleUnboundSinceMs;
 static uint8_t    hostManagerBleClientId[BIND_LIST_ID_BYTES];
 static char       hostManagerBleClientName[BIND_LIST_NAME_BYTES];
 static bool       hostManagerMismatchReported;
-static int8_t     hostManagerBleRssi = 127;
 
 
 /* --- Transports ---------------------------------------------------------- */
@@ -409,8 +414,7 @@ static void hostManagerBleEvents(void)
         }
 
         case NRF_LINK_EV_STATS:
-            hostManagerBleRssi = ev.body.stats.rssi;
-            break;
+            break;   /* nrf_link keeps the latest (STATUS) */
 
         default:
             break;
@@ -458,16 +462,17 @@ static ctrlStatus_e hostManagerNodeList(uint8_t *rsp, uint16_t rspCap, uint16_t 
         .imageCrc   = 0U,   /* unknown: no image header since the bootloader went (v1) */
     };
 
-    /* The BLE bridge: ABSENT until its NRF_HELLO, FAULT on a link MAJOR mismatch. */
+    /* The BLE bridge: the same liveness as STATUS bleBridge (ABSENT before
+     * NRF_HELLO or after 3 s without a CTRL frame, FAULT on a link MAJOR
+     * mismatch). The last HELLO's versions are shown even while ABSENT. */
     bleCtrlNrfHello_t hello;
     memset(&hello, 0, sizeof(hello));
-    const bool seen = nrfLinkGetHello(&hello);
+    (void)nrfLinkGetHello(&hello);
     nodes[n++] = (hpNodeInfo_t){
         .nodeClass  = (uint8_t)HP_NODE_BLE,
         .index      = 0U,
         .boardType  = (uint8_t)HP_BOARD_BLE_BRIDGE,
-        .state      = !seen ? (uint8_t)HP_NODE_STATE_ABSENT
-                            : (nrfLinkVersionOk() ? (uint8_t)HP_NODE_STATE_OK : (uint8_t)HP_NODE_STATE_FAULT),
+        .state      = ctrlPolicyBleNodeState(nrfLinkBridgeState()),
         .fwMajor    = hello.fwMajor,
         .fwMinor    = hello.fwMinor,
         .fwPatch    = hello.fwPatch,
@@ -583,6 +588,19 @@ static ctrlStatus_e hostManagerStatus(uint16_t reqLen, uint8_t *rsp, uint16_t *r
     r->settingsWrites = writes;
     r->logOldestSeq   = eventLogOldest(&hostManagerEventLog);
     r->logNextSeq     = eventLogNext(&hostManagerEventLog);
+
+    bleCtrlStats_t nrf;
+    memset(&nrf, 0, sizeof(nrf));
+    const bool     haveStats = nrfLinkGetNrfStats(&nrf);
+    const uint32_t bad       = nrfLinkGetStats()->badFrames;
+    r->bleBridge        = nrfLinkBridgeState();
+    r->bleRssi          = ctrlPolicyBleRssi(r->bleBridge, haveStats, nrf.rssi);
+    r->bleCrcErrors     = nrf.linkCrcErrors;     /* the nRF's counters, last STATS (0 if none) */
+    r->bleUartErrors    = nrf.uartErrors;
+    r->bleDataDropped   = nrf.dataDropped;
+    r->nrfLinkCrcErrors = (bad > 0xFFFFU) ? 0xFFFFU : (uint16_t)bad;
+    r->settingsDefaults = settingsStoreLostAtBoot() ? 1U : 0U;
+    r->reserved         = 0U;
     *rspLen = HP_STATUS_RSP_BYTES;
     return CTRL_OK;
 }
@@ -768,11 +786,17 @@ static ctrlStatus_e hostManagerOnRequest(hostSession_t *session, uint8_t msgId,
         return CTRL_OK;
     }
 
-    case HP_MSG_LANE_CALIBRATE:
+    case HP_MSG_LANE_CALIBRATE: {
         HOST_MANAGER_NEED(reqLen, HP_LANE_CALIBRATE_REQ_BYTES);
-        CTRL_RETURN_IF_ERR(laneManagerCalibrate(req[0]));
+        if (sequenceManagerIsRunning()) {
+            return CTRL_ERR_SEQ_RUNNING;
+        }
+        hpLaneCalibrateReq_t r;
+        memcpy(&r, req, sizeof(r));
+        CTRL_RETURN_IF_ERR(laneManagerCalibrate(r.laneMask, r.action));   /* outcomes: EVT_LANE_CALIBRATED */
         *rspLen = HP_LANE_CALIBRATE_RSP_BYTES;
         return CTRL_OK;
+    }
 
     case HP_MSG_START_SEQUENCE:
         return hostManagerStartSequence(req, reqLen, rsp, rspLen);

@@ -259,6 +259,9 @@ static void busReadDone(uint8_t reg, uint8_t offered, uint32_t clockedOut)
         (void)eventFifoCompleteRead(senseManagerEventFifo(), offered, clockedOut);
     } else if (reg == LANE_REG_RAW_FIFO) {
         (void)rawFifoCompleteRead(senseManagerRawFifo(), offered, clockedOut);
+    } else if (reg == LANE_REG_SIGNAL && clockedOut >= sizeof(laneSignal_t)) {
+        /* rawMin/rawMax are the last bytes: only a whole read spends the window. */
+        senseManagerSignalDelivered();
     }
 }
 
@@ -403,6 +406,9 @@ static void busWriteCommand(const laneCommand_t *c, uint32_t nowMs)
         break;
     case LANE_CMD_CALIBRATE:
         status = senseManagerCalibrate();
+        break;
+    case LANE_CMD_SET_REFERENCE:
+        status = senseManagerSetReference(c->value);
         break;
     case LANE_CMD_SINGLE_SAMPLE:
         status = senseManagerSingleSample();

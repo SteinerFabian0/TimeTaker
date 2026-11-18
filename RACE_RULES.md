@@ -24,8 +24,9 @@ take these as configuration.
 ## False start
 
 - A crossing after the start sequence began and before lights out.
-- **Setting (main): what happens.** Options: flag only, **time penalty**
-  (default), disqualify.
+- **Setting (main): what happens.** Options: flag only or **time penalty**
+  (default). **A false start never disqualifies.** (The host can still
+  disqualify a car by hand: that is a separate race action.)
 - **Setting (main): penalty seconds** (default 5 s).
 - **Setting (deeper): how the penalty applies.** v1: **added to the first
   lap time** (default) or added to the total. Future, with the power board:

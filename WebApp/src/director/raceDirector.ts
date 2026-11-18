@@ -18,7 +18,7 @@
 
 import { ALL_LANES, laneMask } from '../device/deviceApi.ts';
 import type { DeviceApi, StartParams } from '../device/deviceApi.ts';
-import { LedMode, SamplingMode } from '../protocol/generated.ts';
+import { CalibrateAction, LedMode, SamplingMode } from '../protocol/generated.ts';
 import { fold } from '../race/raceEngine.ts';
 import { DEFAULT_START_LIGHTS } from '../race/rules/config.ts';
 import type { HostAction, LogPos, RaceState } from '../race/types.ts';
@@ -109,8 +109,19 @@ export class RaceDirector {
     await this.#o.api.abortSequence();
   }
 
+  /**
+   * Fire-and-forget LEARN of the race lanes (they must be free). Refused while the race is starting or running.
+   * The outcome arrives as EVT_LANE_CALIBRATED; HealthMonitor.calibrate() waits for it and is what a UI uses.
+   */
   async calibrate(lanes: readonly number[] = this.#lanes()): Promise<void> {
-    await this.#o.api.laneCalibrate(laneMask(lanes));
+    if (this.active()) throw new Error(`cannot calibrate: race is ${this.state().phase}`);
+    await this.#o.api.laneCalibrate(laneMask(lanes), CalibrateAction.LEARN);
+  }
+
+  /** The start sequence or the race is under way (starting, running, finishing): no calibration, slow diagnostics. */
+  active(): boolean {
+    const p = this.state().phase;
+    return p === 'starting' || p === 'running' || p === 'finishing';
   }
 
   /** Blinks every lane's light three times (wiring check). */

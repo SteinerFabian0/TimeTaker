@@ -167,8 +167,27 @@ static void testBudget(void)
     check("budget: BLE rate in between", streamBudgetBleRate(103, 40) == 2000U);
 }
 
+static void testBridge(void)
+{
+    bleCtrlNrfHello_t ok  = { .linkMajor = BLE_LINK_MAJOR };
+    bleCtrlNrfHello_t bad = { .linkMajor = (uint8_t)(BLE_LINK_MAJOR + 1U) };
+    check("bridge: no NRF_HELLO -> ABSENT", nrfLinkProtoBridge(false, &ok, 100, 200) == NRF_LINK_BRIDGE_ABSENT);
+    check("bridge: HELLO, CTRL fresh -> OK", nrfLinkProtoBridge(true, &ok, 100, 200) == NRF_LINK_BRIDGE_OK);
+    check("bridge: silent 2999 ms -> still OK",
+          nrfLinkProtoBridge(true, &ok, 100, 100 + NRF_LINK_BRIDGE_SILENT_MS - 1U) == NRF_LINK_BRIDGE_OK);
+    check("bridge: silent 3000 ms -> ABSENT",
+          nrfLinkProtoBridge(true, &ok, 100, 100 + NRF_LINK_BRIDGE_SILENT_MS) == NRF_LINK_BRIDGE_ABSENT);
+    check("bridge: other link MAJOR -> VERSION_MISMATCH",
+          nrfLinkProtoBridge(true, &bad, 100, 200) == NRF_LINK_BRIDGE_VERSION_MISMATCH);
+    check("bridge: other MAJOR but silent -> ABSENT",
+          nrfLinkProtoBridge(true, &bad, 100, 100 + NRF_LINK_BRIDGE_SILENT_MS) == NRF_LINK_BRIDGE_ABSENT);
+    check("bridge: tick wrap", nrfLinkProtoBridge(true, &ok, 0xFFFFFF00U, 0x100U) == NRF_LINK_BRIDGE_OK);
+    check("bridge: 3 s matches the 1 s STATS heartbeat with 2 missed", NRF_LINK_BRIDGE_SILENT_MS == 3000U);
+}
+
 int main(void)
 {
+    testBridge();
     testParse();
     testEncode();
     testCredits();

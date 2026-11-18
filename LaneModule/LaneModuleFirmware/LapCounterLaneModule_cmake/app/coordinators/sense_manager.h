@@ -55,6 +55,10 @@ laneSamplingMode_e senseManagerMode(void);
 /* COMMAND CALIBRATE: relearn the baseline (the lane must be free). */
 laneStatus_e senseManagerCalibrate(void);
 
+/* COMMAND SET_REFERENCE: value != 0 seeds baseline and reference (no
+ * learning, calibrated at once), 0 forgets and relearns. */
+laneStatus_e senseManagerSetReference(uint16_t value);
+
 /* COMMAND SINGLE_SAMPLE: one sample into SIGNAL, also while OFF. */
 laneStatus_e senseManagerSingleSample(void);
 
@@ -64,8 +68,14 @@ void senseManagerPark(void);
 /* STATUS flag bits this coordinator knows (SENSOR_OK, CALIBRATED, ...). */
 uint16_t senseManagerStatusFlags(void);
 
-/* SIGNAL snapshot (ISR-safe copy). */
+/* SIGNAL snapshot (ISR-safe copy), with rawMin/rawMax of the window since the
+ * last delivered SIGNAL read (lane_detect.h, laneRawWindow_t). The window is
+ * not reset here: the response may be built more than once per read. */
 void senseManagerGetSignal(laneSignal_t *out);
+
+/* The read-done hook saw a full SIGNAL response clocked out: the window it
+ * carried is spent. I3C ISR. */
+void senseManagerSignalDelivered(void);
 
 /* Event FIFO and raw FIFO access for the I3C read path (bus_manager). Call
  * with interrupts at I3C priority or under irq_guard. */

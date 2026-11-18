@@ -49,6 +49,9 @@ static bleCtrlNrfHello_t nrfLinkHello;
 static bool              nrfLinkHelloSeen;
 static bool              nrfLinkConnected;
 static bool              nrfLinkReset;
+static uint32_t          nrfLinkLastCtrlMs;       /* last valid CTRL frame from the nRF */
+static bleCtrlStats_t    nrfLinkNrfStats;
+static bool              nrfLinkNrfStatsSeen;
 
 static nrfLinkEvent_t    nrfLinkEvents[NRF_LINK_EVENT_DEPTH];
 static uint8_t           nrfLinkEvHead;
@@ -157,6 +160,7 @@ static void nrfLinkHandleFrame(const uint8_t *raw, uint16_t len)
         break;
 
     case NRF_LINK_PARSE_CTRL:
+        nrfLinkLastCtrlMs = HAL_GetTick();   /* liveness: STATS comes every second */
         switch (msg.ctrlType) {
         case BLE_CTRL_NRF_HELLO:
             nrfLinkHello     = msg.ctrl.hello;
@@ -190,6 +194,8 @@ static void nrfLinkHandleFrame(const uint8_t *raw, uint16_t len)
             (void)nrfLinkCreditsResync(&nrfLinkCredits, msg.ctrl.stats.slotsFree,
                                        HAL_GetTick(), nrfLinkConnected);
             nrfLinkStats.creditResyncs = nrfLinkCredits.resyncs;
+            nrfLinkNrfStats     = msg.ctrl.stats;
+            nrfLinkNrfStatsSeen = true;
             ev.kind = NRF_LINK_EV_STATS;
             ev.body.stats = msg.ctrl.stats;
             nrfLinkPushEvent(&ev);
@@ -287,6 +293,8 @@ ctrlStatus_e nrfLinkInit(void)
     nrfLinkCreditsReset(&nrfLinkCredits, 0U);
     nrfLinkHelloSeen = false;
     nrfLinkConnected = false;
+    nrfLinkNrfStatsSeen = false;
+    nrfLinkLastCtrlMs   = 0U;
     nrfLinkTxBusy    = false;
     nrfLinkRxIdx     = 0U;
 
@@ -309,8 +317,11 @@ void nrfLinkRun(void)
         nrfLinkStartRx();
     }
 
-    /* BLE_IRQ is the authority on "connected". */
-    const bool up = HAL_GPIO_ReadPin(BLE_IRQ_PORT, BLE_IRQ_PIN) == HAL_GPIO_PIN_SET;
+    /* BLE_IRQ is the authority on "connected", unless the nRF went silent:
+     * a hung or dead nRF may leave the pin high, but its central is gone
+     * (supervision timeout), so a bridge ABSENT ends the session too. */
+    const bool up = HAL_GPIO_ReadPin(BLE_IRQ_PORT, BLE_IRQ_PIN) == HAL_GPIO_PIN_SET
+                 && nrfLinkBridgeState() != (uint8_t)NRF_LINK_BRIDGE_ABSENT;
     if (nrfLinkConnected && !up) {
         nrfLinkDropSession();
         nrfLinkEvent_t ev = { .kind = NRF_LINK_EV_LINK_DOWN };
@@ -388,4 +399,17 @@ ctrlStatus_e nrfLinkSendCtrl(uint8_t type, const void *body, uint16_t bodyLen)
 const nrfLinkStats_t *nrfLinkGetStats(void)
 {
     return &nrfLinkStats;
+}
+
+uint8_t nrfLinkBridgeState(void)
+{
+    return (uint8_t)nrfLinkProtoBridge(nrfLinkHelloSeen, &nrfLinkHello, nrfLinkLastCtrlMs, HAL_GetTick());
+}
+
+bool nrfLinkGetNrfStats(bleCtrlStats_t *stats)
+{
+    if (nrfLinkNrfStatsSeen) {
+        *stats = nrfLinkNrfStats;
+    }
+    return nrfLinkNrfStatsSeen;
 }

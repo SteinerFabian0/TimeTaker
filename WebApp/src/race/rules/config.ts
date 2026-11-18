@@ -3,7 +3,7 @@
  * defaults are the user's decisions in RACE_RULES.md (repo root):
  *
  *   main settings
- *     falseStart.action      'timePenalty'    flag | timePenalty | disqualify
+ *     falseStart.action      'timePenalty'    flag | timePenalty (never disqualify)
  *     falseStart.penaltyMs   5000
  *     crashPolicy            'replacementAllowed'   | 'crashIsDnf'
  *   deeper settings
@@ -71,7 +71,7 @@ export function validateConfig(c: RaceConfig): string[] {
   }
   if (!(c.minLapMs >= 0)) p.push('minLapMs must be >= 0');
   const fs = c.falseStart;
-  if (!['flag', 'timePenalty', 'disqualify'].includes(fs.action)) p.push(`falseStart.action ${fs.action}`);
+  if (!['flag', 'timePenalty'].includes(fs.action)) p.push(`falseStart.action ${fs.action}`);
   if (!(fs.penaltyMs >= 0)) p.push('falseStart.penaltyMs must be >= 0');
   if (fs.apply === 'stopAndGo') p.push('falseStart.apply stopAndGo needs the power board (not supported yet)');
   else if (fs.apply !== 'addToFirstLap' && fs.apply !== 'addToTotal') p.push(`falseStart.apply ${String(fs.apply)}`);

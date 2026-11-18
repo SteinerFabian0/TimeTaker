@@ -16,8 +16,8 @@
  *     timePenalty  penaltyMs, added to the first lap time (apply
  *                  'addToFirstLap', the default) or to the total only
  *                  ('addToTotal'); either way it is in the total time
- *     disqualify   the car is disqualified at the false-start crossing
- *                  (laps after it never count; lap 1 is shown TLF)
+ *   A false start never disqualifies (the host can still disqualify a car
+ *   by hand, which is a separate race action).
  */
 
 import type { RaceConfig } from '../types.ts';

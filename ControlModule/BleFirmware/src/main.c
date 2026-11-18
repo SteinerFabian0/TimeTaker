@@ -449,7 +449,9 @@ int main(void)
         handleButton();
         serviceAdvertising((bleEvents & BLE_EVT_RECYCLED) != 0U);
 
-        if (st.connected && (k_uptime_get_32() - st.lastStatsMs) >= STATS_PERIOD_MS) {
+        /* Always, connected or not: the STM takes STATS as the nRF's heartbeat
+         * (silent 3 s = BLE bridge ABSENT in the host STATUS). */
+        if ((k_uptime_get_32() - st.lastStatsMs) >= STATS_PERIOD_MS) {
             st.lastStatsMs += STATS_PERIOD_MS;
             if ((k_uptime_get_32() - st.lastStatsMs) >= STATS_PERIOD_MS) {
                 st.lastStatsMs = k_uptime_get_32();     /* no catch-up bursts */

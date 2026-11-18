@@ -1,5 +1,5 @@
 /*
- * A typed method for every protocol 0.4 request, on top of any Requester
+ * A typed method for every protocol 0.6 request, on top of any Requester
  * (DeviceSession, or a fake in tests).
  *
  * - Lanes are numbers 1..6; masks are built with laneMask([1, 3]).
@@ -21,7 +21,7 @@ import type {
   BindEntry, DeviceSettings, LaneConfig, LaneStatusRsp, NodeInfo, PingRsp, StatusRsp,
 } from '../protocol/generated.ts';
 import type { StructDesc } from '../protocol/wire.ts';
-import { Status } from '../protocol/generated.ts';
+import { CalibrateAction, Status } from '../protocol/generated.ts';
 import { DeviceError, TimeoutError } from './deviceSession.ts';
 import type { RequestOptions, Requester } from './deviceSession.ts';
 
@@ -209,8 +209,12 @@ export class DeviceApi {
     await this.#call(LANE_RAW_STREAM_REQ, { lane, reserved: 0, decimation }, MsgId.LANE_RAW_STREAM, LANE_RAW_STREAM_RSP);
   }
 
-  async laneCalibrate(mask: number): Promise<void> {
-    await this.#call(LANE_CALIBRATE_REQ, { laneMask: mask }, MsgId.LANE_CALIBRATE, LANE_CALIBRATE_RSP);
+  /**
+   * LEARN (lanes free!) or FORGET the saved reference of the lanes in mask. The answer only acknowledges;
+   * each present lane's outcome follows as EVT_LANE_CALIBRATED (HealthMonitor.calibrate() waits for them).
+   */
+  async laneCalibrate(mask: number, action: CalibrateAction = CalibrateAction.LEARN): Promise<void> {
+    await this.#call(LANE_CALIBRATE_REQ, { laneMask: mask, action }, MsgId.LANE_CALIBRATE, LANE_CALIBRATE_RSP);
   }
 
   // ---- sequences ---------------------------------------------------------------

@@ -30,7 +30,12 @@
 #include "host_protocol.h"
 
 #define SETTINGS_RECORD_MAGIC        0x54545354U   /* "TSTT" little-endian: TimeTaker SeTTings */
-#define SETTINGS_RECORD_VERSION      1U
+/* Version 2 appended the per-lane saved references. Older versions still
+ * load: fields are only ever appended to the payload, so the loader copies
+ * what the record holds and keeps the defaults for the rest
+ * (settingsRecordLoad). A newer version than this firmware knows is CORRUPT. */
+#define SETTINGS_RECORD_VERSION      2U
+#define SETTINGS_RECORD_VERSION_MIN  1U
 #define SETTINGS_RECORD_HEADER_BYTES 16U
 #define SETTINGS_RECORD_CRC_BYTES    4U
 #define SETTINGS_RECORD_ALIGN        16U
@@ -78,6 +83,26 @@ uint32_t settingsRecordEncode(const uint8_t *payload, uint16_t payloadLen, uint3
  */
 settingsPageState_e settingsRecordCheck(const uint8_t *page, uint32_t pageBytes,
                                         settingsRecordHeader_t *header, const uint8_t **payload);
+
+/*
+ * Copies a VALID record's payload over out (outLen bytes, prefilled with the
+ * defaults by the caller): min(length, outLen) bytes. A shorter, older record
+ * keeps the defaults for the fields appended since; a longer one is cut.
+ * Returns the bytes copied.
+ */
+uint16_t settingsRecordLoad(const settingsRecordHeader_t *header, const uint8_t *payload,
+                            uint8_t *out, uint16_t outLen);
+
+/* Whether the data of change generation `ticket` reached the flash. savedGen:
+ * generation of the last record written and verified; failedGen: of the last
+ * write that failed (both wrap-compared, a later success wins). */
+typedef enum {
+    SETTINGS_SAVE_PENDING = 0,
+    SETTINGS_SAVE_WRITTEN,
+    SETTINGS_SAVE_FAILED,
+} settingsSave_e;
+
+settingsSave_e settingsRecordSaveState(uint32_t savedGen, uint32_t failedGen, uint32_t ticket);
 
 /* Classifies both pages and picks the current record and the next target. */
 void settingsRecordSelect(const uint8_t *page0, const uint8_t *page1, uint32_t pageBytes,

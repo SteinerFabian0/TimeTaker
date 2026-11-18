@@ -32,6 +32,8 @@
  *           the reset on a seen LINK_UP would leave the session open (and
  *           bound) for the next central when a LINK_UP frame was lost.
  *   window  seconds left, rounded up; BIND_ALLOW is clamped.
+ *   bridge  NODE_LIST's BLE node follows STATUS bleBridge (nrf_link_proto's
+ *           liveness rule): ABSENT / OK / FAULT (version mismatch).
  *
  * Panel (panel_manager): LED_STATUS shows session > link > nothing; BTN2 LONG
  * aborts a running start sequence (the EVT_BUTTON goes out as well).
@@ -108,6 +110,15 @@ uint16_t ctrlPolicyWindowLeftS(bool open, uint32_t endMs, uint32_t nowMs);
 
 /* BIND_ALLOW windowS clamped to maxS (0 closes). */
 uint32_t ctrlPolicyBindAllowS(uint16_t windowS, uint32_t maxS);
+
+/* NODE_LIST state of the BLE bridge from hpBleBridgeState_e (STATUS
+ * bleBridge, same rule): ABSENT -> ABSENT, OK -> OK, VERSION_MISMATCH (or
+ * anything unknown) -> FAULT. */
+uint8_t ctrlPolicyBleNodeState(uint8_t bleBridge);
+
+/* STATUS bleRssi: the last STATS rssi while the bridge is OK, else 127
+ * (unknown): a silent nRF's last value would be stale. */
+int8_t ctrlPolicyBleRssi(uint8_t bleBridge, bool haveStats, int8_t statsRssi);
 
 /* --- Panel -------------------------------------------------------------------- */
 

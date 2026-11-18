@@ -274,17 +274,29 @@ static void testCommand(void)
     expect("COMMAND ENTER_BOOTLOADER rejected by the APP", LANE_REG_COMMAND, &c, sizeof(c), LANE_ERR_CMD_UNSUPPORTED);
     c = (laneCommand_t){ 0U, 0U, 0U };
     expect("COMMAND 0 unknown", LANE_REG_COMMAND, &c, sizeof(c), LANE_ERR_REG_VALUE);
-    c = (laneCommand_t){ 8U, 0U, 0U };
-    expect("COMMAND 8 unknown", LANE_REG_COMMAND, &c, sizeof(c), LANE_ERR_REG_VALUE);
+    c = (laneCommand_t){ 9U, 0U, 0U };
+    expect("COMMAND 9 unknown", LANE_REG_COMMAND, &c, sizeof(c), LANE_ERR_REG_VALUE);
 
     static const uint8_t plain[] = { LANE_CMD_CALIBRATE, LANE_CMD_SINGLE_SAMPLE, LANE_CMD_RELEASE_CHAIN,
                                      LANE_CMD_RESET, LANE_CMD_CLEAR_COUNTERS };
     bool allOk = true;
     for (uint32_t i = 0U; i < sizeof(plain); i++) {
-        c = (laneCommand_t){ plain[i], 0x55U, 0U };
+        c = (laneCommand_t){ plain[i], 0x55U, 0xBEEFU };   /* value is ignored */
         allOk = allOk && laneRegsDecode(&regs, frame, mkFrame(LANE_REG_COMMAND, &c, sizeof(c)), &w) == LANE_OK;
     }
-    check("COMMAND argument-less commands accepted", allOk);
+    check("COMMAND argument-less commands accept any value", allOk);
+
+    c = (laneCommand_t){ LANE_CMD_SET_REFERENCE, 0U, 3800U };
+    check("COMMAND SET_REFERENCE accepted, value delivered",
+          laneRegsDecode(&regs, frame, mkFrame(LANE_REG_COMMAND, &c, sizeof(c)), &w) == LANE_OK
+          && w.reg == LANE_REG_COMMAND && w.u.command.cmd == LANE_CMD_SET_REFERENCE
+          && w.u.command.value == 3800U);
+    c.value = 0U;
+    check("COMMAND SET_REFERENCE 0 accepted (forget)",
+          laneRegsDecode(&regs, frame, mkFrame(LANE_REG_COMMAND, &c, sizeof(c)), &w) == LANE_OK
+          && w.u.command.value == 0U);
+    c.value = 0xFFFFU;
+    expect("COMMAND SET_REFERENCE 65535 accepted", LANE_REG_COMMAND, &c, sizeof(c), LANE_OK);
 }
 
 static void testSyncAlignAndLaneId(void)

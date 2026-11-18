@@ -6,22 +6,54 @@
  * Pure and immutable: applyNodeList / applyNodeEvent return a new model.
  *
  *   EVT_BOOT        the device rebooted: lanes gone (the rail is off after
- *                   every boot), seq not running, BLE link unknown
+ *                   every boot), seq not running, BLE link unknown,
+ *                   calibration outcomes of the old boot dropped
  *   EVT_LANE_STATE  JOINED / CONFIGURED / LEFT / FAULT / SYNC_LOST / SYNC_OK
- *   EVT_BLE_LINK    the BLE link to a central
+ *                   (0.6: CONFIGURED after FAULT = the lane recovered; it
+ *                   clears the fault)
+ *   EVT_BLE_LINK    the BLE link to a central (a phone connected or not)
+ *   EVT_LANE_CALIBRATED  the lane's last LANE_CALIBRATE outcome
  *   EVT_SEQ_*       whether a start sequence runs
  *   NODE_LIST       versions and board types (lanes listed are present; a
  *                   lane the model had as absent becomes 'joined' if listed
- *                   UPDATING (config push running), 'configured' if OK)
+ *                   UPDATING (config push running), 'configured' if OK; a
+ *                   faulted lane listed OK is configured again)
+ *   STATUS          (applyStatus) the nRF bridge itself: bleBridge
+ *                   absent / ok / versionMismatch, and seqRunning
  */
 
 import {
-  BleLinkState, LaneState, MsgId, NodeClass, NodeState,
+  BleBridgeState, BleLinkState, CalibrateResult, LaneState, MsgId, NodeClass, NodeState,
 } from '../protocol/generated.ts';
-import type { NodeInfo } from '../protocol/generated.ts';
+import type { NodeInfo, StatusRsp } from '../protocol/generated.ts';
 import type { DeviceEvent } from './deviceSession.ts';
 
 export type LanePhase = 'absent' | 'joined' | 'configured' | 'fault';
+
+export type CalibrationResult = 'saved' | 'forgotten' | 'failed' | 'notSaved';
+
+/** One EVT_LANE_CALIBRATED (or, from HealthMonitor, a timeout: result 'failed', timedOut). */
+export interface LaneCalibration {
+  readonly result: CalibrationResult;
+  /** The new reference (saved / notSaved), else 0. */
+  readonly reference: number;
+  readonly noise: number;
+  /** Device time (µs) of the event; null when synthesized by the host (timeout). */
+  readonly sysUs: number | null;
+  readonly bootId: number | null;
+  readonly timedOut?: boolean;
+}
+
+export function calibrationResultOf(code: number): CalibrationResult {
+  switch (code) {
+    case CalibrateResult.SAVED: return 'saved';
+    case CalibrateResult.FORGOTTEN: return 'forgotten';
+    case CalibrateResult.NOT_SAVED: return 'notSaved';
+    default: return 'failed';
+  }
+}
+
+export type BleBridge = 'unknown' | 'absent' | 'ok' | 'versionMismatch';
 
 export interface LaneNode {
   readonly index: number;
@@ -33,6 +65,8 @@ export interface LaneNode {
   readonly info: NodeInfo | null;
   /** sysUs of the last change, as a number (µs). */
   readonly changedUs: number;
+  /** The last LANE_CALIBRATE outcome of this boot, null if none. */
+  readonly calibration: LaneCalibration | null;
 }
 
 export interface BleLink {
@@ -49,16 +83,29 @@ export interface NodeModel {
   /** Lanes 1..6 (index 0 unused). */
   readonly lanes: readonly LaneNode[];
   readonly bleLink: BleLink;
+  /** The nRF52805 itself (STATUS.bleBridge, 0.6+): alive or not, independent of a phone. */
+  readonly bleBridge: BleBridge;
   readonly seqRunning: boolean;
 }
 
-const emptyLane = (index: number): LaneNode => ({ index, phase: 'absent', syncOk: true, faultStatus: 0, info: null, changedUs: 0 });
+const emptyLane = (index: number): LaneNode => ({
+  index, phase: 'absent', syncOk: true, faultStatus: 0, info: null, changedUs: 0, calibration: null,
+});
 
 export function emptyNodeModel(): NodeModel {
   return {
     bootId: null, ctrl: null, ble: null, lanes: Array.from({ length: 7 }, (_, i) => emptyLane(i)),
-    bleLink: { state: 'unknown', phy: 0, attMtu: 0, intervalMs: 0 }, seqRunning: false,
+    bleLink: { state: 'unknown', phy: 0, attMtu: 0, intervalMs: 0 }, bleBridge: 'unknown', seqRunning: false,
   };
+}
+
+/** STATUS: the BLE bridge state and whether a start sequence runs. */
+export function applyStatus(m: NodeModel, st: Pick<StatusRsp, 'bleBridge' | 'seqRunning'>): NodeModel {
+  const bleBridge: BleBridge = st.bleBridge === BleBridgeState.OK ? 'ok'
+    : st.bleBridge === BleBridgeState.VERSION_MISMATCH ? 'versionMismatch' : 'absent';
+  const seqRunning = st.seqRunning === 1;
+  if (bleBridge === m.bleBridge && seqRunning === m.seqRunning) return m;
+  return { ...m, bleBridge, seqRunning };
 }
 
 /** Lanes that are present (joined or configured or faulted), in index order. */
@@ -83,8 +130,9 @@ export function applyNodeList(m: NodeModel, nodes: readonly NodeInfo[]): NodeMod
       // The firmware lists a lane from its join on: UPDATING while the config push runs,
       // OK once configured, FAULT when the push gave up or the protocol differs.
       const listed: LanePhase = n.state === NodeState.UPDATING ? 'joined' : 'configured';
-      const phase: LanePhase = n.state === NodeState.FAULT ? 'fault' : cur.phase === 'absent' ? listed : cur.phase;
-      lanes[n.index] = { ...cur, info: n, phase };
+      const phase: LanePhase = n.state === NodeState.FAULT ? 'fault'
+        : cur.phase === 'absent' ? listed : cur.phase === 'fault' && n.state === NodeState.OK ? 'configured' : cur.phase;
+      lanes[n.index] = { ...cur, info: n, phase, faultStatus: phase === 'fault' ? cur.faultStatus : 0 };
     }
   }
   for (const l of lanes) {
@@ -101,7 +149,7 @@ export function applyNodeEvent(m: NodeModel, e: DeviceEvent): NodeModel {
   const us = (x: unknown): number => (typeof x === 'bigint' ? Number(x) : 0);
   switch (e.msgId) {
     case MsgId.EVT_BOOT:
-      return { ...emptyNodeModel(), bootId: e.bootId, ctrl: m.ctrl, ble: m.ble };
+      return { ...emptyNodeModel(), bootId: e.bootId, ctrl: m.ctrl, ble: m.ble, bleBridge: m.bleBridge };
     case MsgId.EVT_LANE_STATE: {
       const idx = v['lane'] as number;
       if (idx < 1 || idx > 6) return m;
@@ -110,7 +158,8 @@ export function applyNodeEvent(m: NodeModel, e: DeviceEvent): NodeModel {
       let next: LaneNode = cur;
       switch (v['state']) {
         case LaneState.JOINED: next = { ...cur, phase: 'joined', syncOk: true, faultStatus: 0, changedUs: t }; break;
-        case LaneState.CONFIGURED: next = { ...cur, phase: 'configured', changedUs: t }; break;
+        // 0.6: also the recovery of a faulted lane.
+        case LaneState.CONFIGURED: next = { ...cur, phase: 'configured', faultStatus: 0, changedUs: t }; break;
         case LaneState.LEFT: next = { ...cur, phase: 'absent', info: null, changedUs: t }; break;
         case LaneState.FAULT: next = { ...cur, phase: 'fault', faultStatus: v['status'] as number, changedUs: t }; break;
         case LaneState.SYNC_LOST: next = { ...cur, syncOk: false, changedUs: t }; break;
@@ -128,6 +177,18 @@ export function applyNodeEvent(m: NodeModel, e: DeviceEvent): NodeModel {
           state: st, phy: v['phy'] as number, attMtu: v['attMtu'] as number, intervalMs: (v['intervalUnits'] as number) * 1.25,
         },
       };
+    }
+    case MsgId.EVT_LANE_CALIBRATED: {
+      const idx = v['lane'] as number;
+      if (idx < 1 || idx > 6) return m;
+      const lanes = m.lanes.slice();
+      lanes[idx] = {
+        ...m.lanes[idx]!, calibration: {
+          result: calibrationResultOf(v['result'] as number), reference: v['reference'] as number,
+          noise: v['noise'] as number, sysUs: us(v['sysUs']), bootId: e.bootId,
+        },
+      };
+      return { ...m, lanes };
     }
     case MsgId.EVT_SEQ_STARTED: return { ...m, seqRunning: true };
     case MsgId.EVT_LIGHTS_OUT:

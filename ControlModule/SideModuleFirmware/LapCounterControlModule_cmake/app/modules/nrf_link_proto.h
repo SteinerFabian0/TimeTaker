@@ -17,6 +17,10 @@
  *   - STATS.slotsFree resyncs the count (see nrfLinkCreditsResync).
  *   - Link MAJOR must match BLE_LINK_MAJOR, or DATA is refused (CTRL keeps
  *     working).
+ *   - Bridge liveness: the nRF sends CTRL STATS every second, connected or
+ *     not. ABSENT before NRF_HELLO or when no valid CTRL frame came for
+ *     NRF_LINK_BRIDGE_SILENT_MS; else VERSION_MISMATCH on another link
+ *     MAJOR; else OK (nrfLinkProtoBridge).
  *
  * Pure logic: no HAL, no globals. nrf_link.c does the UART and the rings.
  * Host-tested (test/host_nrf_link).
@@ -71,6 +75,20 @@ typedef struct {
  * (STATS was built before that frame arrived, or its credit is still on the
  * way back). */
 #define NRF_LINK_RESYNC_QUIET_MS  20U
+
+/* Bridge liveness (values = host protocol hpBleBridgeState_e). */
+#define NRF_LINK_BRIDGE_SILENT_MS  3000U
+
+typedef enum {
+    NRF_LINK_BRIDGE_ABSENT           = 0,
+    NRF_LINK_BRIDGE_OK               = 1,
+    NRF_LINK_BRIDGE_VERSION_MISMATCH = 2,
+} nrfLinkBridge_e;
+
+/* helloSeen: an NRF_HELLO arrived (hello then holds it). lastCtrlMs: when
+ * the last valid CTRL frame arrived (the HELLO counts). */
+nrfLinkBridge_e nrfLinkProtoBridge(bool helloSeen, const bleCtrlNrfHello_t *hello, uint32_t lastCtrlMs,
+                                   uint32_t nowMs);
 
 /* Classifies one decoded link frame (the raw bytes frame_codec handed over). */
 nrfLinkParse_e nrfLinkProtoParse(const uint8_t *raw, uint16_t len, nrfLinkMsg_t *msg);

@@ -101,7 +101,6 @@ export function fold(config: RaceConfig, events: readonly RaceInputEvent[], acti
           if (j.kind === 'falseStart') {
             car.falseStart = true;
             car.hadPreStart = true;
-            if (config.falseStart.action === 'disqualify' && !after(c, car.dqAt)) car.dqAt = { bootId: c.bootId, evSeq: c.evSeq };
           }
           continue;
         }

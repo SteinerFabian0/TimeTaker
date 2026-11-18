@@ -12,15 +12,21 @@
  *   start      start sequence: SEQ_STARTED, LIGHTS_OUT in range and never early,
  *              ERR_SEQ_RUNNING, LED refused, abort
  *   binding    USB HELLO of a web app binds, BIND_ALLOW/LIST/REMOVE; BLE part sim only
+ *   health     0.6 STATUS fields, health self check (every part), LANE_STATUS
+ *              rawMin/rawMax reset on read, calibrate (SAVED ≈ baseline) /
+ *              forget / re-calibrate, LANE_CALIBRATE refused during a start
+ *              sequence
  */
 
 import { DeviceApi, laneMask, ALL_LANES } from '../../src/device/deviceApi.ts';
 import { DeviceError, DeviceSession } from '../../src/device/deviceSession.ts';
 import {
-  BindChange, BindState, BoardType, ClientKind, LaneEventType, LaneState, LedMode, MsgId, NodeClass, PROTO,
+  BindChange, BindState, BleBridgeState, BoardType, CalibrateAction, ClientKind, LaneEventType, LaneState, LedMode, MsgId, NodeClass, PROTO,
   SamplingMode, SeqAbortReason, Status, Transport as HpTransport, HELLO_REQ,
 } from '../../src/protocol/generated.ts';
 import { encodeStruct } from '../../src/protocol/wire.ts';
+import { findCheck } from '../../src/health/health.ts';
+import { HealthMonitor } from '../../src/health/monitor.ts';
 import type { Bench } from './bench.ts';
 
 export interface Check { name: string; ok: boolean; detail: string }
@@ -240,6 +246,52 @@ export const SUITES: Record<string, Suite> = {
     await ble.close();
     await b.api.bindAllow(0);
     await b.api.bindRemove(new Uint8Array(16).fill(0xb2));
+  },
+
+  async health(b, c, o) {
+    const st0 = await b.api.status();
+    c.ok('STATUS 0.6: bleBridge is a bleBridgeState', [BleBridgeState.ABSENT, BleBridgeState.OK, BleBridgeState.VERSION_MISMATCH].includes(st0.bleBridge as 0), `${st0.bleBridge}`);
+    c.ok('STATUS 0.6: RSSI 127 without a phone, plausible with one', st0.bleRssi === 127 || (st0.bleRssi < 0 && st0.bleRssi > -110), `${st0.bleRssi}`);
+    c.ok('STATUS 0.6: settingsDefaults 0 or 1', st0.settingsDefaults <= 1, `${st0.settingsDefaults}`);
+    const n = st0.lanesPresent > 0 ? st0.lanesPresent : await powerUp(b, c, o.lanes ?? 6);
+    await b.sleep(500);
+    const mon = new HealthMonitor({ api: b.api, scheduler: b.clock });
+    b.onEvent = (e) => mon.onEvent(e);
+    mon.setConnected(true);
+    try {
+      const r = await mon.runSelfCheck();
+      c.ok('self check: control module online, link ok', r.control.online && findCheck(r, 'ctrl.link')!.level === 'ok', r.overall);
+      c.ok('self check: BLE chip online', r.ble.online, findCheck(r, 'ble.bridge')!.message);
+      const on = r.lanes.filter((l) => l.online).map((l) => l.index);
+      c.ok('self check: lanes 1..n online', on.length === n && on.every((l, i) => l === i + 1), on.join(','));
+      for (const l of on) {
+        const bad = r.lanes[l - 1]!.checks.filter((x) => ['lane.sensor', 'lane.sync', 'lane.config', 'lane.fault'].includes(x.id) && x.level !== 'ok');
+        c.ok(`lane ${l}: sensor, SYNC, config, no fault`, bad.length === 0, bad.map((x) => `${x.id} ${x.message}`).join('; '));
+      }
+      await b.api.laneStatus(1);
+      const quick = await b.api.laneStatus(1);
+      c.ok('LANE_STATUS: rawMin <= raw <= rawMax', quick.rawMin <= quick.raw && quick.raw <= quick.rawMax, `${quick.rawMin}..${quick.raw}..${quick.rawMax}`);
+      c.ok('LANE_STATUS: a read resets the rawMin/rawMax window (back-to-back: narrow)', quick.rawMax - quick.rawMin <= Math.max(40, 8 * quick.noise), `${quick.rawMax - quick.rawMin} vs noise ${quick.noise}`);
+      await b.operator('keep every lane free (no car on the strip) for the calibration');
+      const cal = await mon.calibrate('all');
+      c.ok('calibrate all: SAVED on every present lane', cal.length === n && cal.every((x) => x.result === 'saved'), cal.map((x) => `${x.lane}:${x.result}`).join(' '));
+      const ls = await b.api.laneStatus(1);
+      c.ok('lane 1: LANE_STATUS.reference = the saved value', ls.reference === cal[0]?.reference, `${ls.reference} / ${cal[0]?.reference}`);
+      c.ok('lane 1: reference within 5 % of the baseline', Math.abs(ls.reference - ls.baseline) <= ls.baseline * 0.05, `${ls.reference} / ${ls.baseline}`);
+      const fg = await mon.forget([1]);
+      c.ok('forget lane 1: FORGOTTEN', fg[0]?.result === 'forgotten', fg[0]?.result ?? 'none');
+      const again = await mon.calibrate([1]);
+      c.ok('calibrate lane 1 again: SAVED', again[0]?.result === 'saved', again[0]?.result ?? 'none');
+      await b.api.startSequence({ lights: n, stepMs: 1000, holdMinMs: 2000, holdMaxMs: 2000, attentionPulses: 0 });
+      await c.status('LANE_CALIBRATE during a start sequence → ERR_SEQ_RUNNING', b.api.laneCalibrate(1, CalibrateAction.LEARN), Status.ERR_SEQ_RUNNING);
+      await b.api.abortSequence();
+      const r2 = await mon.runSelfCheck();
+      c.ok('after calibration: lane 1 saved reference ok, drift ok', findCheck(r2, 'lane.savedReference', 1)!.level === 'ok' && findCheck(r2, 'lane.drift', 1)!.level === 'ok',
+        `${findCheck(r2, 'lane.savedReference', 1)!.message}; ${findCheck(r2, 'lane.drift', 1)!.message}`);
+    } finally {
+      mon.stop();
+      b.onEvent = null;
+    }
   },
 
 };

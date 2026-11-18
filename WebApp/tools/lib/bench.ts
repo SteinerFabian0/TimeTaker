@@ -12,13 +12,16 @@ import { DeviceSession } from '../../src/device/deviceSession.ts';
 import type { DeviceEvent, DeviceStream, ResumePoint } from '../../src/device/deviceSession.ts';
 import type { SimDevice } from '../../src/device/simDevice.ts';
 import {
-  BindChange, BleLinkState, ButtonId, ClientKind, FaultSource, LaneEventFlag, LaneEventType, LaneState, LogLevel, MsgId,
+  BindChange, BleLinkState, ButtonId, CalibrateResult, ClientKind, FaultSource, LaneEventFlag, LaneEventType, LaneState, LogLevel, MsgId,
   PressKind, ResetCause, SeqAbortReason, statusName,
 } from '../../src/protocol/generated.ts';
 import type { Transport } from '../../src/transport/transport.ts';
 import { sleep, waitFor } from '../../src/util/clock.ts';
 import type { Scheduler } from '../../src/util/clock.ts';
 import { toHex } from '../../src/util/bytes.ts';
+import type { Check, HealthReport } from '../../src/health/health.ts';
+import type { CalibrationOutcome, LaneSample } from '../../src/health/monitor.ts';
+import { laneStatusFlagNames } from '../../src/device/laneFlags.ts';
 import { findTimeTaker, TtyTransport } from './ttyTransport.ts';
 
 export const BENCH_CLIENT_ID = new Uint8Array([0x7e, 0x57, 0xbe, 0x0c, 0x4c, 0x11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
@@ -42,6 +45,8 @@ export class Bench {
   session!: DeviceSession;
   api!: DeviceApi;
   watch = false;
+  /** Extra event consumer (the HealthMonitor of `status` / `sensors` / `calibrate`). */
+  onEvent: ((e: DeviceEvent) => void) | null = null;
   #o: BenchOptions;
   #resume: ResumePoint | null = null;
 
@@ -68,7 +73,7 @@ export class Bench {
       clientId: BENCH_CLIENT_ID, clientName: 'tt bench', clientKind: ClientKind.TOOL, scheduler: this.clock,
       requestTimeoutMs: this.#o.requestTimeoutMs ?? 1000,
     }, {
-      onEvent: (e) => { this.events.push(e); if (this.watch) this.log(formatEvent(e)); },
+      onEvent: (e) => { this.events.push(e); this.onEvent?.(e); if (this.watch) this.log(formatEvent(e)); },
       onStream: (st) => { this.streams.push(st); if (this.watch && st.msgId === MsgId.DBG_LOG) this.log(formatStream(st)); },
       onGap: (b, from, to) => this.log(`! events ${from}..${to - 1} of boot ${hex32(b)} were lost (overwritten on the device)`),
       onBoot: (b, prev) => { if (prev !== null) this.log(`! device rebooted: boot ${hex32(prev)} → ${hex32(b)}`); },
@@ -145,6 +150,7 @@ export function formatEvent(e: DeviceEvent): string {
     case MsgId.EVT_BIND_CHANGED: d = `${nameOf(BindChange, v['change'])} count ${String(v['count'])} window ${String(v['windowS'])} s id ${toHex(v['clientIdPrefix'] as Uint8Array)}…`; break;
     case MsgId.EVT_BLE_LINK: d = `${nameOf(BleLinkState, v['state'])} phy ${String(v['phy'])} mtu ${String(v['attMtu'])} interval ${String((v['intervalUnits'] as number) * 1.25)} ms reason 0x${(v['reason'] as number).toString(16)}`; break;
     case MsgId.EVT_FAULT: d = `${nameOf(FaultSource, v['source'])} ${statusName(v['status'] as number)}`; break;
+    case MsgId.EVT_LANE_CALIBRATED: d = `lane ${String(v['lane'])} ${nameOf(CalibrateResult, v['result'])} reference ${String(v['reference'])} noise ${String(v['noise'])}`; break;
     default: d = JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x instanceof Uint8Array ? toHex(x) : x));
   }
   return `${head} ${fmtUs(t).padStart(16)}  ${d}`;
@@ -158,4 +164,43 @@ export function formatStream(s: DeviceStream): string {
     return `  raw lane ${String(v['lane'])} chunk ${String(v['chunkSeq'])} @${fmtUs(v['firstUs'])} /${String(v['periodUs'])} µs: ${smp.join(' ')}`;
   }
   return `  ${s.name}`;
+}
+
+// ---- health ------------------------------------------------------------------------
+
+const MARK: Record<string, string> = { ok: 'ok  ', warn: 'WARN', fail: 'FAIL', unknown: ' -- ' };
+
+/** The health report as text: one block per part, one line per check (unknown checks of offline parts folded). */
+export function formatReport(r: HealthReport): string[] {
+  const out: string[] = [`overall: ${r.overall.toUpperCase()}`];
+  const checks = (cs: readonly Check[]): void => {
+    if (cs.slice(1).every((c) => c.level === 'unknown') && cs.length > 1) {
+      out.push(`  ${MARK[cs[0]!.level]} ${cs[0]!.id.padEnd(20)} ${cs[0]!.message}`);
+      return;
+    }
+    for (const c of cs) out.push(`  ${MARK[c.level]} ${c.id.padEnd(20)} ${c.message}`);
+  };
+  out.push(`control module: ${r.control.online ? 'online' : 'OFFLINE'}`);
+  checks(r.control.checks);
+  out.push(`BLE chip: ${r.ble.online ? 'online' : 'OFFLINE'}, ${r.ble.connected ? 'phone connected' : 'no phone connected'}`);
+  checks(r.ble.checks);
+  for (const l of r.lanes) {
+    out.push(`lane ${l.index}: ${l.online ? 'online' : 'offline'}`);
+    checks(l.checks);
+  }
+  return out;
+}
+
+export function formatSample(lane: number, s: LaneSample): string {
+  const flags = laneStatusFlagNames(s.flags).filter((f) => f === 'BLOCKED' || f === 'SYNC_LOST' || f === 'FIFO_OVERFLOW').join(' ');
+  return `lane ${lane}  raw ${String(s.raw).padStart(5)} [${String(s.rawMin).padStart(5)}..${String(s.rawMax).padStart(5)}]`
+    + `  base ${String(s.baseline).padStart(5)}  thr ${s.thrLow}/${s.thrHigh}  ref ${String(s.reference).padStart(5)}`
+    + `  noise ${String(s.noise).padStart(3)}${s.reference ? `  ${Math.round((s.baseline / s.reference) * 100)} %` : ''}${flags ? `  ${flags}` : ''}`;
+}
+
+export function formatOutcome(o: CalibrationOutcome): string {
+  const what = o.timedOut ? 'FAILED (no answer in time)' : o.result === 'saved' ? `saved reference ${o.reference}`
+    : o.result === 'notSaved' ? `learned ${o.reference}, NOT saved (flash write failed): used until power-off`
+    : o.result === 'forgotten' ? 'saved reference forgotten (learns at every power-up)' : 'FAILED (lane absent, busy or left)';
+  return `lane ${o.lane}: ${what}${o.result === 'saved' || o.result === 'notSaved' ? `, noise ${o.noise}` : ''}`;
 }

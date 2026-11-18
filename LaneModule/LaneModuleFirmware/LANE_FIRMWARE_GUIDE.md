@@ -279,7 +279,14 @@ The algorithm is from the doc; this is pure logic and must be host-tested:
    lap is the web app's decision (`SYSTEM_ARCHITECTURE.md` §2.4). The default
    is a holdoff of 0, off.
 7. Calibrate on command: measure the baseline on an empty track and derive the
-   thresholds.
+   thresholds. When learning ends, the **reference** (protocol 0.4) is set to
+   that baseline. The baseline keeps tracking slowly while the lane is free;
+   the reference never moves except by learning or `COMMAND SET_REFERENCE`.
+   `SET_REFERENCE` with `value != 0` seeds baseline and reference at once,
+   without learning (the lane is calibrated immediately, so a car parked on the
+   line at power-up cannot spoil the baseline); `value 0` forgets and relearns
+   as at boot. The control module sends it after CONFIG with the value it saved.
+   Baseline far below reference = dirty strip or moved module.
 
 All parameters come from the mainboard:
 
@@ -471,12 +478,21 @@ All multi-byte values are little-endian.
 | LANE_ID | R/W | Lane index assigned by the mainboard after enumeration (0 = unassigned) |
 | STATUS | R | State (§3.1), FIFO count, dropped events, SYNC ok/lost, sensor ok, last error code, reset cause, fault breadcrumb id, uptime |
 | EVENT_FIFO | R | 16-byte event records (§3.5). Reading pops. |
-| SIGNAL | R | Latest raw value, baseline, thresholds in use (diagnostics) |
+| SIGNAL | R | Latest raw value, baseline, thresholds in use, noise, reference (0 = none yet), sample time, `rawMin`/`rawMax` since the previous SIGNAL read (diagnostics, 24 B). The window survives slow polling: a passing car shows as a low `rawMin`. Both equal `raw` when no sample arrived since. |
 | CONFIG | R/W | Sample period and phase, IR current, integration time, thresholds, hysteresis, merge gap, block timeout, holdoff + holdoff sample period, raw-stream decimation |
 | LED | W | Mode, brightness, blink parameters, optional apply-at-tick |
 | SCHEDULE | W | "At mainboard time T do X" (LED state, sampling mode), queued (≥ 4), plus cancel-all |
-| COMMAND | W | Calibrate, sampling mode (OFF / ON / RAW), sleep level, release chain, reset. **`ENTER_BOOTLOADER` reserved** for the later I3C lane bootloader (`SYSTEM_ARCHITECTURE.md` §10.2). |
+| COMMAND | W | Calibrate, sampling mode (OFF / ON / RAW), sleep level, release chain, reset, set reference (`value` field, 0.4; ignored by every other command). **`ENTER_BOOTLOADER` reserved** for the later I3C lane bootloader (`SYSTEM_ARCHITECTURE.md` §10.2). |
 | SYNC_ALIGN | W | Epoch message: tick of the mainboard's last SYNC edge + µs since that edge (§9) |
+
+SIGNAL's raw window (`laneRawWindow_t` in `lane_detect.h`): the main loop adds
+every sample (`sense_manager`, under `irq_guard`, together with `raw`); the I3C
+ISR builds the response with `senseManagerGetSignal()`, which merges but does
+not spend the window, because `lane_bus` rebuilds the response after every
+read; the read-done hook calls `senseManagerSignalDelivered()` only when all 24
+bytes were clocked out and no bus error hit, which spends it. A sample that
+arrives between the build and the confirmation lands in the next window, so none
+is lost or split; a response that is built but never read loses nothing.
 
 Rules:
 

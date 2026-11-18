@@ -34,6 +34,7 @@ static laneDetect_t senseDetect;
 static eventFifo_t  senseEvents;
 static rawFifo_t    senseRaw;
 static laneSignal_t senseSignal;
+static laneRawWindow_t senseWindow;   /* main loop adds, I3C ISR takes: under irqGuard */
 
 static bool     senseSinglePending;
 static bool     senseSingleStarted;
@@ -84,6 +85,7 @@ laneStatus_e senseManagerInit(void)
     senseMode          = LANE_SAMPLING_OFF;
     senseParked        = false;
     memset(&senseSignal, 0, sizeof(senseSignal));
+    laneRawWindowInit(&senseWindow);
 
     senseDetectConfig(&senseConfig, &dc);
     LANE_ASSERT_RETURN(laneDetectInit(&senseDetect, &dc));
@@ -133,6 +135,7 @@ static void senseHandleSample(const laneSample_t *s)
     uint32_t guard = irqGuardEnter();
     senseSignal.raw      = s->raw;
     senseSignal.sampleUs = sampleMb;
+    laneRawWindowAdd(&senseWindow, s->raw);
     irqGuardExit(guard);
 
     senseFaultReported = false;
@@ -170,13 +173,15 @@ static void senseUpdateSignal(uint32_t nowMs)
     senseSignal.thrLow   = senseDetect.thrLow;
     senseSignal.thrHigh  = senseDetect.thrHigh;
     senseSignal.noise    = laneDetectNoise(&senseDetect);
+    senseSignal.reference = laneDetectReference(&senseDetect);
     irqGuardExit(guard);
 
     if (LANE_TRACE_ON(LANE_TRACE_SIGNAL) && senseMode != LANE_SAMPLING_OFF
         && (uint32_t)(nowMs - senseSignalTraceMs) >= 100U) {
         senseSignalTraceMs = nowMs;
-        laneTrace(LANE_TRACE_SIGNAL, "SIG raw=%u base=%u low=%u high=%u noise=%u st=%u",
+        laneTrace(LANE_TRACE_SIGNAL, "SIG raw=%u base=%u ref=%u low=%u high=%u noise=%u st=%u",
                   (uint32_t)senseSignal.raw, (uint32_t)senseSignal.baseline,
+                  (uint32_t)senseSignal.reference,
                   (uint32_t)senseSignal.thrLow, (uint32_t)senseSignal.thrHigh,
                   (uint32_t)senseSignal.noise, (uint32_t)senseDetect.state);
     }
@@ -333,6 +338,16 @@ laneStatus_e senseManagerCalibrate(void)
     return LANE_OK;
 }
 
+laneStatus_e senseManagerSetReference(uint16_t value)
+{
+    if (senseParked) {
+        return LANE_ERR_PARKED;
+    }
+    laneDetectSetReference(&senseDetect, value);
+    laneTrace(LANE_TRACE_EVENTS, "set reference %u", (uint32_t)value);
+    return LANE_OK;
+}
+
 laneStatus_e senseManagerSingleSample(void)
 {
     if (senseParked) {
@@ -380,8 +395,21 @@ uint16_t senseManagerStatusFlags(void)
 
 void senseManagerGetSignal(laneSignal_t *out)
 {
+    uint16_t lo;
+    uint16_t hi;
+
     uint32_t guard = irqGuardEnter();
     *out = senseSignal;
+    laneRawWindowTake(&senseWindow, senseSignal.raw, &lo, &hi);
+    irqGuardExit(guard);
+    out->rawMin = lo;
+    out->rawMax = hi;
+}
+
+void senseManagerSignalDelivered(void)
+{
+    uint32_t guard = irqGuardEnter();
+    laneRawWindowConfirm(&senseWindow);
     irqGuardExit(guard);
 }
 

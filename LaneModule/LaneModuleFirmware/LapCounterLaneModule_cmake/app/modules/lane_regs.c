@@ -172,6 +172,7 @@ static laneStatus_e laneRegsValidateCommand(const laneCommand_t *c)
     case LANE_CMD_RELEASE_CHAIN:
     case LANE_CMD_RESET:
     case LANE_CMD_CLEAR_COUNTERS:
+    case LANE_CMD_SET_REFERENCE:   /* value: any, 0 = forget */
         return LANE_OK;
     case LANE_CMD_ENTER_BOOTLOADER:
         /* Reserved for the future I3C lane bootloader; an APP image refuses. */

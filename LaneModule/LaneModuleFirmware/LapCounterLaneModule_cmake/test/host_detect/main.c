@@ -438,6 +438,123 @@ static void testCalibrate(void)
     check("calibrate: new baseline learned", laneDetectBaseline(&det) == 6000U);
 }
 
+static void testReference(void)
+{
+    simReset(0U, BASE, NULL);
+    check("reference: 0 before learning", laneDetectReference(&det) == 0U);
+    simRun((DETECT_LEARN_SAMPLES - 1U) * P);
+    check("reference: still 0 one sample before the end", laneDetectReference(&det) == 0U);
+    simRun(DETECT_LEARN_SAMPLES * P);
+    check("reference: learned baseline after learning", laneDetectReference(&det) == BASE);
+
+    /* The IIR moves the baseline, never the reference. */
+    simReset(0U, BASE, NULL);
+    simWarmUp();
+    simBase = 3500U;
+    simRun(10000000U);
+    check("reference: baseline followed the foil", near(laneDetectBaseline(&det), 3500U, 10U));
+    check("reference: reference did not move", laneDetectReference(&det) == BASE);
+
+    /* A recalibration learns a new reference; the old one stays until then. */
+    laneDetectCalibrate(&det);
+    check("reference: kept while relearning", laneDetectReference(&det) == BASE);
+    simBase = 3000U;
+    simRun(10200000U);
+    check("reference: new after relearning", laneDetectReference(&det) == 3000U);
+}
+
+static void testSetReference(void)
+{
+    /* Seed: no learning, calibrated at once, detects the very first car. */
+    simReset(0U, 7000U, NULL);
+    laneDetectSetReference(&det, BASE);
+    check("setref: calibrated at once", laneDetectIsCalibrated(&det));
+    check("setref: baseline = reference = value",
+          laneDetectBaseline(&det) == BASE && laneDetectReference(&det) == BASE);
+    check("setref: thresholds follow the value", det.thrLow == 2800U && det.thrHigh == 3200U);
+    check("setref: state FREE", det.state == DETECT_STATE_FREE);
+    simBase = BASE;
+    simAddCar(10000U, 30000U, CAR);
+    simRun(100000U);
+    check("setref: car on the first samples detected, baseline not learned",
+          evCount == 1U && evs[0].type == LANE_EVT_CROSSING && laneDetectBaseline(&det) == BASE);
+
+    /* A car parked on the line at power-up must not spoil the seed. */
+    simReset(0U, BASE, NULL);
+    simAddCar(0U, 400000U, CAR);
+    laneDetectSetReference(&det, BASE);
+    simRun(100000U);
+    check("setref: object on the line is a pass, not a baseline",
+          laneDetectBaseline(&det) == BASE && laneDetectIsBlocked(&det));
+
+    /* A pass in progress is abandoned without an event. */
+    simReset(0U, BASE, NULL);
+    simWarmUp();
+    simAddCar(200000U, 220000U, CAR);
+    simRun(205000U);
+    laneDetectSetReference(&det, BASE);
+    simCarCount = 0U;
+    simRun(400000U);
+    check("setref: pass in progress abandoned", evCount == 0U && det.state == DETECT_STATE_FREE);
+
+    /* 0 forgets: relearn exactly as at boot. */
+    simReset(0U, BASE, NULL);
+    simWarmUp();
+    laneDetectSetReference(&det, 0U);
+    check("setref 0: learning again", !laneDetectIsCalibrated(&det));
+    check("setref 0: reference forgotten", laneDetectReference(&det) == 0U);
+    simBase = 6000U;
+    simRun(simRel + (DETECT_LEARN_SAMPLES - 1U) * P);
+    check("setref 0: not calibrated before 64 samples", !laneDetectIsCalibrated(&det));
+    simRun(simRel + 2U * P);
+    check("setref 0: learned a new baseline and reference",
+          laneDetectIsCalibrated(&det) && laneDetectBaseline(&det) == 6000U
+          && laneDetectReference(&det) == 6000U);
+}
+
+static void testRawWindow(void)
+{
+    laneRawWindow_t w;
+    uint16_t lo = 1U, hi = 2U;
+
+    laneRawWindowInit(&w);
+    laneRawWindowTake(&w, 1234U, &lo, &hi);
+    check("window: no sample since: both = raw", lo == 1234U && hi == 1234U);
+
+    laneRawWindowAdd(&w, 1200U);
+    laneRawWindowAdd(&w, 1500U);
+    laneRawWindowAdd(&w, 900U);
+    laneRawWindowAdd(&w, 1000U);
+    laneRawWindowTake(&w, 1000U, &lo, &hi);
+    check("window: min and max of the samples", lo == 900U && hi == 1500U);
+
+    /* Not spent until confirmed: a second Take still carries them. */
+    laneRawWindowTake(&w, 1200U, &lo, &hi);
+    check("window: rebuilt response keeps the unconfirmed window", lo == 900U && hi == 1500U);
+    laneRawWindowAdd(&w, 100U);
+    laneRawWindowAdd(&w, 2000U);
+    laneRawWindowTake(&w, 2000U, &lo, &hi);
+    check("window: samples after the first build are merged, not lost", lo == 100U && hi == 2000U);
+
+    /* Confirm spends what was handed out; a later sample survives. */
+    laneRawWindowTake(&w, 100U, &lo, &hi);
+    laneRawWindowAdd(&w, 5000U);          /* after the build the controller reads */
+    laneRawWindowConfirm(&w);
+    laneRawWindowTake(&w, 5000U, &lo, &hi);
+    check("window: reset on read, newer sample starts the next window", lo == 5000U && hi == 5000U);
+    laneRawWindowConfirm(&w);
+    laneRawWindowTake(&w, 5000U, &lo, &hi);
+    check("window: after a read with no new sample both = raw", lo == 5000U && hi == 5000U);
+
+    laneRawWindowAdd(&w, 4000U);
+    laneRawWindowAdd(&w, 4000U);
+    laneRawWindowTake(&w, 4000U, &lo, &hi);
+    laneRawWindowConfirm(&w);
+    laneRawWindowAdd(&w, 4100U);
+    laneRawWindowTake(&w, 4100U, &lo, &hi);
+    check("window: fresh window excludes the confirmed one", lo == 4100U && hi == 4100U);
+}
+
 static void testWrap(void)
 {
     /* The TIM2 counter wraps in the middle of the pass. */
@@ -515,6 +632,9 @@ int main(void)
     testBaselineDrift();
     testNoBaselineUpdateUnderCar();
     testCalibrate();
+    testReference();
+    testSetReference();
+    testRawWindow();
     testWrap();
     testBreak();
     testConfigRejects();

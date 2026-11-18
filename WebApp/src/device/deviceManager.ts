@@ -16,6 +16,7 @@
  *   - The node model follows NODE_LIST (fetched on every connect and shortly
  *     after lanes join) and the events.
  *   - `api` always talks to the current session.
+ *   - subscribe() adds listeners for subsystems (HealthMonitor.attach).
  *
  * No DOM: transports come from TransportSource objects.
  */
@@ -64,7 +65,7 @@ const rank = (k: 'usb' | 'ble' | 'sim'): number => (k === 'usb' || k === 'sim' ?
 export class DeviceManager {
   #opts: DeviceManagerOptions;
   #sched: Scheduler;
-  #listener: ManagerListener;
+  #listeners: ManagerListener[];
   #session: DeviceSession | null = null;
   #state: ManagerState = 'disconnected';
   #running = false;
@@ -78,7 +79,7 @@ export class DeviceManager {
   constructor(opts: DeviceManagerOptions, listener: ManagerListener = {}) {
     this.#opts = opts;
     this.#sched = opts.scheduler ?? realScheduler;
-    this.#listener = listener;
+    this.#listeners = [listener];
     this.#resume = opts.resume ? { ...opts.resume } : null;
     const self = this;
     const requester: Requester = {
@@ -99,6 +100,15 @@ export class DeviceManager {
   }
   get nodes(): NodeModel { return this.#nodes; }
   get resumePoint(): ResumePoint | null { return this.#resume ? { ...this.#resume } : null; }
+
+  /**
+   * Another listener (a subsystem such as the HealthMonitor) next to the constructor's. Returns unsubscribe.
+   * Listeners are called in subscription order, after the constructor's (the event store comes first).
+   */
+  subscribe(listener: ManagerListener): () => void {
+    this.#listeners.push(listener);
+    return () => { this.#listeners = this.#listeners.filter((l) => l !== listener); };
+  }
 
   /** Start connecting (and keep reconnecting) from the sources. */
   start(): void {
@@ -174,19 +184,19 @@ export class DeviceManager {
         }
       },
       onEvent: (e) => this.#onEvent(e),
-      onStream: (st) => this.#listener.onStream?.(st),
+      onStream: (st) => { for (const l of this.#listeners) l.onStream?.(st); },
       onBoot: (b, prev) => {
         if (this.#resume && this.#resume.bootId === b) return;     // the other session already said so
         this.#resume = { bootId: b, nextEvSeq: 0 };
-        this.#listener.onBoot?.(b, prev);
+        for (const l of this.#listeners) l.onBoot?.(b, prev);
       },
       onGap: (b, from, to) => {
         if (this.#resume?.bootId === b && this.#resume.nextEvSeq < to) {
           this.#resume.nextEvSeq = to;
-          this.#listener.onGap?.(b, from, to);
+          for (const l of this.#listeners) l.onGap?.(b, from, to);
         }
       },
-      onHello: (h) => this.#listener.onHello?.(h),
+      onHello: (h) => { for (const l of this.#listeners) l.onHello?.(h); },
     }, this.#resume);
     if (!previous) this.#session = s;
     try {
@@ -218,19 +228,19 @@ export class DeviceManager {
       this.#resume = { bootId: e.bootId, nextEvSeq: e.evSeq + 1 };
     }
     this.#nodes = applyNodeEvent(this.#nodes, e);
-    this.#listener.onNodes?.(this.#nodes);
+    for (const l of this.#listeners) l.onNodes?.(this.#nodes);
     if (e.msgId === MsgId.EVT_LANE_STATE && e.value?.['state'] === LaneState.CONFIGURED) {
       this.#sched.clearTimeout(this.#nodeRefresh);
       this.#nodeRefresh = this.#sched.setTimeout(() => { void this.#refreshNodes().catch(() => undefined); }, 150);
     }
-    this.#listener.onEvent?.(e);
+    for (const l of this.#listeners) l.onEvent?.(e);
   }
 
   async #refreshNodes(): Promise<void> {
     if (!this.#session || this.#session.state !== 'open') return;
     try {
       this.#nodes = applyNodeList(this.#nodes, await this.api.nodeList());
-      this.#listener.onNodes?.(this.#nodes);
+      for (const l of this.#listeners) l.onNodes?.(this.#nodes);
     } catch {
       /* next time */
     }
@@ -239,6 +249,6 @@ export class DeviceManager {
   #setState(state: ManagerState, transport: 'usb' | 'ble' | null, reason?: string): void {
     if (this.#state === state && state !== 'connected') return;
     this.#state = state;
-    this.#listener.onState?.(state, transport, reason);
+    for (const l of this.#listeners) l.onState?.(state, transport, reason);
   }
 }

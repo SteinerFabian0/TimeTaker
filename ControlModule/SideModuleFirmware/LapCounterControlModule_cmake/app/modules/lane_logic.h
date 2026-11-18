@@ -23,6 +23,21 @@
  *                   bus watchdog stopped sampling: re-push the sampling mode
  *                   (COMMAND SAMPLING, which also clears the flag).
  *   health          STATUS changes become SYNC_LOST / SYNC_OK / FAULT once.
+ *   fault cleared   a lane that reported FAULT (lastError != 0 or PARKED)
+ *                   and stops doing so gets CONFIGURED (status 0) once, so
+ *                   the host sees it recover. Only for a lane whose push
+ *                   completed: one whose push gave up stays FAULT.
+ *   push order      ID, LANE_ID, CONFIG, [SET_REFERENCE], SYNC_ALIGN,
+ *                   SAMPLING, verify. SET_REFERENCE only when a reference is
+ *                   saved for the lane index (!= 0), always right after
+ *                   CONFIG, so every configure (join, rejoin, re-push) seeds
+ *                   the saved bare-foil level.
+ *   calibration     LANE_CALIBRATE (accept rules below). LEARN: COMMAND
+ *                   CALIBRATE, then STATUS every LANE_LOGIC_CAL_POLL_MS until
+ *                   CALIBRATED was seen clear (learning) and is set again,
+ *                   LANE_LOGIC_CAL_TIMEOUT_MS at most; then SIGNAL gives the
+ *                   reference (0 = FAILED) and noise. The flash write decides
+ *                   SAVED / NOT_SAVED; FORGET gives FORGOTTEN / NOT_SAVED.
  *   configured      CONFIG applied and SYNC aligned, lane IDLE or SAMPLING.
  *   config checks   what LANE_CONFIG_SET refuses before it reaches a lane.
  *
@@ -120,6 +135,22 @@ laneSchedVerify_e laneLogicSchedVerify(bool readOk, uint8_t schedulePending, uin
 /* The lane's bus watchdog put it to safe defaults: re-push the mode. */
 bool laneLogicNeedsModePush(const laneStatus_t *st);
 
+/* Push steps lane_manager walks on every configure. */
+typedef enum {
+    LANE_PUSH_ID = 0,
+    LANE_PUSH_LANE_ID,
+    LANE_PUSH_CONFIG,
+    LANE_PUSH_REFERENCE,    /* COMMAND SET_REFERENCE{value = saved reference} */
+    LANE_PUSH_ALIGN,
+    LANE_PUSH_MODE,
+    LANE_PUSH_VERIFY,
+} lanePushStep_e;
+
+/* The step after `done` succeeded. CONFIG leads to REFERENCE when a reference
+ * is saved for the lane (savedReference != 0), else straight to ALIGN. VERIFY
+ * stays VERIFY (its result decides). */
+uint8_t laneLogicPushNext(uint8_t done, uint16_t savedReference);
+
 /* What the health poll saw last, per lane. */
 typedef struct {
     bool    known;          /* a STATUS was read before */
@@ -133,10 +164,12 @@ typedef struct {
  * hpLaneState_e values to publish (at most 3) into out. Returns how many.
  * Rules: SYNC_LOST when LANE_STATUS_SYNC_LOST rises, SYNC_OK when it falls;
  * FAULT when lastError changes to non-zero or the lane is PARKED, once until
- * it clears. The first STATUS only reports a lane that is already lost or
- * faulted.
+ * it clears. When it clears (lastError 0 and not PARKED after a FAULT):
+ * CONFIGURED, if pushDone (the lane's config push completed; a lane whose
+ * push gave up is not configured, so nothing is published for it). The first
+ * STATUS only reports a lane that is already lost or faulted.
  */
-uint8_t laneLogicHealth(laneHealthView_t *view, const laneStatus_t *st, uint8_t out[3]);
+uint8_t laneLogicHealth(laneHealthView_t *view, const laneStatus_t *st, bool pushDone, uint8_t out[3]);
 
 bool laneLogicIsConfigured(const laneStatus_t *st);
 
@@ -152,6 +185,51 @@ ctrlStatus_e laneLogicCheckConfig(const hpLaneConfig_t *cfg);
 /* Compiled defaults for lane n: 1 kHz, phases staggered by period / 6 so the
  * 200 mA IR pulses of six lanes never overlap. */
 void laneLogicDefaultConfig(uint8_t lane, hpLaneConfig_t *cfg);
+
+/* --- Calibration (LANE_CALIBRATE) --- */
+
+#define LANE_LOGIC_CAL_POLL_MS     10U     /* STATUS read spacing while learning      */
+#define LANE_LOGIC_CAL_TIMEOUT_MS  1000U   /* learning is 64 samples (~64 ms at 1 kHz) */
+
+/*
+ * Request checks, in this order: laneMask 0 or beyond lane 6, or an unknown
+ * action -> ERR_INVALID_ARG; a lane of the mask still calibrating (busyMask)
+ * -> ERR_BUSY. LEARN runs on the lanes of the mask that are CONFIGURED
+ * (configuredMask); none -> ERR_LANE_ABSENT. FORGET runs on every lane of
+ * the mask, present or not (the saved reference belongs to the lane index).
+ * *runMask = the lanes to run it on (0 on an error).
+ */
+ctrlStatus_e laneLogicCalAccept(uint8_t laneMask, uint8_t action, uint8_t configuredMask, uint8_t busyMask,
+                                uint8_t *runMask);
+
+typedef enum {
+    LANE_CAL_POLL_AGAIN = 0,    /* read STATUS again after LANE_LOGIC_CAL_POLL_MS */
+    LANE_CAL_LEARNED,           /* read SIGNAL                                      */
+    LANE_CAL_TIMEOUT,           /* FAILED                                           */
+} laneCalPoll_e;
+
+/*
+ * One STATUS read while learning. The lane applies COMMAND CALIBRATE from its
+ * bus mailbox a little after the write, and CALIBRATED clears while it
+ * learns, so learning is over only once CALIBRATED was seen clear
+ * (*seenClear, starts false) and is set again. A failed read just polls
+ * again. elapsedMs: since COMMAND CALIBRATE was queued; at
+ * LANE_LOGIC_CAL_TIMEOUT_MS or later it times out (a learned read wins).
+ */
+laneCalPoll_e laneLogicCalPoll(bool *seenClear, bool readOk, uint16_t flags, uint32_t elapsedMs);
+
+/* The SIGNAL read after learning: a reference to save (readOk and
+ * reference != 0), else the calibration FAILED. */
+bool laneLogicCalReferenceOk(bool readOk, const laneSignal_t *sig);
+
+/* hpCalibrateResult_e once the flash write is over: forget -> FORGOTTEN,
+ * learn -> SAVED; NOT_SAVED for either when the write failed. */
+uint8_t laneLogicCalSaveResult(bool forget, bool written);
+
+/* EVT_LANE_CALIBRATED body (evSeq left 0). reference and noise are carried
+ * for SAVED / NOT_SAVED of a LEARN only (reference != 0), else 0. */
+void laneLogicCalEvent(uint8_t lane, uint8_t result, uint16_t reference, uint16_t noise, uint64_t sysUs,
+                       hpEvtLaneCalibrated_t *out);
 
 /* LANE_STATUS response body from the lane's STATUS and SIGNAL. */
 void laneLogicStatusRsp(uint8_t lane, const laneStatus_t *st, const laneSignal_t *sig,

@@ -109,3 +109,17 @@ bool ctrlPolicyButtonAborts(uint8_t button, uint8_t press, bool seqRunning)
 {
     return button == (uint8_t)HP_BUTTON_BTN2 && press == (uint8_t)HP_PRESS_LONG && seqRunning;
 }
+
+uint8_t ctrlPolicyBleNodeState(uint8_t bleBridge)
+{
+    switch (bleBridge) {
+    case HP_BLE_BRIDGE_ABSENT: return (uint8_t)HP_NODE_STATE_ABSENT;
+    case HP_BLE_BRIDGE_OK:     return (uint8_t)HP_NODE_STATE_OK;
+    default:                   return (uint8_t)HP_NODE_STATE_FAULT;
+    }
+}
+
+int8_t ctrlPolicyBleRssi(uint8_t bleBridge, bool haveStats, int8_t statsRssi)
+{
+    return (bleBridge == (uint8_t)HP_BLE_BRIDGE_OK && haveStats) ? statsRssi : (int8_t)127;
+}

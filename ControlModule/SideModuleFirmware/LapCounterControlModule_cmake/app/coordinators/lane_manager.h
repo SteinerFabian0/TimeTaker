@@ -11,7 +11,8 @@
  *               + 1 (lane_logic). Lanes from the first gap on are LEFT; lanes
  *               behind the gap that still answer get COMMAND RELEASE_CHAIN.
  *               ENTDAA gives LANE_DYN_ADDR(index). JOINED is published.
- *   push:       ID read, LANE_ID, CONFIG (from the table), SYNC_ALIGN
+ *   push:       ID read, LANE_ID, CONFIG (from the table), SET_REFERENCE
+ *               (only if a reference is saved for the index), SYNC_ALIGN
  *               (measured at the transfer start), COMMAND sampling mode, then
  *               STATUS until it shows config applied and SYNC aligned:
  *               CONFIGURED. A lane that resets mid-race comes back configured
@@ -29,6 +30,21 @@
  *               high again: the chain enumerates from lane 1.
  *   raw:        LANE_RAW_STREAM puts one lane in RAW mode (with the requested
  *               decimation) and turns its RAW_FIFO into STR_RAW_SAMPLES.
+ *   idle-safe:  STATUS with BUS_IDLE_SAFE: SET_REFERENCE (if saved), then
+ *               COMMAND SAMPLING with the table mode.
+ *   calibrate:  LANE_CALIBRATE, a state machine per lane run from
+ *               laneManagerRun (never blocks). LEARN: COMMAND CALIBRATE, and
+ *               COMMAND SAMPLING ON after it when the table mode is OFF (the
+ *               lane only learns while sampling; OFF is restored after);
+ *               STATUS every 10 ms until CALIBRATED was seen clear and is set
+ *               again (1 s at most); SIGNAL -> reference, noise. When no lane
+ *               is learning any more, the references of every finished lane
+ *               go to settings_store in one change, so one flash write
+ *               covers them; the write's outcome gives SAVED / NOT_SAVED.
+ *               FORGET: references 0 for the mask, SET_REFERENCE 0 to the
+ *               lanes on the bus, FORGOTTEN / NOT_SAVED after the write. A
+ *               lane that leaves while learning: FAILED.
+ *               EVT_LANE_CALIBRATED per lane (lane_logic.h "calibration").
  *
  * The control module keeps the lane config table (one entry per index plus
  * the sampling mode); the lanes keep nothing across a reset. It starts from
@@ -113,7 +129,11 @@ void         laneManagerArmSampling(uint8_t laneMask);
 /* Immediate lane requests. CTRL_ERR_LANE_ABSENT if no lane of the mask is on
  * the bus; the writes to the others still go out. */
 ctrlStatus_e laneManagerSetLed(uint8_t laneMask, const laneLed_t *led);
-ctrlStatus_e laneManagerCalibrate(uint8_t laneMask);
+
+/* LANE_CALIBRATE: action hpCalibrateAction_e. Rejections: laneLogicCalAccept
+ * (lane_logic.h); the caller rejects it while a start sequence runs. The
+ * outcomes follow as EVT_LANE_CALIBRATED. */
+ctrlStatus_e laneManagerCalibrate(uint8_t laneMask, uint8_t action);
 
 /* LANE_RAW_STREAM: lane 1..6 starts (one at a time), 0 stops. */
 ctrlStatus_e laneManagerRawStream(uint8_t lane, uint16_t decimation);

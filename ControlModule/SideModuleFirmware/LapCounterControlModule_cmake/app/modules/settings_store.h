@@ -2,7 +2,9 @@
  * Settings store: what survives a power cycle (CONTROL_FIRMWARE_GUIDE §5.5).
  *
  * Contents (settingsData_t): the device settings (name, BLE enabled), the
- * lane config table and sampling modes, and the BLE bind list. Owners keep
+ * lane config table and sampling modes, the BLE bind list and (record
+ * version 2) the saved reference of every lane index (LANE_CALIBRATE; 0 =
+ * none). A version-1 record loads with every reference 0, nothing else lost. Owners keep
  * their working copy and hand changes in with the setters; the store only
  * remembers and writes.
  *
@@ -20,7 +22,12 @@
  *
  * At boot: the newer valid record wins. None valid: compiled defaults; if a
  * page held garbage, settingsStoreInit() returns CTRL_ERR_SETTINGS_CORRUPT
- * once (ctrl_master records it as the last error and logs it).
+ * once (ctrl_master records it as the last error and logs it), and
+ * settingsStoreLostAtBoot() stays true (STATUS settingsDefaults).
+ *
+ * Save outcome: every change bumps a generation; settingsStoreSaveState()
+ * tells whether the data of a given generation (the ticket a setter returns)
+ * was written, or a write covering it failed. LANE_CALIBRATE waits on it.
  *
  * Owns: the two settings pages (through flash_drv). Context: main loop only.
  */
@@ -48,7 +55,12 @@ typedef struct __attribute__((packed)) {
     uint8_t            laneSampling[LANE_MAX_LANES];   /* hpSamplingMode_e per lane */
     uint8_t            reserved[2];
     uint8_t            binds[BIND_LIST_SERIAL_BYTES];   /* bindListSerialize() */
+    /* --- record version 2 --- */
+    uint16_t           laneReference[LANE_MAX_LANES];   /* saved reference per lane index, 0 = none */
 } settingsData_t;
+
+/* Payload bytes of a version-1 record: everything before laneReference. */
+#define SETTINGS_DATA_V1_BYTES  (sizeof(settingsData_t) - LANE_MAX_LANES * sizeof(uint16_t))
 
 /* Loads the current record or the defaults. CTRL_ERR_SETTINGS_CORRUPT if
  * stored data was found but none of it was valid. */
@@ -60,6 +72,16 @@ void settingsStoreSetDevice(const hpDeviceSettings_t *device);
 void settingsStoreSetLaneTable(const hpLaneConfig_t config[LANE_MAX_LANES],
                                const uint8_t sampling[LANE_MAX_LANES]);
 void settingsStoreSetBinds(const bindList_t *list);
+
+/* Sets the saved references; returns the save ticket for
+ * settingsStoreSaveState() (the current generation, changed or not). */
+uint32_t settingsStoreSetLaneReferences(const uint16_t reference[LANE_MAX_LANES]);
+
+/* settingsSave_e (settings_record.h) of a ticket. */
+uint8_t settingsStoreSaveState(uint32_t ticket);
+
+/* Stored data was found at boot but none of it was valid: defaults loaded. */
+bool settingsStoreLostAtBoot(void);
 
 /* Every pass. allowed = false holds back a new write (a start sequence runs). */
 ctrlStatus_e settingsStoreRun(bool allowed);

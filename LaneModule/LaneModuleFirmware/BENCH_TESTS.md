@@ -181,6 +181,22 @@ I3C writes/reads/errors, sensor state (0 reset, 1 busy, 2 shutdown,
      increments, firstUs + 32 × periodUs = next firstUs.
   10. IBI is off in v1 (`LANE_BUS_IBI_ENABLE 0`: the controller NACKs it).
       Poll STATUS and read the FIFO instead.
+  11. Reference and raw window (lane free, sampling ON): COMMAND CALIBRATE,
+      wait 100 ms, read SIGNAL (24 B): `reference` ≈ `baseline` (equal right
+      after learning), `rawMin`/`rawMax` within the noise of `raw`. Cover the
+      strip partly (a sheet over half the foil) for a few seconds: `baseline`
+      does not follow quickly (IIR ≈ 2 s, and not at all once below LOW),
+      `raw` and `rawMin` drop well below `reference`, `reference` stays.
+      Read SIGNAL only once every 2 s while a car passes through the beam
+      between the reads: `rawMin` shows the dip, and the next read (no pass)
+      has `rawMin` = `rawMax` ≈ `raw` again. Power-cycle the lane, put an object
+      on the line, enumerate, write CONFIG, then COMMAND SET_REFERENCE with the
+      saved value (e.g. 3800), sampling ON: STATUS CALIBRATED at once (no 64 ms
+      wait), SIGNAL `baseline` = `reference` = 3800, STATUS BLOCKED, and after
+      500 ms a BLOCKED event; remove the object → CLEARED, baseline still ≈
+      3800. COMMAND SET_REFERENCE 0 → CALIBRATED drops, relearns in 64 ms
+      (lane free), `reference` = new baseline. Other commands with a nonzero
+      `value` (CALIBRATE with value 5) are accepted, `badWrites` unchanged.
 - **If not:** the first read byte wrong or late (turnaround after Sr): put a
   STOP between pointer write and read and compare; if that fixes it, the
   ISR is too slow at 1 MHz (raise its priority above TIM2 or simplify the

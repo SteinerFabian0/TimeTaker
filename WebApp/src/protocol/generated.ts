@@ -12,7 +12,7 @@
 import { decodeStruct, encodeStruct } from './wire.ts';
 import type { StructDesc } from './wire.ts';
 
-export const PROTO = { major: 0, minor: 5, maxPayload: 240, headerBytes: 4 } as const;
+export const PROTO = { major: 0, minor: 6, maxPayload: 240, headerBytes: 4 } as const;
 
 /** USB identity of the control module: the Web Serial port filter. */
 export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker' } as const;
@@ -249,6 +249,28 @@ export const FaultSource = {
 } as const;
 export type FaultSource = (typeof FaultSource)[keyof typeof FaultSource];
 
+/** Is the nRF52805 itself alive (independent of any phone being connected) */
+export const BleBridgeState = {
+  ABSENT: 0,
+  OK: 1,
+  VERSION_MISMATCH: 2,
+} as const;
+export type BleBridgeState = (typeof BleBridgeState)[keyof typeof BleBridgeState];
+
+export const CalibrateAction = {
+  LEARN: 0,
+  FORGET: 1,
+} as const;
+export type CalibrateAction = (typeof CalibrateAction)[keyof typeof CalibrateAction];
+
+export const CalibrateResult = {
+  SAVED: 1,
+  FORGOTTEN: 2,
+  FAILED: 3,
+  NOT_SAVED: 4,
+} as const;
+export type CalibrateResult = (typeof CalibrateResult)[keyof typeof CalibrateResult];
+
 export const BleLinkState = {
   DOWN: 0,
   UP: 1,
@@ -445,6 +467,7 @@ export const MsgId = {
   EVT_BIND_CHANGED: 0xc7,
   EVT_BLE_LINK: 0xc8,
   EVT_FAULT: 0xc9,
+  EVT_LANE_CALIBRATED: 0xca,
   STR_RAW_SAMPLES: 0xe0,
   DBG_LOG: 0xf0,
 } as const;
@@ -770,7 +793,7 @@ export const decodeStatusReq = (b: Uint8Array): StatusReq => decodeStruct(STATUS
 /** STATUS response */
 export const STATUS_RSP: StructDesc = {
   name: 'StatusRsp',
-  size: 30,
+  size: 42,
   fields: [
     { name: 'status', kind: 'scalar', type: 'i16' },
     { name: 'lastError', kind: 'scalar', type: 'i16' },
@@ -785,6 +808,14 @@ export const STATUS_RSP: StructDesc = {
     { name: 'settingsWrites', kind: 'scalar', type: 'u16' },
     { name: 'logOldestSeq', kind: 'scalar', type: 'u32' },
     { name: 'logNextSeq', kind: 'scalar', type: 'u32' },
+    { name: 'bleBridge', kind: 'scalar', type: 'u8' },
+    { name: 'bleRssi', kind: 'scalar', type: 'i8' },
+    { name: 'bleCrcErrors', kind: 'scalar', type: 'u16' },
+    { name: 'bleUartErrors', kind: 'scalar', type: 'u16' },
+    { name: 'bleDataDropped', kind: 'scalar', type: 'u16' },
+    { name: 'nrfLinkCrcErrors', kind: 'scalar', type: 'u16' },
+    { name: 'settingsDefaults', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'scalar', type: 'u8' },
   ],
 };
 export type StatusRsp = {
@@ -810,6 +841,21 @@ export type StatusRsp = {
   settingsWrites: number;
   logOldestSeq: number;
   logNextSeq: number;
+  /** enum BleBridgeState. The nRF itself (0.6+); bleLink above is the phone connection */
+  bleBridge: number;
+  /** dBm of the connected central, 127 = unknown / not connected */
+  bleRssi: number;
+  /** Bad link frames the nRF got from the STM (nRF STATS, saturates) */
+  bleCrcErrors: number;
+  /** nRF UART framing/overrun errors (nRF STATS, saturates) */
+  bleUartErrors: number;
+  /** Data the nRF had to drop (nRF STATS, saturates) */
+  bleDataDropped: number;
+  /** Bad link frames the STM got from the nRF (saturates) */
+  nrfLinkCrcErrors: number;
+  /** 1 = stored settings were lost at boot and defaults loaded */
+  settingsDefaults: number;
+  reserved: number;
 };
 export const encodeStatusRsp = (v: StatusRsp): Uint8Array => encodeStruct(STATUS_RSP, v);
 export const decodeStatusRsp = (b: Uint8Array): StatusRsp => decodeStruct(STATUS_RSP, b) as StatusRsp;
@@ -1100,7 +1146,7 @@ export const decodeLaneStatusReq = (b: Uint8Array): LaneStatusReq => decodeStruc
 /** LANE_STATUS response */
 export const LANE_STATUS_RSP: StructDesc = {
   name: 'LaneStatusRsp',
-  size: 36,
+  size: 40,
   fields: [
     { name: 'status', kind: 'scalar', type: 'i16' },
     { name: 'lane', kind: 'scalar', type: 'u8' },
@@ -1121,7 +1167,9 @@ export const LANE_STATUS_RSP: StructDesc = {
     { name: 'thrLow', kind: 'scalar', type: 'u16' },
     { name: 'thrHigh', kind: 'scalar', type: 'u16' },
     { name: 'noise', kind: 'scalar', type: 'u16' },
-    { name: 'reserved', kind: 'scalar', type: 'u16' },
+    { name: 'reference', kind: 'scalar', type: 'u16' },
+    { name: 'rawMin', kind: 'scalar', type: 'u16' },
+    { name: 'rawMax', kind: 'scalar', type: 'u16' },
   ],
 };
 export type LaneStatusRsp = {
@@ -1150,7 +1198,12 @@ export type LaneStatusRsp = {
   thrLow: number;
   thrHigh: number;
   noise: number;
-  reserved: number;
+  /** Saved/learned clean level (lane_protocol.h "Reference"), 0 = none (0.6+, was reserved) */
+  reference: number;
+  /** Lowest sample since the previous LANE_STATUS of this lane (0.6+) */
+  rawMin: number;
+  /** Highest sample since the previous LANE_STATUS of this lane (0.6+) */
+  rawMax: number;
 };
 export const encodeLaneStatusRsp = (v: LaneStatusRsp): Uint8Array => encodeStruct(LANE_STATUS_RSP, v);
 export const decodeLaneStatusRsp = (b: Uint8Array): LaneStatusRsp => decodeStruct(LANE_STATUS_RSP, b) as LaneStatusRsp;
@@ -1191,17 +1244,20 @@ export type LaneRawStreamRsp = {
 export const encodeLaneRawStreamRsp = (v: LaneRawStreamRsp): Uint8Array => encodeStruct(LANE_RAW_STREAM_RSP, v);
 export const decodeLaneRawStreamRsp = (b: Uint8Array): LaneRawStreamRsp => decodeStruct(LANE_RAW_STREAM_RSP, b) as LaneRawStreamRsp;
 
-// 0x28 LANE_CALIBRATE (request): The lanes in laneMask re-learn their baseline. Only meaningful with the lane free.
+// 0x28 LANE_CALIBRATE (request): LEARN: the lanes in laneMask (bit n-1 = lane n) learn their bare-foil level (lanes must be free) and the control module saves it as each lane's reference. FORGET drops the saved references. The response only acknowledges; each lane's outcome follows as EVT_LANE_CALIBRATED.
 /** LANE_CALIBRATE request */
 export const LANE_CALIBRATE_REQ: StructDesc = {
   name: 'LaneCalibrateReq',
-  size: 1,
+  size: 2,
   fields: [
     { name: 'laneMask', kind: 'scalar', type: 'u8' },
+    { name: 'action', kind: 'scalar', type: 'u8' },
   ],
 };
 export type LaneCalibrateReq = {
   laneMask: number;
+  /** enum CalibrateAction */
+  action: number;
 };
 export const encodeLaneCalibrateReq = (v: LaneCalibrateReq): Uint8Array => encodeStruct(LANE_CALIBRATE_REQ, v);
 export const decodeLaneCalibrateReq = (b: Uint8Array): LaneCalibrateReq => decodeStruct(LANE_CALIBRATE_REQ, b) as LaneCalibrateReq;
@@ -1577,6 +1633,37 @@ export type EvtFault = {
 export const encodeEvtFault = (v: EvtFault): Uint8Array => encodeStruct(EVT_FAULT, v);
 export const decodeEvtFault = (b: Uint8Array): EvtFault => decodeStruct(EVT_FAULT, b) as EvtFault;
 
+// 0xca EVT_LANE_CALIBRATED (event): Outcome of LANE_CALIBRATE for one lane.
+/** EVT_LANE_CALIBRATED */
+export const EVT_LANE_CALIBRATED: StructDesc = {
+  name: 'EvtLaneCalibrated',
+  size: 20,
+  fields: [
+    { name: 'evSeq', kind: 'scalar', type: 'u32' },
+    { name: 'lane', kind: 'scalar', type: 'u8' },
+    { name: 'result', kind: 'scalar', type: 'u8' },
+    { name: 'reference', kind: 'scalar', type: 'u16' },
+    { name: 'noise', kind: 'scalar', type: 'u16' },
+    { name: 'reserved', kind: 'scalar', type: 'u16' },
+    { name: 'sysUs', kind: 'scalar', type: 'u64' },
+  ],
+};
+export type EvtLaneCalibrated = {
+  /** Event sequence number within this boot (bootId) */
+  evSeq: number;
+  lane: number;
+  /** enum CalibrateResult */
+  result: number;
+  /** The new reference (SAVED / NOT_SAVED), else 0 */
+  reference: number;
+  /** Noise estimate when learning ended */
+  noise: number;
+  reserved: number;
+  sysUs: bigint;
+};
+export const encodeEvtLaneCalibrated = (v: EvtLaneCalibrated): Uint8Array => encodeStruct(EVT_LANE_CALIBRATED, v);
+export const decodeEvtLaneCalibrated = (b: Uint8Array): EvtLaneCalibrated => decodeStruct(EVT_LANE_CALIBRATED, b) as EvtLaneCalibrated;
+
 // 0xe0 STR_RAW_SAMPLES (stream): Decimated raw sensor samples of one lane for the diagnostics view. Sample i was taken at firstUs + i*periodUs.
 /** STR_RAW_SAMPLES */
 export const STR_RAW_SAMPLES: StructDesc = {
@@ -1672,6 +1759,7 @@ export const MESSAGES: readonly MsgDesc[] = [
   { id: 0xc7, name: 'EVT_BIND_CHANGED', kind: 'event', body: EVT_BIND_CHANGED },
   { id: 0xc8, name: 'EVT_BLE_LINK', kind: 'event', body: EVT_BLE_LINK },
   { id: 0xc9, name: 'EVT_FAULT', kind: 'event', body: EVT_FAULT },
+  { id: 0xca, name: 'EVT_LANE_CALIBRATED', kind: 'event', body: EVT_LANE_CALIBRATED },
   { id: 0xe0, name: 'STR_RAW_SAMPLES', kind: 'stream', body: STR_RAW_SAMPLES },
   { id: 0xf0, name: 'DBG_LOG', kind: 'stream', body: DBG_LOG },
 ];
@@ -1739,6 +1827,7 @@ export const STRUCTS: Readonly<Record<string, StructDesc>> = {
   EvtBindChanged: EVT_BIND_CHANGED,
   EvtBleLink: EVT_BLE_LINK,
   EvtFault: EVT_FAULT,
+  EvtLaneCalibrated: EVT_LANE_CALIBRATED,
   StrRawSamples: STR_RAW_SAMPLES,
   DbgLog: DBG_LOG,
 };

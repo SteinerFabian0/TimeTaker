@@ -20,6 +20,10 @@
  *   Versions  NRF_HELLO with another link MAJOR: DATA is refused both ways
  *        (dropped, counted), CTRL keeps working.
  *   Boot  STM_HELLO is sent at init, so an nRF that booted first re-announces.
+ *   Liveness  the time of the last valid CTRL frame is kept; the nRF sends
+ *        STATS every second, so nrfLinkBridgeState() is ABSENT after 3 s of
+ *        silence (or before NRF_HELLO), VERSION_MISMATCH on another link
+ *        MAJOR, else OK (nrf_link_proto). The latest STATS is kept too.
  *
  * With CTRL_ENABLE_NRF_LINK_ECHO every DATA payload goes straight back to the
  * nRF instead of into the session (BLE bench test).
@@ -108,3 +112,10 @@ bool nrfLinkTakeEvent(nrfLinkEvent_t *ev);
 ctrlStatus_e nrfLinkSendCtrl(uint8_t type, const void *body, uint16_t bodyLen);
 
 const nrfLinkStats_t *nrfLinkGetStats(void);
+
+/* nrfLinkBridge_e (nrf_link_proto.h) now. */
+uint8_t nrfLinkBridgeState(void);
+
+/* The last STATS from the nRF; false (and *stats untouched) if none came
+ * since boot. */
+bool nrfLinkGetNrfStats(bleCtrlStats_t *stats);
