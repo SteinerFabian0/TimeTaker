@@ -360,6 +360,20 @@ fallback for when IBI is not working.
   together. The mainboard can **cancel** all pending actions (start aborted).
   A cancelled or past action never fires late; a late-armed one fires at once
   and reports its lateness.
+- **Pulse ("attention breathing"), `LANE_ACT_LED_PULSE`** (protocol v0.3, param =
+  rise time ms, 20..60000, 0 rejected): from its `atUs` until the next LED
+  action the perceptual level is `full x (1 - cos(pi*t/param)) / 2`, t = system
+  us since `atUs`, then through the gamma. `full` is the stored LED level
+  (default 1000). Integer only (`ledPulseLevel` in `led_pattern`: 129-point
+  Q15 half-cosine table, linear interpolation, within 1 level of the cosine; no
+  FPU, identical on every lane). `bus_manager` renders it from the main loop
+  every 10 ms from the mapped system time, so all lanes breathe in phase; the
+  first frame is drawn in the TIM2 ISR at `atUs`. Any later LED action
+  (scheduled or LED register: ON/OFF/BLINK/toggle/safe defaults) ends it and
+  restores the stored level on the compare unit first, so ON at a peak and OFF
+  at a trough have no step (OFF goes dark before the restore). While SYNC is
+  unaligned or has no period the pulse continues on local time from where it
+  was; when SYNC aligns, the phase jumps to the shared one.
 - **Perceived brightness is not linear in duty:** use a gamma table, as the hub
   notes.
 - **Pin ownership:** only the LED module touches TIM1 and PB8. The pin is in
@@ -724,8 +738,9 @@ Build: debug and release presets, 0 warnings, `-Werror` on `app/`.
 Flash/RAM (text+data / bss incl. 4 KB stack): debug 35.7 KB / 47.9 KB,
 release 32.2 KB / 46.9 KB, of 256 KB / 64 KB (the event FIFO, 2480 deep,
 takes 38.75 KB of that on purpose: §3.6). Host tests: `test/run_all.sh`,
-7 suites, 358 checks, all passing, plus the `lane_protocol.h` copy check;
-`test/mutate.py`: 87 mutations, all killed.
+7 suites, all passing, plus the `lane_protocol.h` copy check;
+`test/mutate.py`: 111 mutations, all killed. `LANE_ACT_LED_PULSE` (§3.7)
+added 2026-11-18, host-tested, not yet on the bench (BENCH_TESTS.md 11).
 
 | Step | State | Where |
 |---|---|---|

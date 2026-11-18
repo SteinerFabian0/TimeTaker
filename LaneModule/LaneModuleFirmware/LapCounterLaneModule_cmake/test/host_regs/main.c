@@ -224,8 +224,21 @@ static void testSchedule(void)
     expect("SCHEDULE op 3", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
     s = good; s.action = 0U;
     expect("SCHEDULE action 0", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
-    s = good; s.action = 6U;
-    expect("SCHEDULE action 6", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
+    s = good; s.action = 7U;
+    expect("SCHEDULE action 7", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
+    s = good; s.action = LANE_ACT_LED_PULSE; s.param = 0U;
+    expect("SCHEDULE LED_PULSE rise 0 ms", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
+    s = good; s.action = LANE_ACT_LED_PULSE; s.param = 19U;
+    expect("SCHEDULE LED_PULSE rise 19 ms", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
+    s = good; s.action = LANE_ACT_LED_PULSE; s.param = 60001U;
+    expect("SCHEDULE LED_PULSE rise 60001 ms", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
+    s = good; s.action = LANE_ACT_LED_PULSE; s.param = 1000U;
+    expect("SCHEDULE LED_PULSE 1000 ms accepted", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_OK);
+    check("SCHEDULE LED_PULSE decoded", w.u.schedule.action == LANE_ACT_LED_PULSE && w.u.schedule.param == 1000U);
+    s = good; s.action = LANE_ACT_LED_PULSE; s.param = 20U;
+    expect("SCHEDULE LED_PULSE 20 ms accepted", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_OK);
+    s = good; s.action = LANE_ACT_LED_PULSE; s.param = 60000U;
+    expect("SCHEDULE LED_PULSE 60000 ms accepted", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_OK);
     s = good; s.param = 1001U;
     expect("SCHEDULE LED_ON level 1001", LANE_REG_SCHEDULE, &s, sizeof(s), LANE_ERR_REG_VALUE);
     s = good; s.action = LANE_ACT_LED_BLINK; s.param = 19U;
@@ -308,8 +321,45 @@ static void testCounters(void)
     check("clear counters", laneRegsBadWrites(&regs) == 0U);
 }
 
+/* Bit-exact model of the C5 CRC unit as image_crc.c configures it (POLYSIZE 32,
+ * POL 0x04C11DB7, REV_IN byte, REV_OUT bit, INIT = rbit32(~crc), final ~):
+ * shift left, MSB first. It must equal the software path that these tests
+ * build, which is what the target's hardware path is built to match. */
+static uint32_t rbit32(uint32_t v)
+{
+    uint32_t r = 0U;
+    for (int i = 0; i < 32; i++) {
+        r = (r << 1) | ((v >> i) & 1U);
+    }
+    return r;
+}
+
+static uint32_t hwModelCrc32(uint32_t crc, const uint8_t *d, uint32_t len)
+{
+    uint32_t dr = rbit32(~crc);
+    for (uint32_t i = 0U; i < len; i++) {
+        uint32_t in = 0U;
+        for (int b = 0; b < 8; b++) {
+            in = (in << 1) | (((uint32_t)d[i] >> b) & 1U);
+        }
+        dr ^= in << 24;
+        for (int b = 0; b < 8; b++) {
+            dr = ((dr & 0x80000000U) != 0U) ? ((dr << 1) ^ 0x04C11DB7U) : (dr << 1);
+        }
+    }
+    return ~rbit32(dr);
+}
+
 static void testCrc(void)
 {
+    uint8_t buf[300];
+    for (uint32_t i = 0U; i < sizeof(buf); i++) {
+        buf[i] = (uint8_t)(i * 37U + 11U);
+    }
+    check("crc model: \"123456789\" = 0xCBF43926", hwModelCrc32(0U, (const uint8_t *)"123456789", 9U) == 0xCBF43926U);
+    check("crc model equals software", hwModelCrc32(0U, buf, sizeof(buf)) == imageCrc32(0U, buf, sizeof(buf)));
+    check("crc model chunked equals software",
+          hwModelCrc32(hwModelCrc32(0U, buf, 123U), buf + 123, 177U) == imageCrc32(0U, buf, sizeof(buf)));
     static const uint8_t check9[] = "123456789";
     check("crc32(\"123456789\") = 0xCBF43926", imageCrc32(0U, check9, 9U) == 0xCBF43926U);
     check("crc32 continues across chunks",

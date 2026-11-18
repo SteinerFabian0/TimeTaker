@@ -29,6 +29,11 @@ static bool indicatorLedCounterOn;
 
 static ledBlink_t indicatorLedBlinkState;
 
+/* Breathing pulse: while active, the compare value is the pulse's, not the
+ * stored level's. */
+static bool     indicatorLedPulseOn;
+static uint32_t indicatorLedPulseRiseMs;
+
 static laneStatus_e indicatorLedWritePulse(uint16_t level)
 {
     uint32_t pulse = ledPatternDutyCounts(level, indicatorLedPeriodCounts);
@@ -42,6 +47,18 @@ static laneStatus_e indicatorLedWritePulse(uint16_t level)
     }
 
     return LANE_OK;
+}
+
+/* Caller holds the irq guard. Ends a running pulse and puts the stored level
+ * back on the compare unit, so a following ON continues from where the pulse
+ * was (a peak is the stored level) and OFF parks the pin without a step. */
+static laneStatus_e indicatorLedEndPulse(void)
+{
+    if (!indicatorLedPulseOn) {
+        return LANE_OK;
+    }
+    indicatorLedPulseOn = false;
+    return indicatorLedWritePulse(indicatorLedLevel);
 }
 
 /* Caller holds the irq guard. Each unit's flag only follows a HAL call that
@@ -86,6 +103,27 @@ static laneStatus_e indicatorLedOutput(bool on)
     return LANE_OK;
 }
 
+/* Caller holds the irq guard. Switches on/off and ends any pulse. Off goes
+ * dark first and only then restores the compare value, so a pulse trough
+ * followed by OFF cannot flash a PWM period at the stored level. */
+static laneStatus_e indicatorLedApply(bool on)
+{
+    laneStatus_e status;
+
+    if (on) {
+        status = indicatorLedEndPulse();
+        if (status == LANE_OK) {
+            status = indicatorLedOutput(true);
+        }
+    } else {
+        status = indicatorLedOutput(false);
+        if (status == LANE_OK) {
+            status = indicatorLedEndPulse();
+        }
+    }
+    return status;
+}
+
 laneStatus_e indicatorLedInit(void)
 {
     hal_tim_handle_t *htim = mx_tim1_gethandle();
@@ -99,6 +137,7 @@ laneStatus_e indicatorLedInit(void)
     indicatorLedChannelOn = false;
     indicatorLedCounterOn = false;
     ledBlinkStop(&indicatorLedBlinkState);
+    indicatorLedPulseOn = false;
 
     return indicatorLedWritePulse(indicatorLedLevel);
 }
@@ -111,7 +150,8 @@ laneStatus_e indicatorLedSetLevel(uint16_t level)
 
     uint32_t guard = irqGuardEnter();
     indicatorLedLevel = level;
-    laneStatus_e status = indicatorLedWritePulse(level);
+    /* A running pulse peaks at the new level from its next render on. */
+    laneStatus_e status = indicatorLedPulseOn ? LANE_OK : indicatorLedWritePulse(level);
     irqGuardExit(guard);
 
     return status;
@@ -121,7 +161,7 @@ laneStatus_e indicatorLedSet(bool on)
 {
     uint32_t guard = irqGuardEnter();
     ledBlinkStop(&indicatorLedBlinkState);
-    laneStatus_e status = indicatorLedOutput(on);
+    laneStatus_e status = indicatorLedApply(on);
     irqGuardExit(guard);
 
     return status;
@@ -131,7 +171,7 @@ laneStatus_e indicatorLedToggle(void)
 {
     uint32_t guard = irqGuardEnter();
     ledBlinkStop(&indicatorLedBlinkState);
-    laneStatus_e status = indicatorLedOutput(!indicatorLedIsLit());
+    laneStatus_e status = indicatorLedApply(!indicatorLedIsLit());
     irqGuardExit(guard);
 
     return status;
@@ -144,11 +184,52 @@ laneStatus_e indicatorLedBlink(uint32_t periodMs, uint16_t onPermille, uint16_t 
     laneStatus_e status = ledBlinkStart(&indicatorLedBlinkState, nowMs, periodMs,
                                         onPermille, count);
     if (status == LANE_OK) {
+        status = indicatorLedEndPulse();
+    }
+    if (status == LANE_OK) {
         status = indicatorLedOutput(ledBlinkIsOn(&indicatorLedBlinkState, nowMs));
     }
     irqGuardExit(guard);
 
     return status;
+}
+
+laneStatus_e indicatorLedPulseRender(uint64_t tUs)
+{
+    laneStatus_e status = LANE_OK;
+
+    uint32_t guard = irqGuardEnter();
+    if (indicatorLedPulseOn) {
+        status = indicatorLedWritePulse(ledPulseLevel(tUs, indicatorLedPulseRiseMs,
+                                                      indicatorLedLevel));
+        if (status == LANE_OK) {
+            status = indicatorLedOutput(true);   /* retries a switch that failed */
+        }
+    }
+    irqGuardExit(guard);
+
+    return status;
+}
+
+laneStatus_e indicatorLedPulseStart(uint32_t riseMs, uint64_t tUs)
+{
+    if (!ledPulseRiseValid(riseMs)) {
+        return LANE_ERR_INVALID_ARG;
+    }
+
+    uint32_t guard = irqGuardEnter();
+    ledBlinkStop(&indicatorLedBlinkState);
+    indicatorLedPulseRiseMs = riseMs;
+    indicatorLedPulseOn     = true;
+    laneStatus_e status     = indicatorLedPulseRender(tUs);
+    irqGuardExit(guard);
+
+    return status;
+}
+
+bool indicatorLedPulseActive(void)
+{
+    return indicatorLedPulseOn;
 }
 
 laneStatus_e indicatorLedRun(uint32_t nowMs)

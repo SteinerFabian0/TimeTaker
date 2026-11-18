@@ -14,10 +14,12 @@ SUITES = {
  'host_detect': [M+'lane_detect.c'],
  'host_event_fifo': [M+'event_fifo.c'],
  'host_schedule': [M+'schedule_queue.c'],
- 'host_regs': [M+'lane_regs.c', M+'image_crc.c'],
+ 'host_led': [M+'led_pattern.c', M+'indicator_led.c'],
+ 'host_regs': [M+'lane_regs.c', M+'led_pattern.c', M+'image_crc.c'],
  'host_chain': [M+'chain_logic.c'],
 }
 D, E, S, R, C = M+'lane_detect.c', M+'event_fifo.c', M+'schedule_queue.c', M+'lane_regs.c', M+'chain_logic.c'
+P, I = M+'led_pattern.c', M+'indicator_led.c'
 muts = [
  # --- detection
  ('host_detect', D, 'd->baselineQ8 = (uint32_t)((int32_t)d->baselineQ8 + err / (1 << DETECT_BASELINE_SHIFT));', '(void)err;', 'baseline tracks while FREE'),
@@ -60,6 +62,25 @@ muts = [
  ('host_schedule', S, '    q->count = 0U;\n}', '    (void)q;\n}', 'cancel-all empties'),
  ('host_schedule', S, 'if (q->count >= LANE_SCHEDULE_DEPTH) {', 'if (q->count >= LANE_SCHEDULE_DEPTH + 1U) {', 'full rejects'),
  ('host_schedule', S, '    q->count--;\n    memmove', '    memmove', 'popped action removed'),
+ # --- LED pulse (LANE_ACT_LED_PULSE)
+ ('host_led', P, 'if (pos > riseUs) {', 'if (false) {', 'pulse: falling half mirrors the rise'),
+ ('host_led', P, 'tUs % (2U * riseUs)', 'tUs % (3U * riseUs)', 'pulse: period is 2 x rise'),
+ ('host_led', P, 'if (idx < LED_PULSE_POINTS) {', 'if (false) {', 'pulse: table interpolated'),
+ ('host_led', P, ' + LED_PULSE_ONE_Q15 / 2U)', ' + 0U)', 'pulse: level rounded'),
+ ('host_led', P, 'if (riseMs == 0U) {\n        return 0U;', 'if (false) {\n        return 0U;', 'pulse: rise 0 returns dark'),
+ ('host_led', P, 'if (fullLevel > LED_LEVEL_MAX) {\n        fullLevel', 'if (false) {\n        fullLevel', 'pulse: full level clamps'),
+ ('host_led', P, 'return riseMs >= LED_PULSE_RISE_MIN_MS && riseMs <= LED_PULSE_RISE_MAX_MS;', 'return riseMs <= LED_PULSE_RISE_MAX_MS;', 'pulse: rise min'),
+ ('host_led', P, 'return riseMs >= LED_PULSE_RISE_MIN_MS && riseMs <= LED_PULSE_RISE_MAX_MS;', 'return riseMs >= LED_PULSE_RISE_MIN_MS;', 'pulse: rise max'),
+ ('host_led', I, 'indicatorLedPulseOn = false;\n    return indicatorLedWritePulse(indicatorLedLevel);', 'return indicatorLedWritePulse(indicatorLedLevel);', 'pulse: a later LED action ends it'),
+ ('host_led', I, 'indicatorLedPulseOn = false;\n    return indicatorLedWritePulse(indicatorLedLevel);', 'indicatorLedPulseOn = false;\n    return LANE_OK;', 'pulse: end restores the stored level'),
+ ('host_led', I, 'status = indicatorLedOutput(false);\n        if (status == LANE_OK) {\n            status = indicatorLedEndPulse();\n        }', 'status = indicatorLedEndPulse();\n        if (status == LANE_OK) {\n            status = indicatorLedOutput(false);\n        }', 'pulse: OFF goes dark before restoring'),
+ ('host_led', I, 'laneStatus_e status = indicatorLedPulseOn ? LANE_OK : indicatorLedWritePulse(level);', 'laneStatus_e status = indicatorLedWritePulse(level);', 'pulse: level change leaves the pulse alone'),
+ ('host_led', I, '    if (status == LANE_OK) {\n        status = indicatorLedEndPulse();\n    }\n    if (status == LANE_OK) {\n        status = indicatorLedOutput(ledBlinkIsOn', '    if (status == LANE_OK) {\n        status = indicatorLedOutput(ledBlinkIsOn', 'pulse: blink ends it'),
+ ('host_led', I, 'if (!ledPulseRiseValid(riseMs)) {', 'if (false) {', 'pulse: start rejects a bad rise'),
+ ('host_led', I, '    ledBlinkStop(&indicatorLedBlinkState);\n    indicatorLedPulseRiseMs = riseMs;', '    indicatorLedPulseRiseMs = riseMs;', 'pulse: start replaces a blink'),
+ ('host_led', I, 'ledPulseLevel(tUs, indicatorLedPulseRiseMs,\n                                                      indicatorLedLevel)', 'ledPulseLevel(tUs, indicatorLedPulseRiseMs,\n                                                      LED_LEVEL_MAX)', 'pulse: peaks at the stored level'),
+ ('host_regs', R, 'return ledPulseRiseValid(s->param) ? LANE_OK : LANE_ERR_REG_VALUE;', 'return LANE_OK;', 'SCHEDULE LED_PULSE rise time'),
+ ('host_regs', R, '    case LANE_ACT_LED_PULSE:\n', '    case LANE_ACT_LED_PULSE + 100:\n', 'SCHEDULE LED_PULSE accepted'),
  # --- chain
  ('host_chain', C, '(uint32_t)(nowMs - c->rawSinceMs) < CHAIN_DEBOUNCE_MS', '(uint32_t)(nowMs - c->rawSinceMs) < 0U', 'debounce'),
  ('host_chain', C, '    c->hasAddress = false;\n    return CHAIN_EVENT_FELL;', '    return CHAIN_EVENT_FELL;', 'fall forgets address'),

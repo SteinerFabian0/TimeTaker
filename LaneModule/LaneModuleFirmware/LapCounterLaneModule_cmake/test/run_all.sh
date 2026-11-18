@@ -47,7 +47,7 @@ suite host_led       "$LANE/app/modules/led_pattern.c" "$LANE/app/modules/indica
 suite host_detect    "$LANE/app/modules/lane_detect.c"
 suite host_event_fifo "$LANE/app/modules/event_fifo.c"
 suite host_schedule  "$LANE/app/modules/schedule_queue.c"
-suite host_regs      "$LANE/app/modules/lane_regs.c" "$LANE/app/modules/image_crc.c"
+suite host_regs      "$LANE/app/modules/lane_regs.c" "$LANE/app/modules/led_pattern.c" "$LANE/app/modules/image_crc.c"
 suite host_chain     "$LANE/app/modules/chain_logic.c"
 
 if [ "$failed" -eq 0 ]; then

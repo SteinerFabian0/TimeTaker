@@ -25,7 +25,7 @@ leaves the bench, and after any change to the files a suite covers.
 copy.
 
 **Mutation check:** `test/mutate.py` breaks each guarded rule in a temporary
-copy of `app/` (87 mutations) and expects the guarding suite to fail. Run it
+copy of `app/` (111 mutations) and expects the guarding suite to fail. Run it
 after changing a suite or a rule; add a mutation with every new rule.
 
 Rules the suites follow (same as the hub's):

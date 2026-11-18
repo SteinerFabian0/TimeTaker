@@ -70,6 +70,18 @@ static int16_t  busIbiLastError;
 
 static void busSchedAlarm(uint32_t dueLocal, uint32_t firedLocal);
 
+/* LED pulse (LANE_ACT_LED_PULSE): the pulse level is a function of the shared
+ * system time since the action's atUs (led_pattern ledPulseLevel). The last
+ * time and local counter it was rendered at are kept so that, while SYNC is
+ * unaligned or unlocked, it continues on local time instead of freezing or
+ * jumping. Written from the TIM2 ISR (start) and the main loop (render), both
+ * under irq_guard. */
+#define BUS_PULSE_RENDER_MS  10U
+static uint64_t busPulseStartMb;
+static uint64_t busPulseLastT;
+static uint32_t busPulseLastLocal;
+static uint32_t busPulseRenderedMs;
+
 
 /* =========================================================================
  *                          SCHEDULED ACTIONS
@@ -92,9 +104,37 @@ static void busSchedArm(void)
     irqGuardExit(guard);
 }
 
+/* Main loop, every BUS_PULSE_RENDER_MS: advances a running pulse. */
+static void busPulseRun(uint32_t nowMs)
+{
+    if (!indicatorLedPulseActive()
+        || (uint32_t)(nowMs - busPulseRenderedMs) < BUS_PULSE_RENDER_MS) {
+        return;
+    }
+    busPulseRenderedMs = nowMs;
+
+    uint32_t guard = irqGuardEnter();
+    if (indicatorLedPulseActive()) {
+        uint32_t local = laneTimerNow();
+        uint64_t mb    = 0U;
+        uint8_t  flags = laneTimerToMainboard(local, &mb);
+        uint64_t t;
+
+        if ((flags & (SYNC_TIME_FLAG_NO_LOCK | SYNC_TIME_FLAG_UNALIGNED)) == 0U) {
+            t = (mb > busPulseStartMb) ? mb - busPulseStartMb : 0U;   /* shared time: in phase */
+        } else {
+            t = busPulseLastT + (uint32_t)(local - busPulseLastLocal);   /* local fallback */
+        }
+        busPulseLastT     = t;
+        busPulseLastLocal = local;
+        (void)indicatorLedPulseRender(t);
+    }
+    irqGuardExit(guard);
+}
+
 /* TIM2 ISR (priority 1): the LED switch happens here, within the ISR
  * latency of the compare. */
-static void busSchedExecute(const scheduleEntry_t *e)
+static void busSchedExecute(const scheduleEntry_t *e, uint64_t nowMb, uint32_t firedLocal)
 {
     switch (e->action) {
     case LANE_ACT_LED_OFF:
@@ -108,6 +148,13 @@ static void busSchedExecute(const scheduleEntry_t *e)
         break;
     case LANE_ACT_LED_BLINK:
         (void)indicatorLedBlink(e->param, 500U, 0U);
+        break;
+    case LANE_ACT_LED_PULSE:
+        /* The compare fires a hair early (slack) or late: t is the true age. */
+        busPulseStartMb   = e->atUs;
+        busPulseLastT     = (nowMb > e->atUs) ? nowMb - e->atUs : 0U;
+        busPulseLastLocal = firedLocal;
+        (void)indicatorLedPulseStart(e->param, busPulseLastT);
         break;
     case LANE_ACT_SAMPLING_OFF:
         busPendingSampling = (uint8_t)LANE_SAMPLING_OFF;
@@ -130,7 +177,7 @@ static void busSchedAlarm(uint32_t dueLocal, uint32_t firedLocal)
     (void)laneTimerToMainboard(firedLocal, &nowMb);
 
     while (scheduleQueuePopDue(&busSched, nowMb + BUS_SCHED_SLACK_US, &e, &late)) {
-        busSchedExecute(&e);
+        busSchedExecute(&e, nowMb, firedLocal);
         late = (late > BUS_SCHED_SLACK_US) ? late - BUS_SCHED_SLACK_US : 0U;
         if (late > LANE_SCHED_LATE_US && busLateActions < 0xFFFFU) {
             busLateActions++;
@@ -598,6 +645,8 @@ laneStatus_e busManagerRun(uint32_t nowMs)
         laneTrace(LANE_TRACE_EVENTS, "SCHED fired action=%u late=%uus",
                   (uint32_t)busSchedLastAction, busSchedLastLateUs);
     }
+
+    busPulseRun(nowMs);
 
     /* A queued action waiting for SYNC alignment or for the 18 min horizon. */
     if (scheduleQueueCount(&busSched) > 0U && !laneTimerAlarmArmed(LANE_TIMER_ALARM_SCHEDULE)) {

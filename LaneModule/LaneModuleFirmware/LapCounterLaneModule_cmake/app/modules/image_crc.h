@@ -2,7 +2,7 @@
  * CRC32 of the running image, for the ID register (imageCrc), so the
  * control module and the app can tell which build a lane runs.
  *
- * The algorithm is pure and host-tested (test/host_regs): IEEE 802.3 CRC32,
+ * The algorithm is host-tested (test/host_regs): IEEE 802.3 CRC32,
  * reflected, init and final XOR 0xFFFFFFFF; crc32("123456789") = 0xCBF43926,
  * the same as zlib / Python binascii.crc32. Over the image it equals the
  * CRC32 of `arm-none-eabi-objcopy -O binary --gap-fill 0xFF` of the .elf
@@ -10,7 +10,10 @@
  * between sections stay erased (0xFF) when the .elf is flashed.
  *
  * imageCrcOfRunningImage() needs the linker symbols and is target-only.
- * Bitwise, no table: about 10 ms for 64 KB at 144 MHz, once at boot.
+ * On the target the CRC runs on the C5 hardware CRC unit (LL registers,
+ * settings in image_crc.c); the host tests build the bitwise software
+ * version, and test/host_regs checks a bit-exact model of the unit's
+ * settings against it. -DIMAGE_CRC_SOFTWARE forces software on the target.
  */
 
 #pragma once

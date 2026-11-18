@@ -198,6 +198,17 @@ I3C writes/reads/errors, sensor state (0 reset, 1 busy, 2 shutdown,
   time; trace `SCHED fired action=1 late=<few>us`. The past one fires at
   once and `lateActions` counts 1. After CANCEL_ALL nothing fires.
   STATUS `schedulePending` follows.
+- **Pulse (LANE_ACT_LED_PULSE):** two lanes side by side, scope ch1/ch2 on
+  the LED pins (or just watch them). Write to both: ADD LED_PULSE param 1000
+  at T0+2 s, then ADD LED_ON (level 0 = keep) at T0+5 s, then a second run
+  with ADD LED_PULSE at T0+2 s and ADD LED_OFF at T0+6 s (peaks at 3 s, 5 s,
+  troughs at 2 s, 4 s, 6 s). Also param 250 and param 20; also WRITE the LED
+  register (ON) mid-pulse.
+  **Expect:** both LEDs breathe in phase (the two duty envelopes overlay,
+  no drift over 60 s), dark to full in 1 s and back in 1 s; the ON at a peak
+  and the OFF at a trough show no step; the LED register write ends the pulse
+  at once. Pause SYNC (controller off) mid-pulse: breathing continues, phase
+  drifts slowly. param 0 is rejected (`badWrites` +1).
 - **If not:** offset of one SYNC period (1 ms) between lanes: SYNC_ALIGN
   latency above P/2, re-check the controller's measurement point. Actions
   never fire: lane not aligned (`sync=1/0`).

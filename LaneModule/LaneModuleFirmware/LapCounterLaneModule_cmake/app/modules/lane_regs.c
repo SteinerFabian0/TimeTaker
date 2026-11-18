@@ -150,6 +150,8 @@ static laneStatus_e laneRegsValidateSchedule(const laneSchedule_t *s)
     case LANE_ACT_LED_BLINK:
         return (s->param >= LED_BLINK_PERIOD_MIN_MS && s->param <= LED_BLINK_PERIOD_MAX_MS)
                ? LANE_OK : LANE_ERR_REG_VALUE;
+    case LANE_ACT_LED_PULSE:
+        return ledPulseRiseValid(s->param) ? LANE_OK : LANE_ERR_REG_VALUE;
     default:
         return LANE_ERR_REG_VALUE;
     }

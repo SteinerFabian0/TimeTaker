@@ -36,6 +36,7 @@ struct hostTimHandle {
     int      failNext;      /* fail this many upcoming start/stop calls */
     int      failCounter;   /* fail the next counter start/stop only */
     int      misuse;        /* start of a running / stop of an idle unit */
+    bool     lastWriteLit;  /* the last compare write happened with the pin driven */
 };
 
 static struct hostTimHandle tim1 = { .period = 999U };
@@ -58,6 +59,7 @@ hal_status_t HAL_TIM_OC_SetCompareUnitPulse(hal_tim_handle_t *htim,
         return HAL_INVALID_PARAM;
     }
     htim->pulse = pulse;
+    htim->lastWriteLit = htim->channelOn && htim->counterOn;
     return HAL_OK;
 }
 
@@ -252,8 +254,133 @@ static void testDriverBlink(void)
     check("blink: no HAL misuse",             tim1.misuse == 0);
 }
 
+/* --- Pulse ---------------------------------------------------------------- */
+
+/* Taylor series: the host test links no libm. Fine over 0..pi. */
+static double hostCos(double x)
+{
+    double term = 1.0, sum = 1.0;
+    for (int n = 1; n < 30; n++) {
+        term *= -x * x / ((2.0 * n - 1.0) * (2.0 * n));
+        sum  += term;
+    }
+    return sum;
+}
+
+static void testPulseLevel(void)
+{
+    const uint32_t r = 1000U;               /* ms */
+    const uint64_t R = 1000000U;            /* us */
+
+    check("pulse: starts dark at t = 0",      ledPulseLevel(0U, r, 1000U) == 0U);
+    check("pulse: peak at t = rise",          ledPulseLevel(R, r, 1000U) == 1000U);
+    check("pulse: trough at t = 2 * rise",    ledPulseLevel(2U * R, r, 1000U) == 0U);
+    check("pulse: half rise is half level",   ledPulseLevel(R / 2U, r, 1000U) == 500U);
+    check("pulse: quarter rise ~ 146 (1-cos(pi/4))/2",
+          ledPulseLevel(R / 4U, r, 1000U) >= 145U && ledPulseLevel(R / 4U, r, 1000U) <= 147U);
+    check("pulse: falls symmetric (3/4 of period)",
+          ledPulseLevel(R + R / 4U, r, 1000U) == ledPulseLevel(R - R / 4U, r, 1000U));
+    check("pulse: second period repeats",     ledPulseLevel(2U * R + R / 3U, r, 1000U) == ledPulseLevel(R / 3U, r, 1000U));
+    check("pulse: long t (10^6 s) still on the curve",
+          ledPulseLevel(1000000ULL * 1000000ULL + R, r, 1000U) == 1000U
+          && ledPulseLevel(1000000ULL * 1000000ULL, r, 1000U) == 0U);
+    check("pulse: peak scales with the full level", ledPulseLevel(R, r, 600U) == 600U
+          && ledPulseLevel(R / 2U, r, 600U) == 300U);
+    check("pulse: full level clamps",         ledPulseLevel(R, r, 5000U) == 1000U);
+    check("pulse: full level 0 stays dark",   ledPulseLevel(R, r, 0U) == 0U);
+    check("pulse: rise 0 returns dark",       ledPulseLevel(R, 0U, 1000U) == 0U);
+    check("pulse: other rise (250 ms) peaks", ledPulseLevel(250000U, 250U, 1000U) == 1000U
+          && ledPulseLevel(125000U, 250U, 1000U) == 500U);
+    check("pulse: longest rise peaks",        ledPulseLevel(60000000ULL, 60000U, 1000U) == 1000U
+          && ledPulseLevel(120000000ULL, 60000U, 1000U) == 0U);
+
+    int      monotonic = 1, symmetric = 1, exact = 1;
+    uint16_t prev      = 0U;
+    for (uint32_t t = 0U; t <= 1000000U; t += 997U) {
+        uint16_t l = ledPulseLevel(t, r, 1000U);
+        monotonic  = monotonic && l >= prev;
+        prev       = l;
+        symmetric  = symmetric && l == ledPulseLevel(2000000U - t, r, 1000U);
+        /* against the real cosine, within one level */
+        double ref = 1000.0 * (1.0 - hostCos(3.14159265358979323846 * (double)t / 1e6)) / 2.0;
+        double d   = (double)l - ref;
+        exact      = exact && d > -1.01 && d < 1.01;
+    }
+    check("pulse: monotonic over the rise",   monotonic);
+    check("pulse: falling half mirrors rising", symmetric);
+    check("pulse: within 1 level of the cosine", exact);
+
+    int steps = 1;
+    prev      = 0U;
+    for (uint32_t t = 0U; t <= 1000000U; t += 10000U) {   /* 10 ms render steps */
+        uint16_t l = ledPulseLevel(t, r, 1000U);
+        steps      = steps && (uint16_t)(l - prev) <= 40U;
+        prev       = l;
+    }
+    check("pulse: smooth at 10 ms steps (<= 40 levels)", steps);
+
+    check("pulse: rise limits valid",         ledPulseRiseValid(LED_PULSE_RISE_MIN_MS)
+                                              && ledPulseRiseValid(LED_PULSE_RISE_MAX_MS)
+                                              && ledPulseRiseValid(1000U));
+    check("pulse: rise 0 / below / above rejected", !ledPulseRiseValid(0U)
+                                              && !ledPulseRiseValid(LED_PULSE_RISE_MIN_MS - 1U)
+                                              && !ledPulseRiseValid(LED_PULSE_RISE_MAX_MS + 1U));
+}
+
+static void testDriverPulse(void)
+{
+    tim1 = (struct hostTimHandle){ .period = 999U };
+    hostTickMs = 0U;
+    (void)indicatorLedInit();
+    (void)indicatorLedSetLevel(1000U);
+
+    check("pulse drv: bad rise refused",      indicatorLedPulseStart(0U, 0U) == LANE_ERR_INVALID_ARG
+                                              && !indicatorLedPulseActive() && !tim1.channelOn);
+    check("pulse drv: start at t=0 is lit channel, zero duty",
+          indicatorLedPulseStart(1000U, 0U) == LANE_OK && indicatorLedPulseActive()
+          && tim1.channelOn && tim1.counterOn && tim1.pulse == 0U);
+    check("pulse drv: render at the peak = full duty",
+          indicatorLedPulseRender(1000000U) == LANE_OK && tim1.pulse == 1000U);
+    check("pulse drv: render goes through the gamma",
+          indicatorLedPulseRender(500000U) == LANE_OK && tim1.pulse == ledPatternDutyCounts(500U, 1000U));
+    check("pulse drv: level is the peak",
+          indicatorLedSetLevel(600U) == LANE_OK && tim1.pulse == ledPatternDutyCounts(500U, 1000U)
+          && indicatorLedPulseRender(1000000U) == LANE_OK && tim1.pulse == ledPatternDutyCounts(600U, 1000U));
+
+    check("pulse drv: LED_ON at the peak continues (no step)",
+          indicatorLedPulseRender(1000000U) == LANE_OK && indicatorLedSet(true) == LANE_OK
+          && !indicatorLedPulseActive() && tim1.pulse == ledPatternDutyCounts(600U, 1000U) && pinLit());
+    check("pulse drv: render after end is a no-op",
+          indicatorLedPulseRender(0U) == LANE_OK && tim1.pulse == ledPatternDutyCounts(600U, 1000U));
+
+    (void)indicatorLedPulseStart(1000U, 2000000U);
+    check("pulse drv: LED_OFF at the trough parks dark, level restored",
+          indicatorLedSet(false) == LANE_OK && !tim1.channelOn && !tim1.counterOn
+          && !indicatorLedPulseActive() && tim1.pulse == ledPatternDutyCounts(600U, 1000U));
+    check("pulse drv: restore written after the pin went dark (no flash)", !tim1.lastWriteLit);
+
+    (void)indicatorLedPulseStart(1000U, 250000U);
+    check("pulse drv: blink ends the pulse",  indicatorLedBlink(100U, 500U, 0U) == LANE_OK
+                                              && !indicatorLedPulseActive() && indicatorLedIsBlinking());
+    (void)indicatorLedSet(false);
+    (void)indicatorLedPulseStart(1000U, 250000U);
+    check("pulse drv: bad blink keeps the pulse", indicatorLedBlink(5U, 500U, 0U) == LANE_ERR_INVALID_ARG
+                                              && indicatorLedPulseActive());
+    check("pulse drv: toggle ends the pulse", indicatorLedToggle() == LANE_OK && !indicatorLedPulseActive());
+    (void)indicatorLedSet(false);
+
+    (void)indicatorLedBlink(100U, 500U, 0U);
+    check("pulse drv: a pulse replaces a running blink",
+          indicatorLedPulseStart(500U, 0U) == LANE_OK && indicatorLedPulseActive() && !indicatorLedIsBlinking());
+
+    (void)indicatorLedSet(false);
+    check("pulse drv: no HAL misuse",         tim1.misuse == 0);
+}
+
 int main(void)
 {
+    testPulseLevel();
+    testDriverPulse();
     testGamma();
     testBlinkParams();
     testBlinkClock();

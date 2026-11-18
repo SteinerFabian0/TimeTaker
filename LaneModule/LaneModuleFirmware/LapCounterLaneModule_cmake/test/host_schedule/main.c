@@ -123,8 +123,26 @@ static void testStartSequence(void)
           scheduleQueuePopDue(&q, t0 + 4321000U, &e, &late) && e.action == LANE_ACT_LED_OFF && late == 0U);
 }
 
+static void testPulse(void)
+{
+    scheduleEntry_t e;
+    uint64_t        late = 0U;
+
+    scheduleQueueInit(&q);
+    (void)scheduleQueueAdd(&q, 5000U, LANE_ACT_LED_OFF, 0U);
+    (void)scheduleQueueAdd(&q, 1000U, LANE_ACT_LED_PULSE, 1000U);
+    (void)scheduleQueueAdd(&q, 3000U, LANE_ACT_LED_PULSE, 500U);
+    check("pulse: queued like any action", scheduleQueueCount(&q) == 3U);
+    check("pulse: sorted, param kept",
+          scheduleQueuePopDue(&q, 1000U, &e, &late) && e.action == LANE_ACT_LED_PULSE && e.param == 1000U);
+    check("pulse: second pulse after it, then the OFF",
+          scheduleQueuePopDue(&q, 4000U, &e, &late) && e.action == LANE_ACT_LED_PULSE && e.param == 500U
+          && scheduleQueuePopDue(&q, 5000U, &e, &late) && e.action == LANE_ACT_LED_OFF);
+}
+
 int main(void)
 {
+    testPulse();
     testOrdering();
     testLate();
     testCancel();

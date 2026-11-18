@@ -81,6 +81,23 @@ laneStatus_e indicatorLedBlink(uint32_t periodMs, uint16_t onPermille, uint16_t 
  */
 laneStatus_e indicatorLedRun(uint32_t nowMs);
 
+/*
+ * Starts the breathing pulse (LANE_ACT_LED_PULSE): rise time riseMs
+ * (ledPulseRiseValid), the first frame rendered at tUs microseconds into the
+ * pulse. The pulse peaks at the current level (indicatorLedSetLevel). It keeps
+ * running until the next indicatorLedSet / Toggle / Blink, which ends it, and
+ * only advances when indicatorLedPulseRender() is called. Safe from the TIM2
+ * ISR. LANE_ERR_INVALID_ARG on a bad rise time (LED unchanged).
+ */
+laneStatus_e indicatorLedPulseStart(uint32_t riseMs, uint64_t tUs);
+
+/* Renders the pulse at tUs since its start (no-op when none runs). Call about
+ * every 10 ms. */
+laneStatus_e indicatorLedPulseRender(uint64_t tUs);
+
+/* Whether a pulse is running. */
+bool indicatorLedPulseActive(void);
+
 /* Whether the LED is currently driven (lit phase of a blink included). False
  * while a switch-on failed halfway; the next call completes it. */
 bool indicatorLedIsLit(void);

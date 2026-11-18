@@ -23,6 +23,12 @@
 #define LED_BLINK_PERIOD_MIN_MS  20U
 #define LED_BLINK_PERIOD_MAX_MS  60000U
 
+/* Pulse ("attention breathing") rise time limits, LANE_ACT_LED_PULSE param in
+ * ms. The floor keeps a rise longer than a few 10 ms render steps; the ceiling
+ * keeps the 64-bit phase maths trivially in range. 0 is rejected. */
+#define LED_PULSE_RISE_MIN_MS    20U
+#define LED_PULSE_RISE_MAX_MS    60000U
+
 /*
  * Duty for a perceptual level, in counts of a PWM period of periodCounts.
  * Gamma 2.2, piecewise linear over 21 points. Monotonic; 0 maps to 0, levels
@@ -56,3 +62,24 @@ void ledBlinkStop(ledBlink_t *blink);
  * 32-bit ms tick.
  */
 bool ledBlinkIsOn(ledBlink_t *blink, uint32_t nowMs);
+
+/* Whether riseMs is a valid pulse rise time (LED_PULSE_RISE_MIN_MS..MAX_MS). */
+bool ledPulseRiseValid(uint32_t riseMs);
+
+/*
+ * Perceptual level of the breathing pulse tUs microseconds after it started:
+ *
+ *     level = fullLevel * (1 - cos(pi * t / rise)) / 2     (rise = riseMs)
+ *
+ * a triangle-wave phase folded onto one raised cosine: dark at t = 0, full
+ * level at t = rise, dark again at t = 2 * rise, repeating with period
+ * 2 * rise forever (any tUs, no wrap issue). Integer only, no FPU: a 129-point
+ * table of the half cosine in Q15 with linear interpolation (error < 1 count
+ * of 32768, far below one of the 1000 levels), so the result is deterministic
+ * and identical on every lane for the same tUs. The caller feeds it the
+ * shared system time, which is what keeps six lanes breathing in phase.
+ *
+ * The result is a perceptual level (it goes through the gamma like any other).
+ * fullLevel is clamped to LED_LEVEL_MAX; riseMs of 0 (invalid) returns 0.
+ */
+uint16_t ledPulseLevel(uint64_t tUs, uint32_t riseMs, uint16_t fullLevel);
