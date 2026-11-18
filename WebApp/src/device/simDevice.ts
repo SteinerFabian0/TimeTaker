@@ -147,23 +147,31 @@
  * Bootloader (SYSTEM_ARCHITECTURE §10.1, CONTROL guide §5.7)
  *   - Serves HELLO, PING, RESUME, NODE_LIST, UPDATE_*, BOOT_APP; anything
  *     else ERR_UNSUPPORTED. HELLO reports boardType CONTROL_BOOT (the app
- *     CONTROL), and NODE_LIST lists CTRL with boardType CONTROL_BOOT. [A17] No bind gate: USB TRUSTED, BLE BOUND. [A18]
+ *     CONTROL), and NODE_LIST lists CTRL with boardType CONTROL_BOOT. [A17]
+ *     USB TRUSTED; BLE BOUND only for a client on the stored bind list (read
+ *     only: no bind window, no new entries), else UNBOUND. [A18]
+ *     Same rules as boot/boot_main.c + update_writer.c:
  *   - The app answers UPDATE_* and BOOT_APP with ERR_INVALID_STATE.
- *   - UPDATE_BEGIN: boardType ≠ CONTROL → ERR_IMAGE_BOARD; size 0 →
- *     ERR_INVALID_ARG; size > 224 KB → ERR_IMAGE_TOO_BIG. Erases (20 ms per
+ *   - UPDATE_BEGIN: boardType ≠ CONTROL → ERR_IMAGE_BOARD; size > 208 KB →
+ *     ERR_IMAGE_TOO_BIG; size 0 → ERR_INVALID_ARG (any other size too small
+ *     for the header fails at END). The same size and crc32 as the update in progress
+ *     resumes it (nothing erased, position kept). Else erases (20 ms per
  *     8 KB page before the answer), invalidates the app, chunkMax 224.
- *   - UPDATE_CHUNK: no update → ERR_UPDATE_SEQUENCE; empty or > chunkMax →
- *     ERR_INVALID_ARG; past the size → ERR_IMAGE_TOO_BIG; offset = next →
- *     written; offset = the last chunk's offset (same length) → acknowledged
- *     again; anything else → ERR_UPDATE_SEQUENCE.
- *   - UPDATE_END: incomplete → ERR_UPDATE_SEQUENCE; CRC-32 mismatch →
- *     ERR_IMAGE_CRC (the update is dropped); OK makes the app valid. A
- *     repeated END after success answers OK again.
- *   - UPDATE_ABORT: always OK. BOOT_APP without a valid app:
- *     ERR_INVALID_STATE. A power cycle with no valid app boots the bootloader.
- *   - Sim-only image header (the real one is the bootloader's decision):
- *     'TTAP', boardType, major, minor, patch, gitRev u32 LE. NODE_LIST then
- *     shows that version and imageCrc = CRC-32 of the image.
+ *   - UPDATE_CHUNK: no update → ERR_UPDATE_SEQUENCE; > chunkMax →
+ *     ERR_BAD_LENGTH; offset > next → ERR_UPDATE_SEQUENCE; running past
+ *     the size → ERR_IMAGE_TOO_BIG; bytes below next are compared (differ →
+ *     ERR_UPDATE_SEQUENCE), the rest written; the answer is the real
+ *     nextOffset (a host re-sending from earlier is fast-forwarded).
+ *   - UPDATE_END: incomplete → ERR_UPDATE_SEQUENCE; CRC-32 mismatch, or the
+ *     image header check (imageHeader.ts checkImage: magic, board, size,
+ *     loadAddr, imageCrc, vectors) fails → that error and the update is
+ *     dropped; OK makes the app valid. A repeated END after success answers
+ *     OK again.
+ *   - UPDATE_ABORT: always OK. BOOT_APP or REBOOT{APP} without a valid app:
+ *     ERR_INVALID_STATE. REBOOT{BOOTLOADER} restarts the bootloader. A power
+ *     cycle with no valid app boots the bootloader.
+ *   - Images carry the real header (imageHeader.ts); NODE_LIST then shows
+ *     its version and imageCrc = CRC-32 of the whole image.
  *
  * Test hooks: unplug/replug USB, BLE out of range, unplug/replug/reset a
  * lane, SYNC loss, lane fault, lost lane events, dropped event frames,
@@ -172,6 +180,7 @@
  */
 
 import { FrameDecoder, frameEncode } from '../protocol/codec.ts';
+import { checkImage, IMAGE_APP_SLOT_SIZE, makeImage, parseImageHeader } from '../update/imageHeader.ts';
 import { decodePacket, encodePacket } from '../protocol/packet.ts';
 import {
   ABORT_SEQUENCE_RSP, BIND_ALLOW_REQ, BIND_ALLOW_RSP, BIND_LIST_REQ, BIND_LIST_RSP, BIND_REMOVE_REQ, BIND_REMOVE_RSP,
@@ -311,8 +320,6 @@ interface UpdateState {
   crc: number;
   data: Uint8Array;
   next: number;
-  lastOffset: number;
-  lastLen: number;
 }
 
 const LANE_SETTLE_MS = 30;
@@ -332,7 +339,6 @@ const SETTINGS_MIN_INTERVAL_MS = 10000;
 const RAW_CHUNK_MS = 50;
 const RAW_MAX_SAMPLES = 112;
 const BLE_STREAM_BYTES_PER_S = 2000;
-const APP_MAX_BYTES = 224 * 1024;
 const CHUNK_MAX = 224;
 const ERASE_MS_PER_PAGE = 20;
 const PAGE_BYTES = 8192;
@@ -354,18 +360,9 @@ export function defaultLaneConfig(lane: number): LaneConfig {
   };
 }
 
-/** A sim-recognised firmware image: header + filler. */
+/** A stamped firmware image (the real header at +0x400, imageHeader.ts) + filler. */
 export function makeSimImage(fw: Firmware, size = 4096, boardType: number = BoardType.CONTROL, fill = 0x5a): Uint8Array {
-  const img = new Uint8Array(Math.max(size, 12));
-  for (let i = 12; i < img.length; i++) img[i] = (fill + i * 31) & 0xff;
-  img.set([0x54, 0x54, 0x41, 0x50, boardType, fw.major, fw.minor, fw.patch]);
-  new DataView(img.buffer).setUint32(8, fw.gitRev >>> 0, true);
-  return img;
-}
-
-function parseSimImage(img: Uint8Array): Firmware | null {
-  if (img.length < 12 || img[0] !== 0x54 || img[1] !== 0x54 || img[2] !== 0x41 || img[3] !== 0x50) return null;
-  return { major: img[5]!, minor: img[6]!, patch: img[7]!, gitRev: new DataView(img.buffer, img.byteOffset).getUint32(8, true) };
+  return makeImage(fw, size, boardType, fill);
 }
 
 const BODY_ID = new Map<StructDesc, number>();
@@ -888,7 +885,7 @@ export class SimDevice implements SimLinkHost<Link> {
       bindState = BindState.TRUSTED;
       if (this.#mode === 'app' && clientKind === ClientKind.WEBAPP && !isZero(clientId)) this.#bindAddOrTouch(clientId, clientName);
     } else if (this.#mode === 'boot') {
-      bindState = BindState.BOUND;
+      bindState = this.#bindIndex(clientId) >= 0 ? BindState.BOUND : BindState.UNBOUND;   // list read-only
     } else if (this.#bindIndex(clientId) >= 0) {
       bindState = BindState.BOUND;
       this.#bindAddOrTouch(clientId, clientName);
@@ -1130,12 +1127,18 @@ export class SimDevice implements SimLinkHost<Link> {
         const req = parse(UPDATE_BEGIN_REQ);
         if (!req) return;
         const size = req['size'] as number;
+        const crc = req['crc32'] as number;
         if (req['boardType'] !== BoardType.CONTROL) { reply(Status.ERR_IMAGE_BOARD); return; }
-        if (size === 0) { reply(Status.ERR_INVALID_ARG); return; }
-        if (size > APP_MAX_BYTES) { reply(Status.ERR_IMAGE_TOO_BIG); return; }
+        if (size > IMAGE_APP_SLOT_SIZE) { reply(Status.ERR_IMAGE_TOO_BIG); return; }
+        if (size === 0) { reply(Status.ERR_INVALID_ARG); return; }   // too small for a header: END refuses it
+        const cur = this.#update;
+        if (cur?.phase === 'writing' && cur.size === size && cur.crc === crc) {   // resume: keep what is written
+          reply(Status.OK, UPDATE_BEGIN_RSP, { chunkMax: CHUNK_MAX, reserved: 0 });
+          return;
+        }
         this.#flash.app.valid = false;
         this.#flash.image = null;
-        this.#update = { phase: 'writing', size, crc: req['crc32'] as number, data: new Uint8Array(size), next: 0, lastOffset: -1, lastLen: 0 };
+        this.#update = { phase: 'writing', size, crc, data: new Uint8Array(size).fill(0xff), next: 0 };
         const eraseMs = Math.ceil(size / PAGE_BYTES) * ERASE_MS_PER_PAGE;
         this.#later(eraseMs, () => reply(Status.OK, UPDATE_BEGIN_RSP, { chunkMax: CHUNK_MAX, reserved: 0 }));
         return;
@@ -1146,18 +1149,14 @@ export class SimDevice implements SimLinkHost<Link> {
         const u = this.#update;
         const offset = req['offset'] as number;
         const data = req['data'] as Uint8Array;
+        if (data.length > CHUNK_MAX) { reply(Status.ERR_BAD_LENGTH); return; }
         if (!u || u.phase !== 'writing') { reply(Status.ERR_UPDATE_SEQUENCE); return; }
-        if (data.length === 0 || data.length > CHUNK_MAX) { reply(Status.ERR_INVALID_ARG); return; }
-        if (offset === u.lastOffset && data.length === u.lastLen && offset + data.length === u.next) {
-          reply(Status.OK, UPDATE_CHUNK_RSP, { nextOffset: u.next });
-          return;
-        }
-        if (offset !== u.next) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
-        if (offset + data.length > u.size) { reply(Status.ERR_IMAGE_TOO_BIG); return; }
-        u.data.set(data, offset);
-        u.lastOffset = offset;
-        u.lastLen = data.length;
-        u.next = offset + data.length;
+        if (offset > u.next) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
+        if (data.length > u.size - offset) { reply(Status.ERR_IMAGE_TOO_BIG); return; }
+        const old = Math.min(data.length, u.next - offset);           // already written: must match
+        for (let i = 0; i < old; i++) if (u.data[offset + i] !== data[i]) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
+        u.data.set(data.subarray(old), offset + old);
+        u.next = Math.max(u.next, offset + data.length);
         reply(Status.OK, UPDATE_CHUNK_RSP, { nextOffset: u.next });
         return;
       }
@@ -1167,10 +1166,12 @@ export class SimDevice implements SimLinkHost<Link> {
         if (u?.phase === 'done') { reply(Status.OK, UPDATE_END_RSP, {}); return; }
         if (!u || u.next !== u.size) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
         const crc = crc32(u.data);
-        if (crc !== u.crc) { this.#update = null; reply(Status.ERR_IMAGE_CRC); return; }
+        const verdict = crc !== u.crc ? Status.ERR_IMAGE_CRC : checkImage(u.data, BoardType.CONTROL);
+        if (verdict !== Status.OK) { this.#update = null; reply(verdict); return; }
+        const h = parseImageHeader(u.data)!;
         u.phase = 'done';
         this.#flash.image = u.data;
-        this.#flash.app = { valid: true, crc, fw: parseSimImage(u.data) ?? { ...this.#flash.app.fw } };
+        this.#flash.app = { valid: true, crc, fw: { major: h.fwMajor, minor: h.fwMinor, patch: h.fwPatch, gitRev: h.gitRev } };
         reply(Status.OK, UPDATE_END_RSP, {});
         return;
       }
@@ -1185,6 +1186,15 @@ export class SimDevice implements SimLinkHost<Link> {
         if (!this.#flash.app.valid) { reply(Status.ERR_INVALID_STATE); return; }
         reply(Status.OK, BOOT_APP_RSP, {});
         this.#later(REBOOT_DELAY_MS, () => this.#boot('app', ResetCause.SOFTWARE));
+        return;
+      }
+      case MsgId.REBOOT: {
+        const req = parse(REBOOT_REQ);
+        if (!req) return;
+        const toBoot = req['target'] === RebootTarget.BOOTLOADER;
+        if (!toBoot && !this.#flash.app.valid) { reply(Status.ERR_INVALID_STATE); return; }
+        reply(Status.OK, REBOOT_RSP, {});
+        this.#later(REBOOT_DELAY_MS, () => this.#boot(toBoot ? 'boot' : 'app', ResetCause.SOFTWARE));
         return;
       }
       default:

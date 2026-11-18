@@ -126,6 +126,9 @@ static const updateFlashIo_t bootFlashIo = {
     .slot      = (const uint8_t *)IMAGE_APP_BASE,
     .slotSize  = IMAGE_APP_SLOT_SIZE,
     .boardType = HP_BOARD_CONTROL,
+    .imageAddr = IMAGE_APP_BASE,
+    .ramBase   = BOOT_RAM_BASE,
+    .ramSize   = BOOT_RAM_SIZE,
 };
 
 /* --- Sessions ---------------------------------------------------------------- */
@@ -215,7 +218,7 @@ static ctrlStatus_e bootOnRequest(hostSession_t *session, uint8_t msgId, const u
         if (msgId == HP_MSG_REBOOT && reqLen == HP_REBOOT_REQ_BYTES && req[0] == HP_REBOOT_BOOTLOADER) {
             bootShared.request = BOOT_SHARED_ENTER_BOOT;
         } else if (!bootAppValid()) {
-            return CTRL_ERR_IMAGE_CRC;
+            return CTRL_ERR_INVALID_STATE;   /* no valid app to start */
         } else {
             bootShared.jump = BOOT_SHARED_JUMP_APP;
         }
@@ -252,6 +255,10 @@ int main(void)
         NVIC_SystemReset();
     }
 
+    /* PB4/PC15 were analog until mx_gpio_default_init(): give the internal
+     * pull-ups time to lift the lines, or a still-low pin reads as a strap
+     * and every boot would stop in the bootloader. */
+    HAL_Delay(2U);
     const bool requested = bootShared.request == BOOT_SHARED_ENTER_BOOT;
     bootShared.request = 0U;
     const bool strap = HAL_GPIO_ReadPin(BLE_GPIO1_PORT, BLE_GPIO1_PIN) == HAL_GPIO_PIN_RESET;   /* BOOT_REQ */

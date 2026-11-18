@@ -48,15 +48,20 @@ ctrlStatus_e imageCheck(const uint8_t *image, uint32_t slotSize, uint8_t boardTy
     if (status != CTRL_OK) {
         return status;
     }
-    if (imageCrcSkipHeader(image, h.size) != h.imageCrc) {
+    if (h.loadAddr != imageAddr || imageCrcSkipHeader(image, h.size) != h.imageCrc) {
         return CTRL_ERR_IMAGE_CRC;
     }
 
+    return imageVectorsCheck(image, h.size, imageAddr, ramBase, ramSize) ? CTRL_OK : CTRL_ERR_IMAGE_CRC;
+}
+
+bool imageVectorsCheck(const uint8_t *image, uint32_t size, uint32_t imageAddr, uint32_t ramBase, uint32_t ramSize)
+{
     uint32_t sp;
     uint32_t reset;
     memcpy(&sp, image, sizeof(sp));
     memcpy(&reset, image + 4, sizeof(reset));
-    const bool spOk    = sp > ramBase && sp <= ramBase + ramSize;
-    const bool resetOk = (reset & 1U) != 0U && reset > imageAddr && reset < imageAddr + h.size;
-    return (spOk && resetOk) ? CTRL_OK : CTRL_ERR_IMAGE_CRC;
+    const bool spOk    = (sp & 3U) == 0U && sp > ramBase && sp <= ramBase + ramSize;
+    const bool resetOk = (reset & 1U) != 0U && reset > imageAddr && reset < imageAddr + size;
+    return spOk && resetOk;
 }

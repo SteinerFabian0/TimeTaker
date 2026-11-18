@@ -29,6 +29,12 @@ Flash the **stamped** ELF or the `.bin` (at 0x0800_8000), never an older
 unstamped copy: the bootloader refuses an image whose header CRC does not
 match and stays in update mode (which is safe, just surprising).
 
+Over USB/BLE (web app updater) send only the `_boot` preset's `.bin`. The
+header's `loadAddr` (stamped from the ELF's `.vectors`) must be 0x0800_8000:
+the updater and the bootloader both refuse the standalone `.bin`, whose
+header and CRC are otherwise valid. `test/host_update` checks the built
+`debug_GCC_boot` `.bin` against the bootloader's own check.
+
 Switching a board from the standalone image to the bootloader layout: erase
 the chip first (the standalone image's tail would sit in the bootloader pages).
 The settings pages (0x0803_C000) survive `-w`; `-e all` clears them.

@@ -2,7 +2,7 @@
  * Update writer: UPDATE_BEGIN / CHUNK / END / ABORT as a state machine over
  * a flash slot (CONTROL_FIRMWARE_GUIDE §5.7, SYSTEM_ARCHITECTURE §10.1).
  *
- *   BEGIN   board type and size checked, slot pages erased. A BEGIN with the
+ *   BEGIN   board type and size (1 .. slot) checked, slot pages erased. A BEGIN with the
  *           same size and crc as the update in progress resumes it (nothing
  *           erased, the write position kept).
  *   CHUNK   offset-addressed. offset == next: written. A chunk wholly or
@@ -11,8 +11,11 @@
  *           response's nextOffset tells the host where to go on), different
  *           bytes are ERR_UPDATE_SEQUENCE. offset > next: ERR_UPDATE_SEQUENCE.
  *   END     every byte received; the CRC over the whole image (header
- *           included, as UPDATE_BEGIN named it) and the header's own checks
- *           pass; only then the two header quad-words are programmed. Until
+ *           included, as UPDATE_BEGIN named it), the header's own checks and
+ *           the vector table (linked for this slot) pass; only then the two
+ *           header quad-words are programmed, the one with the magic last.
+ *           A repeated END after success answers OK again (the host lost the
+ *           first answer). A flash error drops the update. Until
  *           that moment the slot holds no valid image, so an interrupted
  *           update leaves the bootloader in charge: it cannot brick.
  *   ABORT   forgets the update. The slot stays without a valid header.
@@ -43,11 +46,15 @@ typedef struct {
     const uint8_t *slot;      /* read view of the slot */
     uint32_t       slotSize;
     uint8_t        boardType; /* the board this writer accepts images for */
+    uint32_t       imageAddr; /* where the slot is mapped (vector table check) */
+    uint32_t       ramBase;   /* RAM the image's initial SP must point into  */
+    uint32_t       ramSize;
 } updateFlashIo_t;
 
 typedef struct {
     const updateFlashIo_t *io;
     bool     active;
+    bool     done;                          /* END succeeded: a repeated END answers OK */
     uint32_t size;
     uint32_t crcExpect;
     uint32_t next;                          /* bytes received in order */

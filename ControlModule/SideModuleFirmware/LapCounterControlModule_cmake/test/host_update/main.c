@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "crc32.h"
@@ -14,7 +15,7 @@
 #include "update_writer.h"
 #include "../test_check.h"
 
-#define SLOT   (64U * 1024U)
+#define SLOT   IMAGE_APP_SLOT_SIZE
 #define PAGE   IMAGE_PAGE_SIZE
 #define RAM    0x20000000U
 
@@ -23,6 +24,7 @@ static int      overProgram;    /* programs onto non-erased bytes */
 static int      programs;
 static int      erases;
 static int      failProgram;
+static uint32_t lastProgram;    /* offset of the latest program16 */
 
 static ctrlStatus_e fakeErase(uint32_t off, uint32_t len)
 {
@@ -48,10 +50,11 @@ static ctrlStatus_e fakeProgram(uint32_t off, const uint8_t d[16])
     }
     memcpy(&flash[off], d, 16);
     programs++;
+    lastProgram = off;
     return CTRL_OK;
 }
 
-static const updateFlashIo_t io = { fakeErase, fakeProgram, flash, SLOT, HP_BOARD_CONTROL };
+static const updateFlashIo_t io = { fakeErase, fakeProgram, flash, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U };
 
 static uint8_t img[20000];
 static uint32_t imgSize;
@@ -66,7 +69,8 @@ static uint32_t buildImage(uint32_t size, uint8_t board)
     memcpy(img, &sp, 4);
     memcpy(img + 4, &reset, 4);
     imageHeader_t h = { .magic = IMAGE_HEADER_MAGIC, .boardType = board, .fwMajor = 1, .gitRev = 0x1234567,
-                        .size = size, .headerVersion = IMAGE_HEADER_VERSION };
+                        .size = size, .headerVersion = IMAGE_HEADER_VERSION,
+                        .loadAddr = IMAGE_APP_BASE };
     memcpy(img + IMAGE_HEADER_OFFSET, &h, sizeof(h));
     h.imageCrc = imageCrcSkipHeader(img, size);
     memcpy(img + IMAGE_HEADER_OFFSET, &h, sizeof(h));
@@ -104,6 +108,11 @@ static void testHeader(void)
     b = h; b.size = SLOT + 1U;
     check("header: too big for the slot -> ERR_IMAGE_TOO_BIG", imageHeaderCheck(&b, HP_BOARD_CONTROL, SLOT) == CTRL_ERR_IMAGE_TOO_BIG);
 
+    b = h; b.loadAddr = IMAGE_FLASH_BASE;
+    memcpy(img + IMAGE_HEADER_OFFSET, &b, sizeof(b));
+    check("image: header linked for another address -> ERR_IMAGE_CRC",
+          imageCheck(img, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U) == CTRL_ERR_IMAGE_CRC);
+    memcpy(img + IMAGE_HEADER_OFFSET, &h, sizeof(h));
     check("image: full check of a good image", imageCheck(img, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U) == CTRL_OK);
     img[3000] ^= 0x40U;
     check("image: a flipped bit -> ERR_IMAGE_CRC", imageCheck(img, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U) == CTRL_ERR_IMAGE_CRC);
@@ -136,6 +145,16 @@ static void testUpdate(void)
           updateWriterChunk(&w, 0, img, 16, &next) == CTRL_ERR_UPDATE_SEQUENCE);
     check("begin: lane image -> ERR_IMAGE_BOARD", updateWriterBegin(&w, HP_BOARD_LANE, 10003, crc) == CTRL_ERR_IMAGE_BOARD);
     check("begin: too big -> ERR_IMAGE_TOO_BIG", updateWriterBegin(&w, HP_BOARD_CONTROL, SLOT + 1U, crc) == CTRL_ERR_IMAGE_TOO_BIG);
+    check("begin: size 0 -> ERR_INVALID_ARG", updateWriterBegin(&w, HP_BOARD_CONTROL, 0, crc) == CTRL_ERR_INVALID_ARG);
+    {
+        /* Too small for a header: accepted, written, refused at END. */
+        uint32_t c8 = crc32Compute(img, 8);
+        check("begin/end: 8-byte image refused at END -> ERR_IMAGE_CRC",
+              updateWriterBegin(&w, HP_BOARD_CONTROL, 8, c8) == CTRL_OK
+              && updateWriterChunk(&w, 0, img, 8, &next) == CTRL_OK && next == 8
+              && updateWriterEnd(&w) == CTRL_ERR_IMAGE_CRC && flash[IMAGE_HEADER_OFFSET] == 0xFF);
+        erases = 0;
+    }
     check("begin: OK erases the pages it needs",
           updateWriterBegin(&w, HP_BOARD_CONTROL, 10003, crc) == CTRL_OK && erases == 1 && flash[0] == 0xFF && flash[2 * PAGE - 1] == 0xFF);
 
@@ -148,7 +167,9 @@ static void testUpdate(void)
           updateWriterChunk(&w, 0, wrong, 224, &next) == CTRL_ERR_UPDATE_SEQUENCE);
     check("chunk: a gap -> ERR_UPDATE_SEQUENCE", updateWriterChunk(&w, 448, img + 448, 224, &next) == CTRL_ERR_UPDATE_SEQUENCE);
     check("chunk: past the image end -> ERR_IMAGE_TOO_BIG",
-          updateWriterChunk(&w, 10000, img, 16, &next) == CTRL_ERR_IMAGE_TOO_BIG);
+          updateWriterChunk(&w, 224, img + 224, (uint16_t)(10003U - 224U + 1U), &next) == CTRL_ERR_IMAGE_TOO_BIG);
+    check("chunk: offset past the image end -> ERR_UPDATE_SEQUENCE",
+          updateWriterChunk(&w, 10000, img, 16, &next) == CTRL_ERR_UPDATE_SEQUENCE);
     check("chunk: overlapping chunk: old part compared, new part written",
           updateWriterChunk(&w, 200, img + 200, 100, &next) == CTRL_OK && next == 300);
     check("end: before every byte arrived -> ERR_UPDATE_SEQUENCE", updateWriterEnd(&w) == CTRL_ERR_UPDATE_SEQUENCE);
@@ -164,6 +185,8 @@ static void testUpdate(void)
     check("chunk: all received", next == 10003);
     check("header not programmed before END", flash[IMAGE_HEADER_OFFSET] == 0xFF && flash[IMAGE_HEADER_OFFSET + 31] == 0xFF);
     check("end: OK", updateWriterEnd(&w) == CTRL_OK && !updateWriterIsActive(&w));
+    check("end: the header's magic quad-word is programmed last", lastProgram == IMAGE_HEADER_OFFSET);
+    check("end: a repeated END (first answer lost) answers OK", updateWriterEnd(&w) == CTRL_OK);
     check("end: flash holds the image, last quad-word padded erased",
           memcmp(flash, img, 10003) == 0 && flash[10003] == 0xFF && flash[10015] == 0xFF);
     check("end: only erased quad-words were ever programmed", overProgram == 0);
@@ -219,6 +242,82 @@ static void testFailures(void)
     failProgram = 1;
     check("flash failure surfaces", sendAll(&w, 224) == CTRL_ERR_FLASH);
     failProgram = 0;
+    uint32_t next2 = 0;
+    check("flash failure drops the update (no chunk acknowledged past lost bytes)",
+          !updateWriterIsActive(&w) && updateWriterChunk(&w, 0, img, 224, &next2) == CTRL_ERR_UPDATE_SEQUENCE);
+
+    /* An image linked for 0x0800_0000 (the standalone .bin): header and CRC
+     * fine, but it would not run at 0x0800_8000. */
+    buildImage(8000, HP_BOARD_CONTROL);
+    uint32_t standaloneReset = IMAGE_FLASH_BASE + 0x801U;
+    memcpy(img + 4, &standaloneReset, 4);
+    imageHeader_t h;
+    memcpy(&h, img + IMAGE_HEADER_OFFSET, sizeof(h));
+    h.imageCrc = imageCrcSkipHeader(img, 8000);
+    memcpy(img + IMAGE_HEADER_OFFSET, &h, sizeof(h));
+    crc = crc32Compute(img, 8000);
+    updateWriterBegin(&w, HP_BOARD_CONTROL, 8000, crc);
+    sendAll(&w, 224);
+    check("end: image linked for another address -> ERR_IMAGE_CRC, header stays erased",
+          updateWriterEnd(&w) == CTRL_ERR_IMAGE_CRC && flash[IMAGE_HEADER_OFFSET] == 0xFF);
+}
+
+/* The real build output: image_stamp.py and the bootloader agree byte for
+ * byte. Skipped when the preset was not built yet (check_all.sh builds it). */
+static uint8_t realBin[IMAGE_APP_SLOT_SIZE + 1U];
+
+static long loadBin(const char *rel)
+{
+    char path[512];
+    const char *file = __FILE__;
+    const char *cut = strstr(file, "test/host_update/main.c");
+    if (cut == NULL) {
+        return -1;
+    }
+    snprintf(path, sizeof(path), "%.*s%s", (int)(cut - file), file, rel);
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) {
+        return -1;
+    }
+    long n = (long)fread(realBin, 1, sizeof(realBin), f);
+    fclose(f);
+    return n;
+}
+
+static void testRealImages(void)
+{
+    long n = loadBin("build/debug_GCC_boot/LapCounterControlModule.bin");
+    if (n < 0) {
+        printf("  (skipped: build/debug_GCC_boot not built)\n");
+    } else {
+        const uint32_t size = (uint32_t)n;
+        check("real boot .bin: fits the slot", size <= IMAGE_APP_SLOT_SIZE);
+        check("real boot .bin: imageCheck passes (stamp == bootloader check)",
+              imageCheck(realBin, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U) == CTRL_OK);
+        imageHeader_t h;
+        memcpy(&h, realBin + IMAGE_HEADER_OFFSET, sizeof(h));
+        check("real boot .bin: header size is the file size", h.size == size);
+
+        /* The whole update over it, as the web app sends it. */
+        updateWriter_t w;
+        updateWriterInit(&w, &io);
+        uint32_t next = 0;
+        ctrlStatus_e s = updateWriterBegin(&w, HP_BOARD_CONTROL, size, crc32Compute(realBin, size));
+        for (uint32_t off = 0; s == CTRL_OK && off < size; off += 224U) {
+            s = updateWriterChunk(&w, off, realBin + off, (uint16_t)((size - off < 224U) ? size - off : 224U), &next);
+        }
+        check("real boot .bin: BEGIN/CHUNK/END accepted", s == CTRL_OK && updateWriterEnd(&w) == CTRL_OK);
+        check("real boot .bin: flashed slot boots",
+              imageCheck(flash, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U) == CTRL_OK);
+    }
+
+    n = loadBin("build/debug_GCC_main/LapCounterControlModule.bin");
+    if (n >= 0) {
+        check("real standalone .bin: refused at 0x0800_8000 (loadAddr)",
+              imageCheck(realBin, SLOT, HP_BOARD_CONTROL, IMAGE_APP_BASE, RAM, 0x10000U) == CTRL_ERR_IMAGE_CRC);
+        check("real standalone .bin: header and CRC themselves are fine",
+              imageCheck(realBin, SLOT, HP_BOARD_CONTROL, IMAGE_FLASH_BASE, RAM, 0x10000U) == CTRL_OK);
+    }
 }
 
 int main(void)
@@ -226,5 +325,6 @@ int main(void)
     testHeader();
     testUpdate();
     testFailures();
+    testRealImages();
     return finish();
 }

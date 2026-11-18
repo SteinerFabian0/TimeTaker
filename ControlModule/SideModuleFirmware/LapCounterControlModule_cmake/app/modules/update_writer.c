@@ -79,8 +79,8 @@ ctrlStatus_e updateWriterBegin(updateWriter_t *w, uint8_t boardType, uint32_t si
     if (size > w->io->slotSize) {
         return CTRL_ERR_IMAGE_TOO_BIG;
     }
-    if (size < IMAGE_HEADER_OFFSET + IMAGE_HEADER_BYTES) {
-        return CTRL_ERR_INVALID_ARG;
+    if (size == 0U) {
+        return CTRL_ERR_INVALID_ARG;         /* too small for a header: END refuses it (ERR_IMAGE_CRC) */
     }
     if (w->active && w->size == size && w->crcExpect == crc32) {
         return CTRL_OK;                      /* resume: keep what is written */
@@ -104,11 +104,11 @@ ctrlStatus_e updateWriterChunk(updateWriter_t *w, uint32_t offset, const uint8_t
     if (!w->active) {
         return CTRL_ERR_UPDATE_SEQUENCE;
     }
-    if (offset > w->size || len > w->size - offset) {
-        return CTRL_ERR_IMAGE_TOO_BIG;
-    }
     if (offset > w->next) {
-        return CTRL_ERR_UPDATE_SEQUENCE;
+        return CTRL_ERR_UPDATE_SEQUENCE;     /* a gap (next <= size, so also any offset past the end) */
+    }
+    if (len > w->size - offset) {
+        return CTRL_ERR_IMAGE_TOO_BIG;
     }
 
     /* The part below next must match what is already there. */
@@ -121,7 +121,11 @@ ctrlStatus_e updateWriterChunk(updateWriter_t *w, uint32_t offset, const uint8_t
         repeat = true;
     }
     for (; i < len; i++) {
-        UPDATE_TRY(updateAppendByte(w, data[i]));
+        const ctrlStatus_e status = updateAppendByte(w, data[i]);
+        if (status != CTRL_OK) {
+            w->active = false;               /* next is past bytes not in flash: start over */
+            return status;
+        }
     }
 
     w->chunks++;
@@ -134,6 +138,9 @@ ctrlStatus_e updateWriterChunk(updateWriter_t *w, uint32_t offset, const uint8_t
 
 ctrlStatus_e updateWriterEnd(updateWriter_t *w)
 {
+    if (!w->active && w->done) {
+        return CTRL_OK;                      /* the answer to the first END was lost */
+    }
     if (!w->active || w->next != w->size) {
         return CTRL_ERR_UPDATE_SEQUENCE;
     }
@@ -143,15 +150,24 @@ ctrlStatus_e updateWriterEnd(updateWriter_t *w)
         for (uint32_t p = w->next & (UPDATE_WRITER_QW - 1U); p < UPDATE_WRITER_QW; p++) {
             w->qw[p] = 0xFFU;
         }
-        UPDATE_TRY(updateFlushQw(w, w->next & ~(uint32_t)(UPDATE_WRITER_QW - 1U)));
+        const ctrlStatus_e status = updateFlushQw(w, w->next & ~(uint32_t)(UPDATE_WRITER_QW - 1U));
+        if (status != CTRL_OK) {
+            w->active = false;
+            return status;
+        }
     }
 
     /* The whole image as the host sent it: flash with the header from RAM. */
     const uint8_t *img = w->io->slot;
-    uint32_t crc = crc32Update(CRC32_INIT, img, IMAGE_HEADER_OFFSET);
-    crc = crc32Update(crc, w->header, IMAGE_HEADER_BYTES);
     const uint32_t after = IMAGE_HEADER_OFFSET + IMAGE_HEADER_BYTES;
-    crc = crc32Final(crc32Update(crc, img + after, w->size - after));
+    uint32_t crc = crc32Update(CRC32_INIT, img, (w->size < IMAGE_HEADER_OFFSET) ? w->size : IMAGE_HEADER_OFFSET);
+    if (w->size > IMAGE_HEADER_OFFSET) {
+        crc = crc32Update(crc, w->header, ((w->size < after) ? w->size : after) - IMAGE_HEADER_OFFSET);
+    }
+    if (w->size > after) {
+        crc = crc32Update(crc, img + after, w->size - after);
+    }
+    crc = crc32Final(crc);
 
     imageHeader_t h;
     memcpy(&h, w->header, sizeof(h));
@@ -160,7 +176,9 @@ ctrlStatus_e updateWriterEnd(updateWriter_t *w)
         status = CTRL_ERR_IMAGE_CRC;
     } else {
         status = imageHeaderCheck(&h, w->io->boardType, w->io->slotSize);
-        if (status == CTRL_OK && (h.size != w->size || imageCrcSkipHeader(img, w->size) != h.imageCrc)) {
+        if (status == CTRL_OK && (h.size != w->size || h.loadAddr != w->io->imageAddr || imageCrcSkipHeader(img, w->size) != h.imageCrc
+                                  || !imageVectorsCheck(img, w->size, w->io->imageAddr, w->io->ramBase,
+                                                        w->io->ramSize))) {
             status = CTRL_ERR_IMAGE_CRC;
         }
     }
@@ -169,14 +187,17 @@ ctrlStatus_e updateWriterEnd(updateWriter_t *w)
         return status;
     }
 
-    /* Header last: from here on the bootloader boots this image. */
-    UPDATE_TRY(w->io->program16(IMAGE_HEADER_OFFSET, &w->header[0]));
+    /* Header last: from here on the bootloader boots this image. The second
+     * quad-word (imageCrc, headerVersion) first, the magic's last: a reset
+     * between the two leaves a header without its magic, never a header
+     * that passes with half its fields erased. */
+    w->active = false;
     UPDATE_TRY(w->io->program16(IMAGE_HEADER_OFFSET + UPDATE_WRITER_QW, &w->header[UPDATE_WRITER_QW]));
+    UPDATE_TRY(w->io->program16(IMAGE_HEADER_OFFSET, &w->header[0]));
     if (memcmp(img + IMAGE_HEADER_OFFSET, w->header, IMAGE_HEADER_BYTES) != 0) {
-        w->active = false;
         return CTRL_ERR_FLASH;
     }
-    w->active = false;
+    w->done = true;
     return CTRL_OK;
 }
 

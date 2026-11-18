@@ -64,7 +64,7 @@ typedef struct __attribute__((packed)) {
     uint32_t imageCrc;        /* CRC-32 over the image, header skipped     */
     uint16_t headerVersion;   /* IMAGE_HEADER_VERSION                      */
     uint16_t reserved0;
-    uint32_t reserved1;
+    uint32_t loadAddr;        /* link address of the image (vector table)  */
     uint32_t reserved2;
 } imageHeader_t;
 
@@ -81,8 +81,17 @@ ctrlStatus_e imageHeaderCheck(const imageHeader_t *h, uint8_t boardType, uint32_
 uint32_t imageCrcSkipHeader(const uint8_t *image, uint32_t size);
 
 /*
+ * Vector table plausibility: initial SP inside RAM (word aligned), reset
+ * vector Thumb and inside [imageAddr, imageAddr + size). Catches an image
+ * linked for another address, e.g. the standalone .bin (0x0800_0000) sent to
+ * the bootloader, whose header and CRC are otherwise fine.
+ */
+bool imageVectorsCheck(const uint8_t *image, uint32_t size, uint32_t imageAddr, uint32_t ramBase, uint32_t ramSize);
+
+/*
  * Full check of an image in memory (the bootloader's boot decision): header
- * as above, imageCrc matches, and the vector table is plausible (initial SP
+ * as above, loadAddr == imageAddr, imageCrc matches, and the vector table is
+ * plausible (initial SP
  * inside RAM, reset vector inside the image and Thumb).
  */
 ctrlStatus_e imageCheck(const uint8_t *image, uint32_t slotSize, uint8_t boardType,
