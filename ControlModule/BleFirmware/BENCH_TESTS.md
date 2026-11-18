@@ -147,7 +147,7 @@ built.
 
 1. Measure DVDD_3V3 at the module during advertising.
 2. In OpenOCD: `mdw 0x40000578` (POWER.DCDCEN).
-3. `mdw 0x40000518` (CLOCK.LFCLKSRC) and `mdw 0x4000041C` (CLOCK.LFCLKSTAT).
+3. `mdw 0x40000518` (CLOCK.LFCLKSRC) and `mdw 0x40000418` (CLOCK.LFCLKSTAT).
 4. Press the reset of J501 (or pull P0.21 low briefly with a probe tip
    through 1 k): the nRF must reboot.
 

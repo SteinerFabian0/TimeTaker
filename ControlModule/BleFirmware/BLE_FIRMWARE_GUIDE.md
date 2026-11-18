@@ -41,19 +41,21 @@ gets field updates over USB and BLE (SYSTEM_ARCHITECTURE §10).
 
 ---
 
-## 2. Where it stands (2026-11-17)
+## 2. Where it stands (2026-11-18)
 
-**Nothing is built.** The folder `ControlModule/BleFirmware/` holds only this
-guide. Known so far:
+**Cards B1–B4 are built and compile for real; B5's mechanism exists without
+a trigger. Nothing has run on hardware: the PCBs are still in production.**
+Details, numbers and open items: §14. Bench procedures: `BENCH_TESTS.md`.
 
-- The toolchain is installed: NCS v3.4.2 in `~/ncs`, nrfutil, xPack OpenOCD
-  (§4).
-- The stock `peripheral_uart` sample **overflows** the nRF52805. With
-  `FILE_SUFFIX=minimal` it fits at about 70 % flash and **98.75 % RAM**
-  (measured 2026-11-16 on `nrf52dk/nrf52805`). RAM is the constraint for
-  every decision below.
-- The STM side of the link (`nrf_link`) is not built either. It is task C5
-  in the control guide.
+- Build: `tools/build.sh` (or, in the toolchain shell,
+  `west build -b tt_ble/nrf52805 --no-sysbuild -d build .`) builds the
+  release image with stage B (MTU 247 + DLE + 2M PHY): flash 110388 B
+  (56 %), RAM 22220 B (90 %), **2356 B free**.
+- Host tests: `test/run_all.sh` (all green), `test/mutation_check.py`
+  (31/31 mutations caught).
+- Flash: `tools/flash.sh [--recover]` (ST-LINK + OpenOCD, APPROTECT kept
+  open). Bench link tool: `tools/link_tool.py` plays the STM.
+- The STM side of the link (`nrf_link`, control task C5) is not built yet.
 
 ---
 
@@ -612,5 +614,77 @@ SYSTEM_ARCHITECTURE §9 on 2026-11-17):
 
 ## 14. Firmware status
 
-Nothing built yet. Each session appends here: what it built, the RAM and
-flash report, what it measured, what it left open.
+### 2026-11-18 — B1–B4 built (no hardware yet)
+
+**What exists** (`ControlModule/BleFirmware/`)
+
+| Path | Content |
+|---|---|
+| `boards/timetaker/tt_ble/` | Custom board: LDO, LFRC + calibration (500 ppm), `gpio-as-nreset`, UARTE0 460800 on P0.18 TX / P0.16 RX (pull-up) with TIMER1 RX byte counting, no console, button/LED nodes, `stm_lines` node (binding in `dts/bindings/`), OpenOCD runner (`support/openocd.cfg`) |
+| `prj.conf` | Stage A (§9 "frees" applied); `stage_b_{mtu,dle,phy}.conf` are stage B, all on by default via `TT_STAGE_B_CONF` in `CMakeLists.txt` |
+| `debug.conf`, `wdt_selftest.conf` | RTT logging + thread analyzer; WDT self-test (bench T10 only) |
+| `src/main.c` | Init order, k_poll event loop, bridge state, WDT 4 s, reset cause, STATS 1/s |
+| `src/ble_link.c` | Advertising §6.1, NUS, conn/MTU/PHY/DLE callbacks, notify with completion tagged by slot + connection generation, RSSI |
+| `src/stm_link.c` | UARTE async RX (2×64 B DMA → 512 B ring), TX ring 512 B under a spinlock, frame_codec, counters |
+| `src/bind_ui.c`, `src/stm_ctrl.c` | 10 ms button timer + LED renderer; BLE_IRQ, BOOT_REQ, NRST open drain, `stmCtrlResetIntoBootloader()` (no trigger: B5) |
+| Pure modules | `button_classifier`, `led_table`, `data_slots` (credits + MTU split), `link_msg` (framing, CTRL pack/parse, KICK reason, reset cause), `byte_ring` |
+| `cmake/version*.cmake` | `fw_version.h`: 0.1.0 + git rev (+dirty), as the STM does |
+| `test/` | `run_all.sh`, `mutation_check.py` |
+| `tools/` | `build.sh`, `ram_stages.sh`, `flash.sh`, `link_tool.py` |
+
+**RAM / flash per stage** (`tools/ram_stages.sh`, 24576 B RAM, keep ≥ 1536 B free)
+
+| Stage | Flash | RAM | Free RAM | Kept |
+|---|---|---|---|---|
+| A | 106596 B | 18688 B | 5888 B | — |
+| A + MTU 247 | 106596 B | 20876 B | 3700 B | yes |
+| + DLE 251 | 108572 B | 22116 B | 2460 B | yes |
+| + 2M PHY | 110388 B | 22220 B | **2356 B** | yes (release) |
+| debug.conf on top | 131208 B | 24308 B | 268 B | measurement only |
+
+Our own static RAM ≈ 2.7 KB (4 slots 1020 B, rings 1024 B, DMA 128 B,
+decoder 249 B, TX scratch 251 B). The slot array is sized from
+`CONFIG_TT_DATA_SLOTS` (an 8-slot array cost 1 KB before that fix). Largest
+other users: SDC memory 2836 B, HCI RX pool 1536 B, five 1 KB stacks.
+
+**Host tests** (`test/run_all.sh`, cc `-Wall -Wextra -Werror -DRELEASE`):
+contract copy check (identical), `host_button` 44, `host_led` 43,
+`host_slots` 45, `host_link_msg` 95 (through the control tree's
+`frame_codec.c`), `host_byte_ring` 19 checks, `link_tool.py selftest`. All
+pass. `test/mutation_check.py`: 31 one-rule mutations, all caught (a
+mutation counts only if it still compiles and a check fails).
+
+**Decisions taken here**
+
+- `NRF_HELLO.credits` = slots free at that moment; slots busy then return
+  their credit with `CREDIT` later. Invariant: STM credits + owed + used = N.
+  At boot this is always N.
+- Notifications in flight are capped at `BT_ATT_TX_COUNT − 1` (= 1), so the
+  main thread never blocks in `bt_gatt_notify_cb` (it waits K_FOREVER for an
+  ATT buffer outside the system work queue) and the host keeps a buffer for
+  its responses. Throughput ≈ one notification per connection event; raise
+  `BT_ATT_TX_COUNT` if T9 shows it is too slow (RAM allows).
+- A disconnect frees every slot at once (ATT drops callbacks of failed
+  notifications); late completions are discarded by a connection generation.
+- Values out of range (UI_STATE session > 2 / pairWindow > 1, CUE kind,
+  ADVERTISE on > 1) are ignored and counted like unknown types. KICK reasons
+  the controller would refuse become 0x13.
+- `CONFIG_RESET_ON_FATAL_ERROR=y`: a fault reboots at once.
+- `support/openocd.cfg` uses `interface/stlink.cfg` + `transport select swd`
+  (xPack 0.12.0-7 deprecates the §4.3 lines; it still selects dapdirect,
+  checked). `tools/flash.sh` writes UICR.APPROTECT = 0x5A after programming,
+  because `nrf52_recover` leaves it erased and newer nRF52 revisions would
+  lock SWD at the next reset.
+- System work queue stack 1024 B (sample: 1536); the sample measured 136 B.
+  `BT_HCI_TX_STACK_SIZE` is unused in this Zephyr; the TX processor has 1 KB.
+- DLE and 2M are started by the peripheral (`BT_AUTO_DATA_LEN_UPDATE`,
+  `BT_AUTO_PHY_PERIPHERAL_2M`); the MTU exchange is the central's.
+
+**Unverified until hardware** (most risky first): APPROTECT/flash flow with
+the ST-LINK; LDO/LFRC bring-up; UARTE async RX with TIMER1 at 460800 and
+the real baud error; stack sizes (run the debug image's thread analyzer);
+notify/credit timing under load and throughput; advertising restart after
+disconnect; RSSI read; LED/button timing by eye; WDT reset.
+
+**Open:** B5 trigger (with control C7); release APPROTECT (§13 Q3); measured
+stacks, baud error and throughput go here after the bench (BENCH_TESTS.md).
