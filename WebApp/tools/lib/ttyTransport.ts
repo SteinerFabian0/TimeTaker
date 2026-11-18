@@ -47,6 +47,19 @@ export function findTimeTaker(): PortInfo[] {
     && (p.productId === USB_ID.productId || p.productId === USB_ID.productIdBoot));
 }
 
+/** Writes all of bytes through a write(2)-like function that may take only part of them. */
+export async function writeAll(
+  writeSome: (buf: Uint8Array, offset: number) => Promise<number>, bytes: Uint8Array, isOpen: () => boolean = () => true,
+): Promise<void> {
+  let off = 0;
+  while (off < bytes.length) {
+    if (!isOpen()) throw new Error('port closed');
+    const n = await writeSome(bytes, off);
+    if (n <= 0) throw new Error('port accepted no bytes');
+    off += n;
+  }
+}
+
 export class TtyTransport implements Transport {
   readonly kind = 'usb' as const;
   readonly label: string;
@@ -56,6 +69,7 @@ export class TtyTransport implements Transport {
   #stream: ReadStream | null = null;
   #closing = false;
   #handlers: TransportHandlers | null = null;
+  #writes: Promise<void> = Promise.resolve();
 
   constructor(path: string) {
     this.path = path;
@@ -78,9 +92,20 @@ export class TtyTransport implements Transport {
 
   write(bytes: Uint8Array): Promise<void> {
     if (this.#wfd < 0) return Promise.reject(new Error('port not open'));
-    return new Promise((resolve, reject) => {
-      write(this.#wfd, bytes, 0, bytes.length, null, (err) => (err ? reject(err) : resolve()));
+    const data = bytes.slice();
+    // One frame at a time, whole: partial writes must not interleave, and a vanished port ends the link.
+    const job = this.#writes.then(() => writeAll((buf, off) => new Promise<number>((resolve, reject) => {
+      const fd = this.#wfd;
+      write(fd, buf, off, buf.length - off, null, (err, n) => (err ? reject(err) : resolve(n)));
+    }), data, () => this.#wfd >= 0)).catch((err: unknown) => {
+      const e = err instanceof Error ? err : new Error(String(err));
+      if (!this.#closing && /EIO|ENODEV|ENXIO|EPIPE|EBADF/.test(`${(e as NodeJS.ErrnoException).code ?? ''} ${e.message}`)) {
+        this.#lost(`write failed: ${e.message}`);
+      }
+      throw e;
     });
+    this.#writes = job.catch(() => undefined);
+    return job;
   }
 
   async close(): Promise<void> {
@@ -90,6 +115,7 @@ export class TtyTransport implements Transport {
 
   #release(): void {
     this.#stream?.removeAllListeners();
+    this.#stream?.on('error', () => undefined);   // destroy() on a vanished port may still report
     this.#stream?.destroy();
     this.#stream = null;
     if (this.#wfd >= 0) { try { closeSync(this.#wfd); } catch { /* gone */ } }

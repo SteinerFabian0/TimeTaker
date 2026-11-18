@@ -12,7 +12,7 @@ import { describe, test } from 'node:test';
 import { execFileSync } from 'node:child_process';
 
 import { SimDevice } from '../src/device/simDevice.ts';
-import { TtyTransport } from '../tools/lib/ttyTransport.ts';
+import { TtyTransport, writeAll } from '../tools/lib/ttyTransport.ts';
 import { main } from '../tools/tt.ts';
 
 async function cli(args: string[], sim?: SimDevice): Promise<{ code: number; out: string[] }> {
@@ -65,5 +65,18 @@ describe('tt over a real tty', { skip: !hasSocat && 'socat not installed' }, () 
       socat.kill();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('tty writes', () => {
+  test('writeAll finishes partial writes, in order', async () => {
+    const out: number[] = [];
+    await writeAll(async (buf, off) => { const n = Math.min(3, buf.length - off); out.push(...buf.subarray(off, off + n)); return n; },
+      Uint8Array.from({ length: 10 }, (_, i) => i));
+    assert.deepEqual(out, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+  test('writeAll stops when the port is gone and when it accepts nothing', async () => {
+    await assert.rejects(writeAll(async () => 1, new Uint8Array(5), () => false), /closed/);
+    await assert.rejects(writeAll(async () => 0, new Uint8Array(5)), /no bytes/);
   });
 });

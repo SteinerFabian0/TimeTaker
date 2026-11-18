@@ -25,7 +25,8 @@ import type {
   BindEntry, DeviceSettings, LaneConfig, LaneStatusRsp, NodeInfo, PingRsp, StatusRsp,
 } from '../protocol/generated.ts';
 import type { StructDesc } from '../protocol/wire.ts';
-import { TimeoutError } from './deviceSession.ts';
+import { Status } from '../protocol/generated.ts';
+import { DeviceError, TimeoutError } from './deviceSession.ts';
 import type { RequestOptions, Requester } from './deviceSession.ts';
 
 export const ALL_LANES = 0x3f;
@@ -75,17 +76,24 @@ export interface DeviceApiOptions {
   readonly retries?: number;
   /** UPDATE_BEGIN erases the app region: give it time. */
   readonly eraseTimeoutMs?: number;
+  /** Waits before a retry after ERR_BUSY (a deferred answer, e.g. LANE_STATUS, is still owed). */
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly busyRetryMs?: number;
 }
 
 export class DeviceApi {
   #req: Requester;
   #retries: number;
   #eraseTimeoutMs: number;
+  #sleep: ((ms: number) => Promise<void>) | undefined;
+  #busyRetryMs: number;
 
   constructor(requester: Requester, opts: DeviceApiOptions = {}) {
     this.#req = requester;
     this.#retries = opts.retries ?? 2;
     this.#eraseTimeoutMs = opts.eraseTimeoutMs ?? 15000;
+    this.#sleep = opts.sleep;
+    this.#busyRetryMs = opts.busyRetryMs ?? 100;
   }
 
   get requester(): Requester { return this.#req; }
@@ -97,7 +105,10 @@ export class DeviceApi {
       try {
         return await this.#req.request<T>(reqDesc, req, msgId, rspDesc, opts);
       } catch (err) {
-        if (!(err instanceof TimeoutError) || i + 1 >= tries) throw err;
+        // A timed-out deferred request is still owed by the device: the repeat meets ERR_BUSY, so wait and repeat.
+        const busy = err instanceof DeviceError && err.status === Status.ERR_BUSY;
+        if (!(err instanceof TimeoutError || busy) || i + 1 >= tries) throw err;
+        if (busy) await this.#sleep?.(this.#busyRetryMs);
       }
     }
   }
@@ -235,7 +246,7 @@ export class DeviceApi {
   }
 
   async updateEnd(): Promise<void> {
-    await this.#call(UPDATE_END_REQ, {}, MsgId.UPDATE_END, UPDATE_END_RSP, { timeoutMs: this.#eraseTimeoutMs });
+    await this.#call(UPDATE_END_REQ, {}, MsgId.UPDATE_END, UPDATE_END_RSP, { timeoutMs: this.#eraseTimeoutMs, retry: false });
   }
 
   async updateAbort(): Promise<void> {

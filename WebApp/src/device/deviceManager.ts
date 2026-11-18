@@ -24,7 +24,7 @@ import type { HelloRsp } from '../protocol/generated.ts';
 import { MsgId, LaneState } from '../protocol/generated.ts';
 import type { StructDesc } from '../protocol/wire.ts';
 import type { Transport } from '../transport/transport.ts';
-import { realScheduler } from '../util/clock.ts';
+import { realScheduler, sleep } from '../util/clock.ts';
 import type { Scheduler, TimerHandle } from '../util/clock.ts';
 import { DeviceApi } from './deviceApi.ts';
 import { DeviceSession } from './deviceSession.ts';
@@ -88,7 +88,7 @@ export class DeviceManager {
         return s.request<T>(reqDesc, req, msgId, rspDesc, o);
       },
     };
-    this.api = new DeviceApi(requester);
+    this.api = new DeviceApi(requester, { sleep: (ms) => sleep(this.#sched, ms) });
   }
 
   get state(): ManagerState { return this.#state; }

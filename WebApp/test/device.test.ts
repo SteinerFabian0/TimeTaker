@@ -7,15 +7,17 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { laneMask, lanesOf } from '../src/device/deviceApi.ts';
+import { DeviceApi, laneMask, lanesOf } from '../src/device/deviceApi.ts';
 import { CLIENT_ID_KEY, loadClientId, memoryStorage, truncateUtf8 } from '../src/device/clientId.ts';
 import { DeviceManager } from '../src/device/deviceManager.ts';
 import type { ManagerState } from '../src/device/deviceManager.ts';
+import { DeviceError, TimeoutError } from '../src/device/deviceSession.ts';
 import type { DeviceEvent } from '../src/device/deviceSession.ts';
+import { SerialTransport } from '../src/transport/serialTransport.ts';
 import { applyNodeEvent, applyNodeList, emptyNodeModel, presentLanes, readyLanes } from '../src/device/nodeModel.ts';
 import type { SimDevice } from '../src/device/simDevice.ts';
 import {
-  BoardType, ClientKind, LaneState, MsgId, NodeClass, NodeState, PressKind,
+  BoardType, ClientKind, LaneState, MsgId, Status, NodeClass, NodeState, PressKind,
 } from '../src/protocol/generated.ts';
 import { rig } from './helpers.ts';
 import type { Rig } from './helpers.ts';
@@ -137,5 +139,72 @@ describe('DeviceManager', () => {
       assert.deepEqual(boots, [first, dev.bootId]);
       await m.stop();
     });
+  });
+});
+
+describe('DeviceApi retry policy', () => {
+  const fake = (script: (n: number) => Error | null) => {
+    const calls: number[] = [];
+    const requester = {
+      request: (_rq: unknown, _r: unknown, msgId: number): Promise<never> => {
+        calls.push(msgId);
+        const e = script(calls.length);
+        return e ? Promise.reject(e) : Promise.resolve({ status: 0 } as never);
+      },
+    };
+    return { calls, api: new DeviceApi(requester as never, { sleep: async () => undefined }) };
+  };
+
+  test('ERR_BUSY (a deferred answer still owed) is retried for an idempotent request', async () => {
+    const { calls, api } = fake((n) => (n < 3 ? new DeviceError('LANE_STATUS', Status.ERR_BUSY) : null));
+    await api.laneStatus(1);
+    assert.equal(calls.length, 3);
+  });
+
+  test('UPDATE_END, START_SEQUENCE and REBOOT are never repeated after a timeout', async () => {
+    for (const run of [(a: DeviceApi) => a.updateEnd(), (a: DeviceApi) => a.abortSequence(), (a: DeviceApi) => a.reboot()]) {
+      const { calls, api } = fake(() => new TimeoutError('X', 1));
+      await assert.rejects(run(api), TimeoutError);
+      assert.equal(calls.length, 1);
+    }
+  });
+});
+
+describe('SerialTransport', () => {
+  const chunkStream = (chunks: (Uint8Array | Error)[]): ReadableStream<Uint8Array> => {
+    let i = 0;
+    return new ReadableStream<Uint8Array>({
+      pull(c) {
+        const x = chunks[i++];
+        if (x === undefined) return new Promise(() => undefined);
+        if (x instanceof Error) c.error(x); else c.enqueue(x);
+        return undefined;
+      },
+    });
+  };
+
+  test('a non-fatal read error (overrun) continues on the new readable instead of ending the link', async () => {
+    const got: number[] = [];
+    let closed = '';
+    const port = {
+      readable: chunkStream([Uint8Array.of(1), Object.assign(new Error('overrun'), { name: 'BufferOverrunError' })]) as ReadableStream<Uint8Array> | null,
+      writable: new WritableStream<Uint8Array>(),
+      async open() { /* */ }, async close() { /* */ },
+      getInfo: () => ({}),
+    };
+    const t = new SerialTransport(port as never);
+    await t.open({ onBytes: (b) => got.push(...b), onClose: (r) => { closed = r; } });
+    port.readable = chunkStream([Uint8Array.of(2)]);   // the browser's replacement stream
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(got, [1, 2]);
+    assert.equal(closed, '');
+    await t.close();
+  });
+
+  test('open() failing after the port opened closes the port again', async () => {
+    let closes = 0;
+    const port = { readable: null, writable: null, async open() { /* */ }, async close() { closes++; }, getInfo: () => ({}) };
+    await assert.rejects(new SerialTransport(port as never).open({ onBytes: () => undefined, onClose: () => undefined }), /no streams/);
+    assert.equal(closes, 1);
   });
 });

@@ -17,9 +17,12 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { DeviceError, DeviceSession } from '../src/device/deviceSession.ts';
+import { FrameDecoder } from '../src/protocol/codec.ts';
+import { decodePacket, encodePacket } from '../src/protocol/packet.ts';
+import { encodeStruct } from '../src/protocol/wire.ts';
 import { SimDevice } from '../src/device/simDevice.ts';
 import {
-  BindChange, BindState, BoardType, ClientKind, LANE_POWER_REQ, LANE_POWER_RSP, LANE_STATUS_REQ, LANE_STATUS_RSP, LaneState,
+  BindChange, BindState, BoardType, ClientKind, HELLO_RSP, HeaderFlag, PING_RSP, PROTO, RESUME_RSP, LANE_POWER_REQ, LANE_POWER_RSP, LANE_STATUS_REQ, LANE_STATUS_RSP, LaneState,
   MESSAGE_BY_ID, MsgId, NODE_LIST_REQ, NODE_LIST_RSP, PressKind, REBOOT_REQ, REBOOT_RSP, RebootTarget, Status,
 } from '../src/protocol/generated.ts';
 import type { NodeListRsp } from '../src/protocol/generated.ts';
@@ -382,5 +385,140 @@ describe('real timers', () => {
       await s.close();
       dev.dispose();
     }
+  });
+});
+
+describe('request matching and transport failures', () => {
+  // A scripted link: answers HELLO/PING itself, lets the test decide about everything else.
+  const fakeLink = (onRequest: (tag: number, msgId: number, reply: (payload: Uint8Array) => void) => void, failOpen = false,
+                    throwOnWrite = false) => {
+    let h: import('../src/transport/transport.ts').TransportHandlers | null = null;
+    const log = { closed: 0, tags: [] as number[], inject: (_b: Uint8Array): void => undefined };
+    const t: import('../src/transport/transport.ts').Transport = {
+      kind: 'usb', label: 'fake',
+      open: async (handlers) => { h = handlers; log.inject = (b) => handlers.onBytes(b); if (failOpen) throw new Error('no streams'); },
+      write: (bytes) => {
+        if (throwOnWrite) throw new Error('sync boom');
+        const dec = new FrameDecoder(PROTO.headerBytes + PROTO.maxPayload);
+        dec.feed(bytes, (raw) => {
+          const p = decodePacket(raw);
+          log.tags.push(p.header.tag);
+          const reply = (payload: Uint8Array): void => {
+            h!.onBytes(encodePacket({ msgId: p.header.msgId, flags: HeaderFlag.RESPONSE, tag: p.header.tag }, payload));
+          };
+          if (p.header.msgId === MsgId.HELLO) {
+            reply(encodeStruct(HELLO_RSP, {
+              status: 0, protoMajor: PROTO.major, protoMinor: PROTO.minor, transport: 0, bindState: BindState.TRUSTED, bootId: 1,
+              sysUs: 0n, logOldestSeq: 0, logNextSeq: 0, otherSessions: 0, boardType: 0, reserved: new Uint8Array(2),
+            }));
+          } else if (p.header.msgId === MsgId.PING) {
+            reply(encodeStruct(PING_RSP, { status: 0, hostMs: 0, sysUs: 5n }));
+          } else if (p.header.msgId === MsgId.RESUME) {
+            reply(encodeStruct(RESUME_RSP, { status: 0, logOldestSeq: 0, logNextSeq: 0 }));
+          } else onRequest(p.header.tag, p.header.msgId, reply);
+        });
+        return Promise.resolve();
+      },
+      close: async () => { log.closed++; },
+    };
+    return { t, log };
+  };
+  const opts = (r: ReturnType<typeof rig>) => ({ clientId: new Uint8Array(16).fill(1), clientName: 't', requestTimeoutMs: 100, pingIntervalMs: 100000, scheduler: r.clock });
+
+  test('a late answer after a timeout is ignored and its tag is not reused for the next request', async () => {
+    const r = rig();
+    await r.run(async () => {
+      let first: (() => void) | null = null;
+      let calls = 0;
+      const { t, log } = fakeLink((_tag, _id, reply) => {
+        calls++;
+        if (calls === 1) first = () => reply(Uint8Array.of(Status.ERR_BUSY & 0xff, (Status.ERR_BUSY >> 8) & 0xff));
+        else reply(encodeStruct(NODE_LIST_RSP, { status: 0, nodes: [] }));
+      });
+      const s = new DeviceSession(t, opts(r));
+      await s.connect();
+      const a = s.request(NODE_LIST_REQ, {}, MsgId.NODE_LIST, NODE_LIST_RSP);
+      await assert.rejects(a, /no response/);
+      const lateTag = log.tags.at(-1)!;
+      const b = s.request<NodeListRsp>(NODE_LIST_REQ, {}, MsgId.NODE_LIST, NODE_LIST_RSP);
+      assert.notEqual(log.tags.at(-1), lateTag, 'tag of a timed-out request reused');
+      first!();                                          // the late answer arrives while b waits
+      assert.equal((await b).nodes.length, 0);
+      assert.equal(calls, 2);
+    });
+  });
+
+  test('tags wrap past 0xFFFF and skip tags still waiting', async () => {
+    const r = rig();
+    await r.run(async () => {
+      let hold = true;
+      const held: number[] = [];
+      const { t, log } = fakeLink((tag, id, reply) => {
+        if (id === MsgId.NODE_LIST && hold) { held.push(tag); return; }
+        reply(encodeStruct(NODE_LIST_RSP, { status: 0, nodes: [] }));
+      });
+      const s = new DeviceSession(t, { ...opts(r), requestTimeoutMs: 10_000_000 });
+      await s.connect();
+      const waiting = s.request(NODE_LIST_REQ, {}, MsgId.NODE_LIST, NODE_LIST_RSP);   // keeps its tag for the whole loop
+      hold = false;
+      const heldTag = held[0]!;
+      for (let i = 0; i < 70000; i++) await s.request(NODE_LIST_REQ, {}, MsgId.NODE_LIST, NODE_LIST_RSP);
+      assert.equal(log.tags.filter((x) => x === heldTag).length, 1, 'a pending tag was reused');
+      assert.ok(log.tags.every((x) => x >= 1 && x <= 0xffff));
+      void waiting.catch(() => undefined);
+      await s.close();
+    });
+  });
+
+  test('a response for an unknown tag changes nothing', async () => {
+    const r = rig();
+    await r.run(async () => {
+      let release: (() => void) | null = null;
+      const { t, log } = fakeLink((tag, _id, reply) => { release = () => reply(encodeStruct(NODE_LIST_RSP, { status: 0, nodes: [] })); void tag; });
+      const s = new DeviceSession(t, opts(r));
+      await s.connect();
+      const p = s.request<NodeListRsp>(NODE_LIST_REQ, {}, MsgId.NODE_LIST, NODE_LIST_RSP);
+      log.inject(encodePacket({ msgId: MsgId.NODE_LIST, flags: HeaderFlag.RESPONSE, tag: 0x7777 }, Uint8Array.of(Status.ERR_BUSY, 0)));
+      log.inject(encodePacket({ msgId: MsgId.NODE_LIST, flags: HeaderFlag.RESPONSE, tag: 0 }, Uint8Array.of(0, 0)));
+      release!();
+      assert.equal((await p).nodes.length, 0);
+    });
+  });
+
+  test('a transport whose open() fails is closed and the session ends up closed, not stuck connecting', async () => {
+    const r = rig();
+    await r.run(async () => {
+      const { t, log } = fakeLink(() => undefined, true);
+      const s = new DeviceSession(t, opts(r));
+      await assert.rejects(s.connect(), /no streams/);
+      assert.equal(s.state, 'closed');
+      assert.equal(log.closed, 1);
+    });
+  });
+
+  test('a write() that throws synchronously rejects the request and leaves no timer behind', async () => {
+    const r = rig();
+    await r.run(async () => {
+      const { t } = fakeLink(() => undefined, false, true);
+      const s = new DeviceSession(t, opts(r));
+      await assert.rejects(s.connect(), /sync boom/);
+    });
+  });
+
+  test('a resume point beyond the device log is clamped instead of failing with ERR_INVALID_ARG', async () => {
+    const r = rig();
+    await r.run(async () => {
+      const dev = r.sim();
+      const probe = r.session(dev);
+      await probe.connect();
+      const boot = probe.hello!.bootId;
+      const next = probe.hello!.logNextSeq;
+      await probe.close();
+      const rec = recorder();
+      const s = r.session(dev, rec, { resume: { bootId: boot, nextEvSeq: 99999 } });
+      await s.connect();
+      assert.equal(s.state, 'open');
+      assert.ok(s.resumePoint!.nextEvSeq <= next + 5);
+    });
   });
 });

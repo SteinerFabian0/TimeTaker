@@ -80,9 +80,18 @@ export class SerialTransport implements Transport {
     this.#handlers = handlers;
     this.#closing = false;
     await this.#port.open({ baudRate: 115200 });
-    if (!this.#port.readable || !this.#port.writable) throw new Error('serial port has no streams');
-    this.#writer = this.#port.writable.getWriter();
-    this.#reader = this.#port.readable.getReader();
+    try {
+      if (!this.#port.readable || !this.#port.writable) throw new Error('serial port has no streams');
+      this.#writer = this.#port.writable.getWriter();
+      this.#reader = this.#port.readable.getReader();
+    } catch (err) {
+      // Never leave the port open and locked: the next attempt would fail with InvalidStateError.
+      this.#closing = true;
+      try { this.#writer?.releaseLock(); } catch { /* already released */ }
+      this.#writer = null;
+      try { await this.#port.close(); } catch { /* not open */ }
+      throw err;
+    }
     serialApi()?.addEventListener('disconnect', this.#onDisconnect);
     void this.#readLoop(this.#reader);
   }
@@ -103,16 +112,36 @@ export class SerialTransport implements Transport {
     try { await this.#port.close(); } catch { /* unplugged */ }
   }
 
-  async #readLoop(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value && value.length > 0) this.#handlers?.onBytes(value);
+  async #readLoop(first: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+    let reader = first;
+    let stream = this.#port.readable;
+    for (;;) {
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value && value.length > 0) this.#handlers?.onBytes(value);
+        }
+        this.#lost('USB port closed');
+        return;
+      } catch (err) {
+        // Non-fatal errors (framing, overrun, break) error the stream but leave a new `readable`: carry on.
+        const fatal = (err as { name?: string } | null)?.name === 'NetworkError';
+        try { reader.releaseLock(); } catch { /* already released */ }
+        const next = this.#closing || fatal || this.#port.readable === stream ? null : this.#port.readable;
+        if (!next) {
+          this.#lost(`USB read failed: ${String(err)}`);
+          return;
+        }
+        try {
+          reader = next.getReader();
+        } catch (e2) {
+          this.#lost(`USB read failed: ${String(e2)}`);
+          return;
+        }
+        this.#reader = reader;
+        stream = next;
       }
-      this.#lost('USB port closed');
-    } catch (err) {
-      this.#lost(`USB read failed: ${String(err)}`);
     }
   }
 

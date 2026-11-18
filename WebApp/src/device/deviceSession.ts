@@ -167,6 +167,8 @@ export class DeviceSession implements Requester {
   #decoder = new FrameDecoder(PROTO.headerBytes + PROTO.maxPayload);
   #pending = new Map<number, Pending>();
   #nextTag = 1;
+  /** Tags that timed out: a late answer may still come, so they are not reused for a while. */
+  #expiredTags = new Set<number>();
   #state: SessionState = 'idle';
   #pingTimer: TimerHandle | null = null;
   #clock: ClockSample[] = [];
@@ -221,10 +223,17 @@ export class DeviceSession implements Requester {
 
   async connect(): Promise<HelloRsp> {
     this.#setState('connecting');
-    await this.#transport.open({
-      onBytes: (chunk) => this.#onBytes(chunk),
-      onClose: (reason) => this.#onClosed(reason),
-    });
+    try {
+      await this.#transport.open({
+        onBytes: (chunk) => this.#onBytes(chunk),
+        onClose: (reason) => this.#onClosed(reason),
+      });
+    } catch (err) {
+      // A half-open transport (port opened, streams missing) must not stay held.
+      this.#shutdown(`open failed: ${String(err instanceof Error ? err.message : err)}`);
+      try { await this.#transport.close(); } catch { /* nothing to release */ }
+      throw err;
+    }
     this.#lastHeardMs = this.#sched.now();
     try {
       let hello = await this.#sendHello();
@@ -312,6 +321,9 @@ export class DeviceSession implements Requester {
     } else if (this.#resume && this.#resume.nextEvSeq < hello.logOldestSeq) {
       this.#listener.onGap?.(hello.bootId, this.#resume.nextEvSeq, hello.logOldestSeq);
       this.#resume.nextEvSeq = hello.logOldestSeq;
+    } else if (this.#resume && this.#resume.nextEvSeq > hello.logNextSeq) {
+      // A resume point from the future (RESUME would answer ERR_INVALID_ARG): events that do not exist cannot be waited for.
+      this.#resume.nextEvSeq = hello.logNextSeq;
     }
     return hello;
   }
@@ -366,8 +378,12 @@ export class DeviceSession implements Requester {
     const allowed = this.#state === 'open' || this.#state === 'unbound'
       || (this.#state === 'connecting' && ALWAYS_ALLOWED.has(msg.id));
     if (!allowed) return Promise.reject(new Error(`${msg.name}: session not open (${this.#state})`));
-    const tag = this.#nextTag;
-    this.#nextTag = this.#nextTag === 0xffff ? 1 : this.#nextTag + 1;
+    let tag = this.#nextTag;
+    for (let n = 0; this.#pending.has(tag) || this.#expiredTags.has(tag); n++) {
+      if (n > 0xffff) return Promise.reject(new Error(`${msg.name}: no free request tag`));
+      tag = tag === 0xffff ? 1 : tag + 1;
+    }
+    this.#nextTag = tag === 0xffff ? 1 : tag + 1;
     let frame: Uint8Array;
     try { frame = encodePacket({ msgId: msg.id, flags: 0, tag }, payload); } catch (err) { return Promise.reject(err); }
     const ms = timeoutMs ?? this.#opts.requestTimeoutMs;
@@ -375,6 +391,8 @@ export class DeviceSession implements Requester {
     return new Promise<Uint8Array>((resolve, reject) => {
       const timer = this.#sched.setTimeout(() => {
         this.#pending.delete(tag);
+        this.#expiredTags.add(tag);
+        if (this.#expiredTags.size > 256) this.#expiredTags.delete(this.#expiredTags.values().next().value as number);
         reject(new TimeoutError(msg.name, ms));
       }, ms);
       const fail = (err: Error): void => {
@@ -385,7 +403,9 @@ export class DeviceSession implements Requester {
       };
       this.#pending.set(tag, { msg, resolve, reject: fail, timer, raw });
       this.#listener.onFrame?.({ dir: 'out', raw: frame });
-      this.#transport.write(frame).catch((err: unknown) => {
+      let written: Promise<void>;
+      try { written = this.#transport.write(frame); } catch (err) { written = Promise.reject(err); }
+      written.catch((err: unknown) => {
         this.#sched.clearTimeout(timer);
         this.#pending.delete(tag);
         reject(err instanceof Error ? err : new Error(String(err)));
@@ -413,7 +433,7 @@ export class DeviceSession implements Requester {
     const { header, payload } = p;
     if (header.flags & HeaderFlag.RESPONSE) {
       const pending = this.#pending.get(header.tag);
-      if (!pending || pending.msg.id !== header.msgId) return;   // late or foreign: ignore
+      if (!pending || pending.msg.id !== header.msgId) return;   // late (timed out) or unknown tag: ignore
       this.#pending.delete(header.tag);
       this.#sched.clearTimeout(pending.timer);
       const status = payload.length >= 2 ? responseStatus(payload) : Status.ERR_BAD_LENGTH;
