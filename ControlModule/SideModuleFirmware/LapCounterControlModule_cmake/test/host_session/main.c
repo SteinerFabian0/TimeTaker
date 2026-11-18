@@ -555,6 +555,66 @@ static void testBindGate(void)
 
 /* --- Deferred responses ---------------------------------------------------------- */
 
+/* A policy hook that logs an event while it decides, like a USB HELLO that adds a bind. */
+static uint8_t fakeLoggingHello(hostSession_t *s, const hpHelloReq_t *hello)
+{
+    (void)s; (void)hello;
+    publish(9);
+    return (uint8_t)HP_BIND_TRUSTED;
+}
+
+static void testHelloCursorAndReset(void)
+{
+    /* One rule: the cursor is set after the hook, so an event the hook logged
+     * (below the reported logNextSeq) is not replayed to that same session. */
+    setupWith((uint8_t)HP_TRANSPORT_USB, (uint8_t)HP_BIND_TRUSTED, true);
+    sess.cfg.onHello = fakeLoggingHello;
+    openSession();
+    hpHelloRsp_t r;
+    memcpy(&r, outFrames[0].payload, sizeof(r));
+    run();
+    check("cursor: event logged by the HELLO hook is below the head, not replayed",
+          r.logNextSeq == 1U && outCount == 0 && sess.cursor == 1U);
+
+    /* One rule: reset forgets the client and the cursor. */
+    helloDecides = (uint8_t)HP_BIND_TRUSTED;
+    hostSessionReset(&sess);
+    static const uint8_t zero[16] = { 0 };
+    check("reset: clientId and cursor forgotten",
+          memcmp(hostSessionClientId(&sess), zero, 16) == 0 && sess.cursor == 0U);
+}
+
+static void testRxStall(void)
+{
+    /* One rule: a frame is taken only with a full response reserve free; the
+     * request waits, no response is dropped. */
+    setup();
+    openSession();
+    txSpace = HOST_SESSION_RESPONSE_RESERVE - 1U;
+    hpPingReq_t ping = { .hostMs = 3U };
+    sendRequest(HP_MSG_PING, 0U, 0x31U, &ping, sizeof(ping));
+    run();
+    check("stall: no room for a response -> request not taken, nothing dropped",
+          outCount == 0 && sess.stats.responsesDropped == 0U);
+    txSpace = 100000U;
+    run();
+    check("stall: room again -> the waiting request is answered",
+          outCount == 1 && outFrames[0].hdr.tag == 0x31U && statusOf(&outFrames[0]) == 0
+          && sess.stats.responsesDropped == 0U);
+
+    /* Two requests in one read, room for one response only: the second waits. */
+    txSpace = HOST_SESSION_RESPONSE_RESERVE + 8U;
+    sendRequest(HP_MSG_PING, 0U, 0x32U, &ping, sizeof(ping));
+    sendRequest(HP_MSG_PING, 0U, 0x33U, &ping, sizeof(ping));
+    run();
+    int firstRun = outCount;
+    txSpace = 100000U;
+    run();
+    check("stall: second of two queued requests waits, both answered in order",
+          firstRun == 1 && outCount == 1 && outFrames[0].hdr.tag == 0x33U
+          && sess.stats.responsesDropped == 0U);
+}
+
 static void testDefer(void)
 {
     setup();
@@ -650,6 +710,8 @@ int main(void)
     testBadInput();
     testReset();
     testBindGate();
+    testHelloCursorAndReset();
+    testRxStall();
     testDefer();
     testStreams();
 

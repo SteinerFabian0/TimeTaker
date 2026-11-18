@@ -47,7 +47,13 @@
  *   - BLE button VERY_LONG: EVT_BUTTON, then CLEARED, then WINDOW_CLOSED (if
  *     it was open); an open BLE session drops to UNBOUND (new kick timer).
  *   - BIND_ALLOW{0} closes the window (WINDOW_CLOSED only if it was open).
- *     Any other value opens or re-opens it for that many seconds.
+ *     Any other value opens or re-opens it for that many seconds, at most
+ *     600 (firmware HOST_MANAGER_BIND_WINDOW_MAX_S). [A19]
+ *   - The all-zero clientId is never a client (it is BIND_REMOVE's "clear"
+ *     wildcard): a BLE HELLO with it stays UNBOUND even with the window open,
+ *     and a live bind skips it. [A20]
+ *   - A client evicted by the LRU rule loses its rights like a removed one: an
+ *     open BLE session of that client drops to UNBOUND. [A21]
  *   - BIND_REMOVE of an id not on the list: OK, no event (retry-safe). [A5]
  *     Removing the id of the open BLE session drops it to UNBOUND.
  *   - The list holds 8. Adding a 9th evicts the least recently used:
@@ -320,6 +326,7 @@ const REBOOT_DELAY_MS = 100;
 const USB_REENUM_MS = 400;
 const BIND_WINDOW_S = 60;
 const BIND_MAX = 8;
+const BIND_WINDOW_MAX_S = 600;
 const BIND_PAGE = 5;
 const SETTINGS_MIN_INTERVAL_MS = 10000;
 const RAW_CHUNK_MS = 50;
@@ -885,7 +892,7 @@ export class SimDevice implements SimLinkHost<Link> {
     } else if (this.#bindIndex(clientId) >= 0) {
       bindState = BindState.BOUND;
       this.#bindAddOrTouch(clientId, clientName);
-    } else if (this.#window) {
+    } else if (this.#window && !isZero(clientId)) {
       bindState = BindState.BOUND;
       this.#bindAddOrTouch(clientId, clientName);
     } else {
@@ -932,7 +939,7 @@ export class SimDevice implements SimLinkHost<Link> {
         const req = parse(BIND_ALLOW_REQ);
         if (!req) return;
         const w = req['windowS'] as number;
-        if (w === 0) this.#closeWindow(); else this.#openWindow(w);
+        if (w === 0) this.#closeWindow(); else this.#openWindow(Math.min(w, BIND_WINDOW_MAX_S));
         reply(Status.OK, BIND_ALLOW_RSP, {});
         return;
       }
@@ -1210,6 +1217,7 @@ export class SimDevice implements SimLinkHost<Link> {
       this.#flash.binds.forEach((b, j) => { if (b.lastUsed < this.#flash.binds[victim]!.lastUsed) victim = j; });
       const [gone] = this.#flash.binds.splice(victim, 1);
       this.#bindEvent(BindChange.REMOVED, gone!.clientId);
+      for (const l of this.#links) if (l.kind === 'ble' && l.session && bytesEqual(l.session.clientId, gone!.clientId)) this.#unbind(l);
     }
     this.#flash.binds.push({ clientId: id.slice(), clientName: name, lastUsed: ++this.#lru });
     this.#markSettingsDirty();
@@ -1260,7 +1268,7 @@ export class SimDevice implements SimLinkHost<Link> {
     this.#bindEvent(BindChange.WINDOW_OPENED, null);
     for (const l of this.#links) {
       const s = l.session;
-      if (l.kind === 'ble' && s && s.bindState === BindState.UNBOUND) {
+      if (l.kind === 'ble' && s && s.bindState === BindState.UNBOUND && !isZero(s.clientId)) {
         s.bindState = BindState.BOUND;
         this.scheduler.clearTimeout(l.kickTimer);
         l.kickTimer = null;

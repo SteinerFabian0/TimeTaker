@@ -175,6 +175,27 @@ static void hostManagerBindsChanged(void)
     settingsStoreSetBinds(&hostManagerBinds);   /* written when allowed, at most every 10 s */
 }
 
+/* The open BLE session loses its rights now (removed, evicted or list cleared):
+ * UNBOUND, and the 60 s grace starts unless it is already running. */
+static void hostManagerBleUnbind(void)
+{
+    hostSessionSetBindState(&hostManagerBle, (uint8_t)HP_BIND_UNBOUND);
+    if (!hostManagerBleUnbound) {
+        hostManagerBleUnbound        = true;
+        hostManagerBleUnboundSinceMs = HAL_GetTick();
+    }
+    hostManagerSendUiState();
+}
+
+/* An id left the list: a BOUND BLE session of that client drops to UNBOUND. */
+static void hostManagerBleLostId(const uint8_t *clientId)
+{
+    if (hostSessionIsOpen(&hostManagerBle) && hostSessionGetBindState(&hostManagerBle) == (uint8_t)HP_BIND_BOUND
+        && memcmp(hostSessionClientId(&hostManagerBle), clientId, BIND_LIST_ID_BYTES) == 0) {
+        hostManagerBleUnbind();
+    }
+}
+
 /* Adds a client; publishes ADDED (and REMOVED for an evicted one). Returns
  * false for a client that can never be bound (zero id). */
 static bool hostManagerBindAdd(const uint8_t *clientId, const char *name)
@@ -186,6 +207,7 @@ static bool hostManagerBindAdd(const uint8_t *clientId, const char *name)
     }
     if (r == BIND_LIST_EVICTED) {
         hostManagerPublishBind(HP_BIND_CHANGE_REMOVED, evicted);
+        hostManagerBleLostId(evicted);
     }
     if (r != BIND_LIST_TOUCHED) {
         hostManagerPublishBind(HP_BIND_CHANGE_ADDED, clientId);
@@ -224,19 +246,22 @@ static void hostManagerWindowSet(uint32_t seconds)
     hostManagerSendUiState();
 }
 
-static void hostManagerBindClearAll(void)
+/* BLE button VERY_LONG also closes the window (closeWindow); BIND_REMOVE with
+ * a zero id leaves it alone. Events: CLEARED, then WINDOW_CLOSED if it was open. */
+static void hostManagerBindClearAll(bool closeWindow)
 {
     bindListClear(&hostManagerBinds);
     hostManagerBindsChanged();
-    hostManagerWindowOpen = false;
     hostManagerPublishBind(HP_BIND_CHANGE_CLEARED, NULL);
     hostManagerSendCue(BLE_CUE_BINDS_CLEARED);
     if (hostSessionIsOpen(&hostManagerBle)) {
-        hostSessionSetBindState(&hostManagerBle, (uint8_t)HP_BIND_UNBOUND);
-        hostManagerBleUnbound        = true;
-        hostManagerBleUnboundSinceMs = HAL_GetTick();
+        hostManagerBleUnbind();
     }
-    hostManagerSendUiState();
+    if (closeWindow) {
+        hostManagerWindowSet(0U);   /* sends UI_STATE too */
+    } else {
+        hostManagerSendUiState();
+    }
 }
 
 static uint8_t hostManagerUsbHello(hostSession_t *self, const hpHelloReq_t *hello)
@@ -254,18 +279,22 @@ static uint8_t hostManagerBleHello(hostSession_t *self, const hpHelloReq_t *hell
     (void)self;
     memcpy(hostManagerBleClientId, hello->clientId, sizeof(hostManagerBleClientId));
     memcpy(hostManagerBleClientName, hello->clientName, sizeof(hostManagerBleClientName));
+    /* The grace timer starts at the FIRST unbound HELLO of a connection and is
+     * not restarted by the app's repeated HELLOs (it polls while it waits). */
+    const bool        timerRunning = hostManagerBleUnbound;
+    const uint32_t    timerSince   = hostManagerBleUnboundSinceMs;
     hostManagerBleUnbound = false;
 
     uint8_t state = (uint8_t)HP_BIND_UNBOUND;
-    if (bindListTouch(&hostManagerBinds, hello->clientId)) {
-        hostManagerBindsChanged();
+    if (bindListFind(&hostManagerBinds, hello->clientId) >= 0
+        && hostManagerBindAdd(hello->clientId, hello->clientName)) {   /* TOUCHED: stamp and name */
         state = (uint8_t)HP_BIND_BOUND;
     } else if (hostManagerWindowOpen && hostManagerBindAdd(hello->clientId, hello->clientName)) {
         hostManagerSendCue(BLE_CUE_BIND_ACCEPTED);
         state = (uint8_t)HP_BIND_BOUND;
     } else {
         hostManagerBleUnbound        = true;
-        hostManagerBleUnboundSinceMs = HAL_GetTick();
+        hostManagerBleUnboundSinceMs = timerRunning ? timerSince : HAL_GetTick();
     }
 
     /* The session is open once this returns; UI_STATE goes out after it. */
@@ -282,6 +311,9 @@ static void hostManagerBindRun(void)
 {
     if (hostManagerWindowOpen && (int32_t)(HAL_GetTick() - hostManagerWindowEndMs) >= 0) {
         hostManagerWindowSet(0U);
+    }
+    if (hostManagerBleUnbound && !hostSessionIsOpen(&hostManagerBle)) {
+        hostManagerBleUnbound = false;   /* HELLO refused (MAJOR): the grace belongs to the next HELLO */
     }
     if (hostManagerBleUnbound && hostSessionIsOpen(&hostManagerBle)
         && HAL_GetTick() - hostManagerBleUnboundSinceMs >= HOST_MANAGER_UNBOUND_GRACE_MS) {
@@ -358,7 +390,7 @@ static void hostManagerBleEvents(void)
             if (ev.body.button.press == BLE_PRESS_LONG) {
                 hostManagerWindowSet(HOST_MANAGER_BIND_WINDOW_S);
             } else if (ev.body.button.press == BLE_PRESS_VERY_LONG) {
-                hostManagerBindClearAll();
+                hostManagerBindClearAll(true);
             }
             break;
         }
@@ -480,22 +512,16 @@ static ctrlStatus_e hostManagerBindRemove(const uint8_t *req, uint16_t reqLen, u
     *rspLen = HP_BIND_REMOVE_RSP_BYTES;
 
     if (bindListIsZeroId(r.clientId)) {
-        hostManagerBindClearAll();
+        hostManagerBindClearAll(false);
         return CTRL_OK;
     }
     if (!bindListRemove(&hostManagerBinds, r.clientId)) {
-        return CTRL_ERR_INVALID_ARG;
+        return CTRL_OK;   /* not listed: nothing to do, safe to retry (no event) */
     }
     hostManagerBindsChanged();
     hostManagerPublishBind(HP_BIND_CHANGE_REMOVED, r.clientId);
     /* The BLE client just removed loses its rights at once. */
-    if (hostSessionIsOpen(&hostManagerBle) && hostSessionGetBindState(&hostManagerBle) == (uint8_t)HP_BIND_BOUND
-        && memcmp(hostSessionClientId(&hostManagerBle), r.clientId, BIND_LIST_ID_BYTES) == 0) {
-        hostSessionSetBindState(&hostManagerBle, (uint8_t)HP_BIND_UNBOUND);
-        hostManagerBleUnbound        = true;
-        hostManagerBleUnboundSinceMs = HAL_GetTick();
-        hostManagerSendUiState();
-    }
+    hostManagerBleLostId(r.clientId);
     return CTRL_OK;
 }
 

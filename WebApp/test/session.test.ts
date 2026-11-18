@@ -297,6 +297,50 @@ describe('binding over BLE', () => {
   });
 });
 
+describe('binding rules shared with the firmware', () => {
+  test('the zero clientId is never bound, even with the window open', async () => {
+    const t = rig();
+    await t.run(async () => {
+      const dev = t.sim();
+      dev.pressBleButton(PressKind.LONG);
+      const s = t.session(dev, {}, { kind: 'ble', clientId: new Uint8Array(16), clientKind: ClientKind.WEBAPP });
+      const connecting = s.connect();
+      await t.until(() => s.state === 'unbound');
+      assert.equal(dev.bindList.length, 0);
+      connecting.catch(() => undefined);
+    });
+  });
+
+  test('BIND_ALLOW is clamped to 600 s', async () => {
+    const t = rig();
+    await t.run(async () => {
+      const dev = t.sim();
+      const usb = t.session(dev);
+      await usb.connect();
+      await usb.requestMsg(MESSAGE_BY_ID.get(MsgId.BIND_ALLOW)!, { windowS: 5000 });
+      const list = await usb.requestMsg(MESSAGE_BY_ID.get(MsgId.BIND_LIST)!, { start: 0 });
+      assert.equal((list as { windowS: number }).windowS, 600);
+    });
+  });
+
+  test('an LRU-evicted client loses its open BLE session', async () => {
+    const t = rig();
+    await t.run(async () => {
+      const dev = t.sim();
+      dev.pressBleButton(PressKind.LONG);
+      const ble = t.session(dev, {}, { kind: 'ble', clientId: new Uint8Array(16).fill(9), clientKind: ClientKind.WEBAPP });
+      assert.equal((await ble.connect()).bindState, BindState.BOUND);
+      for (let i = 1; i <= 8; i++) {                                  // the 8th web app evicts the oldest: the BLE client
+        const o = t.session(dev, {}, { clientKind: ClientKind.WEBAPP, clientId: new Uint8Array(16).fill(0x10 + i), clientName: `c${i}` });
+        await o.connect();
+        await o.close();
+      }
+      assert.equal(dev.bindList.length, 8);
+      await assert.rejects(ble.request(NODE_LIST_REQ, {}, MsgId.NODE_LIST, NODE_LIST_RSP));
+    });
+  });
+});
+
 describe('stale link', () => {
   test('silence for 3 s is reported, and the next byte clears it', async () => {
     const t = rig();

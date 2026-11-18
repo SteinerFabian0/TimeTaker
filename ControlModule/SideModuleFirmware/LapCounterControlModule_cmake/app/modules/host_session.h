@@ -35,7 +35,10 @@
  * it otherwise. Never logged, never retried.
  *
  * Responses: one per request, same msgId and tag, RESPONSE flag, payload =
- * status i16 (+ body on OK). On error the payload is the status alone.
+ * status i16 (+ body on OK). On error the payload is the status alone. A frame
+ * is only taken from the transport while it has HOST_SESSION_RESPONSE_RESERVE
+ * free, so a response is never dropped for lack of room: under backpressure the
+ * request waits in the transport's receive queue instead.
  *
  * Events: while open, each run sends log[cursor..next) as EVENT frames. Each
  * goes only if the transport has room for it AND still has
@@ -127,6 +130,8 @@ struct hostSession_s {
     bool                   deferActive;    /* a deferred response is owed */
     uint8_t                deferMsgId;
     uint16_t               deferTag;
+    uint8_t                rxPend[64];     /* read from the transport, not yet decoded */
+    uint16_t               rxPos, rxLen;
     hostSessionStats_t     stats;
 };
 

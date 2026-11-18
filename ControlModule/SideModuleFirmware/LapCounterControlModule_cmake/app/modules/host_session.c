@@ -66,11 +66,14 @@ static ctrlStatus_e hostSessionHello(hostSession_t *s, const uint8_t *req, uint1
     }
 
     s->open        = true;
-    s->cursor      = eventLogNext(s->cfg.log);
     s->deferActive = false;                 /* an answer owed to the previous host is void */
     memcpy(s->clientId, hello.clientId, sizeof(s->clientId));
     s->stats.opens++;
     s->bindState = (s->cfg.onHello != NULL) ? s->cfg.onHello(s, &hello) : s->cfg.bindState;
+    /* The cursor goes to the head AFTER the policy hook: events the hook itself
+     * logged (BIND_CHANGED ADDED) lie below the logNextSeq this HELLO reports,
+     * so they are not replayed to the session they were caused by. */
+    s->cursor = eventLogNext(s->cfg.log);
 
     hpHelloRsp_t *r = (hpHelloRsp_t *)rsp;
     memset(r, 0, sizeof(*r));
@@ -195,19 +198,30 @@ static void hostSessionHandleFrame(hostSession_t *s, const uint8_t *raw, uint16_
 
 static bool hostSessionReceive(hostSession_t *s)
 {
-    uint8_t  chunk[64];
     uint16_t budget = HOST_SESSION_RX_BUDGET;
     bool     any    = false;
 
-    while (budget > 0U) {
-        uint16_t want = (budget < sizeof(chunk)) ? budget : (uint16_t)sizeof(chunk);
-        uint16_t n    = s->io->read(chunk, want);
-        if (n == 0U) {
-            break;
+    while (budget > 0U || s->rxPos < s->rxLen) {
+        if (s->rxPos >= s->rxLen) {
+            uint16_t want = (budget < sizeof(s->rxPend)) ? budget : (uint16_t)sizeof(s->rxPend);
+            uint16_t n    = s->io->read(s->rxPend, want);
+            if (n == 0U) {
+                break;
+            }
+            budget    = (uint16_t)(budget - n);
+            s->rxPos  = 0U;
+            s->rxLen  = n;
         }
-        budget = (uint16_t)(budget - n);
-        for (uint16_t i = 0U; i < n; i++) {
-            frameResult_e r = frameDecoderPush(&s->dec, chunk[i]);
+        while (s->rxPos < s->rxLen) {
+            const uint8_t b = s->rxPend[s->rxPos];
+            /* A delimiter completes a frame and so owes a response: never take it
+             * unless the transport can hold the largest one. The byte waits (in
+             * rxPend) for the next run; nothing is answered into a full queue. */
+            if (b == FRAME_CODEC_DELIMITER && (uint32_t)s->io->writeSpace() < HOST_SESSION_RESPONSE_RESERVE) {
+                return any;
+            }
+            s->rxPos++;
+            frameResult_e r = frameDecoderPush(&s->dec, b);
             if (r == FRAME_READY) {
                 hostSessionHandleFrame(s, s->dec.frame, s->dec.frameLen);
                 any = true;
@@ -266,9 +280,14 @@ void hostSessionInit(hostSession_t *s, const hostTransport_t *io, const hostSess
 
 void hostSessionReset(hostSession_t *s)
 {
-    s->open        = false;
-    s->deferActive = false;
-    s->bindState   = s->cfg.bindState;
+    s->open           = false;
+    s->cursor         = 0U;
+    s->deferActive    = false;
+    s->deferRequested = false;
+    s->rxPos          = 0U;
+    s->rxLen          = 0U;
+    s->bindState      = s->cfg.bindState;
+    memset(s->clientId, 0, sizeof(s->clientId));
     frameDecoderReset(&s->dec);
 }
 
