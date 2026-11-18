@@ -186,6 +186,7 @@ static void linkDown(uint8_t reason)
 {
     st.connected = false;
     stmCtrlSetBleIrq(false);
+    bleLinkNewSession();                  /* late sent-callbacks must not hit reused slots */
     slotsDropAll(&slots);                 /* every busy slot's credit is owed */
     const bleCtrlLinkDown_t d = { .hciReason = reason };
     (void)stmLinkSendCtrl(BLE_CTRL_LINK_DOWN, &d, sizeof(d));

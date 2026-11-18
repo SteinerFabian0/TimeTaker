@@ -70,6 +70,12 @@ int bleLinkNotify(const uint8_t *data, uint16_t len, uint8_t slot);
  * clears them. */
 void bleLinkTakeCompletions(uint8_t counts[SLOTS_MAX]);
 
+/* Starts a new completion generation: every notification queued so far is
+ * forgotten, and its late completion callback is ignored. Call when the
+ * slots are dropped (their credits returned), so a late callback can never
+ * hit a slot that was freed and reused. */
+void bleLinkNewSession(void);
+
 /* LINK_UP for the current connection. false if not connected. */
 bool bleLinkGetLinkUp(bleCtrlLinkUp_t *out);
 

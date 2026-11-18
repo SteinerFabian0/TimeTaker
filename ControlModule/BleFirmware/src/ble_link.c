@@ -341,6 +341,11 @@ int bleLinkNotify(const uint8_t *data, uint16_t len, uint8_t slot)
     return err;
 }
 
+void bleLinkNewSession(void)
+{
+    newGeneration();
+}
+
 void bleLinkTakeCompletions(uint8_t counts[SLOTS_MAX])
 {
     k_spinlock_key_t key = k_spin_lock(&sentLock);

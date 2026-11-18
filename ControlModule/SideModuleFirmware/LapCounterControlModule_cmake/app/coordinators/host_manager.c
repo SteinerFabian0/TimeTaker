@@ -342,6 +342,25 @@ static void hostManagerPublishBleLink(uint8_t state, const bleCtrlLinkUp_t *up, 
     (void)hostManagerPublishEvent(HP_MSG_EVT_BLE_LINK, &evt, sizeof(evt));
 }
 
+/* One disconnect reaches us twice (BLE_IRQ fall and CTRL LINK_DOWN, either
+ * order). The first one publishes and resets the session; the second finds
+ * the link already down and does nothing. */
+static bool hostManagerBleUp;
+
+static void hostManagerBleDown(uint8_t reason)
+{
+    if (!hostManagerBleUp) {
+        return;
+    }
+    hostManagerBleUp = false;
+    hostSessionReset(&hostManagerBle);
+    hostManagerBleUnbound = false;
+    if (hostManagerStatusWaiter == &hostManagerBle) {
+        hostManagerStatusWaiter = NULL;
+    }
+    hostManagerPublishBleLink(HP_BLE_LINK_DOWN, NULL, reason);
+}
+
 static void hostManagerBleEvents(void)
 {
     nrfLinkEvent_t ev;
@@ -368,16 +387,12 @@ static void hostManagerBleEvents(void)
             streamBudgetSetRate(&hostManagerBleBudget,
                                 streamBudgetBleRate(ev.body.linkUp.attMtu, ev.body.linkUp.intervalUnits),
                                 STREAM_BUDGET_BLE_MAX);
+            hostManagerBleUp = true;
             hostManagerPublishBleLink(HP_BLE_LINK_UP, &ev.body.linkUp, 0U);
             break;
 
         case NRF_LINK_EV_LINK_DOWN:
-            hostSessionReset(&hostManagerBle);
-            hostManagerBleUnbound = false;
-            if (hostManagerStatusWaiter == &hostManagerBle) {
-                hostManagerStatusWaiter = NULL;
-            }
-            hostManagerPublishBleLink(HP_BLE_LINK_DOWN, NULL, ev.body.linkDown.hciReason);
+            hostManagerBleDown(ev.body.linkDown.hciReason);
             break;
 
         case NRF_LINK_EV_BUTTON: {
@@ -852,11 +867,7 @@ ctrlStatus_e hostManagerRun(void)
 
     hostManagerBleEvents();
     if (nrfLinkTakeLinkReset()) {
-        hostSessionReset(&hostManagerBle);
-        hostManagerBleUnbound = false;
-        if (hostManagerStatusWaiter == &hostManagerBle) {
-            hostManagerStatusWaiter = NULL;
-        }
+        hostManagerBleDown(0U);   /* no-op: the event above already did it */
     }
 #if !CTRL_ENABLE_NRF_LINK_ECHO
     hostSessionRun(&hostManagerBle);
