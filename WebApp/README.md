@@ -1,14 +1,16 @@
 # TimeTaker web app
 
 The race control app for Chrome/Edge. It reaches the control module over
-**Web Serial** (USB CDC) or **Web Bluetooth** (the nRF bridge, not yet
-built). Layering and plan: `../SYSTEM_ARCHITECTURE.md` §11.
+**Web Serial** (USB CDC) or **Web Bluetooth** (the nRF bridge), and it is the
+race engine: a pure fold over the device's timestamped events. Layering and plan: `../SYSTEM_ARCHITECTURE.md` §11.
 
 ## Run
 
 ```
-npm test          # all tests (Node >= 22.18 runs the .ts files directly)
-npm run debug     # dev server → http://localhost:5173/debug/
+npm test                     # all tests (Node >= 22.18 runs the .ts files directly)
+npm run debug                # dev server → http://localhost:5173/debug/
+node tools/tt.ts --sim suite all   # bench CLI against the simulator (tools/README.md)
+node tools/tt.ts hello             # ... and against the board on /dev/ttyACM*
 ```
 
 There is no install and no build step. Node strips the TypeScript types
@@ -41,16 +43,93 @@ group is enough (`id -nG`). Otherwise add a udev rule:
 
 ## Layout
 
+Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
+`protocol/`, `store/` import nothing from the DOM or a UI framework.
+
 | Path | What |
 |---|---|
-| `src/protocol/generated.ts` | **Generated** from `../protocol/host_protocol.toml`: IDs, enums, status codes, USB IDs, struct descriptors, types, wrappers. Never edit it. |
-| `src/protocol/wire.ts` | Little-endian struct encoding driven by the descriptors |
-| `src/protocol/codec.ts` | COBS + CRC-16 framing, the twin of the firmware's `frame_codec.c` |
-| `src/protocol/packet.ts` | Frame bytes ↔ header + payload |
-| `src/transport/` | `Transport` interface; `serialTransport.ts` (Web Serial) |
-| `src/device/deviceSession.ts` | Session: HELLO, requests with timeouts, events in evSeq order exactly once (gap → RESUME), PING heartbeat + clock estimate, resume point across reconnects and transport switches, reboot detection |
-| `src/device/simDevice.ts` | A simulated control module speaking the real protocol, plus lanes and cars ahead of the firmware |
+| `src/protocol/generated.ts` | **Generated** from `../protocol/host_protocol.toml` (protocol 0.2). Never edit it. |
+| `src/protocol/wire.ts`, `codec.ts`, `packet.ts` | Struct encoding, COBS + CRC-16 framing, frame ↔ header + payload |
+| `src/util/` | `clock.ts` (Scheduler: real, or `VirtualClock` for tests), `rng.ts`, `bytes.ts` (hex, CRC-32) |
+| `src/transport/` | `Transport` interface; `serialTransport.ts` (Web Serial), `bleTransport.ts` (Web Bluetooth NUS, 20 B writes, `getDevices()` reconnect), `simTransport.ts` |
+| `src/device/deviceSession.ts` | One connection: HELLO, bind wait (UNBOUND → poll HELLO), requests with timeouts, ERR_NO_SESSION / ERR_NOT_BOUND recovery, events exactly once in evSeq order (gap → RESUME), PING clock, stale detection |
+| `src/device/deviceApi.ts` | A typed method per 0.2 request; retries idempotent ones on timeout |
+| `src/device/deviceManager.ts` | Transport preference USB > BLE, reconnects, switching without loss, node model |
+| `src/device/nodeModel.ts` | Pure node model from NODE_LIST + EVT_LANE_STATE / EVT_BLE_LINK / EVT_SEQ_* |
+| `src/device/clientId.ts` | clientId in an injectable storage (localStorage / memory) |
+| `src/device/simDevice.ts`, `sim/simCars.ts` | **The simulator**: protocol 0.2 and the device behaviour of CONTROL_FIRMWARE_GUIDE §5. Its header lists every rule and assumption [A1–A18]: the reference the firmware is compared against |
+| `src/store/eventStore.ts` | Append-only (bootId, evSeq) device log + host actions + races, behind `EventStorage` (`MemoryStorage`; `indexedDbStorage.ts` in the browser) |
+| `src/store/raceFile.ts` | Race export/import format `timetaker-race` v1 (documented in the file) |
+| `src/race/raceEngine.ts` | **Pure** `fold(config, deviceEvents, hostActions) → RaceState` |
+| `src/race/rules/` | `config`, `timeline`, `start`, `laps`, `finish`, `actions`, `standings`: each file documents its rule |
+| `src/director/raceDirector.ts` | UI intents → device requests + host actions; adaptive holdoff |
+| `src/sync/raceSync.ts` | BroadcastChannel publisher/subscriber (TV window = pure view), `FakeChannelHub` |
+| `src/update/firmwareUpdater.ts` | REBOOT{BOOTLOADER} → UPDATE_BEGIN/CHUNK/END → BOOT_APP, resumable and retry-safe |
 | `debug/` | The debug console (plain DOM) |
-| `tools/serve.mjs` | Dev server: static files + on-the-fly type stripping, bound to 127.0.0.1 |
-| `test/protocol.test.ts` | Codec and wire against the golden bytes the firmware's C tests are held to |
-| `test/session.test.ts` | DeviceSession against SimDevice: connect, requests, ordering, loss recovery, gaps, transport switch, reboot |
+| `tools/` | `tt.ts` bench CLI + suites, fixture generator, mutation check, dev server: see `tools/README.md` |
+| `test/` | `node:test`; `fixtures/races/*.json` are recorded races (regression tests) |
+
+## Tests
+
+`npm test`: 182 tests, about 2 s. Simulated time runs on `VirtualClock`, so a
+60 s bind timeout or a 20-lap race takes milliseconds.
+
+- protocol (golden bytes), session, simulator behaviour, device layer
+  (manager: USB → BLE → USB without loss), race rules, recorded races,
+  director + sync, updater, BLE transport (fake `navigator.bluetooth`), CLI
+  (every bench suite against `--sim`, and the real tty path through a socat
+  pty pair).
+- **Recorded races**: `tools/genFixtures.ts` drives the whole stack against
+  the simulator. Each fixture's `expect` comes from the simulator's ground
+  truth through an independent oracle, not from the engine. The test also
+  re-records every scenario and requires identical bytes, and checks that
+  pulling USB mid-race and continuing over BLE gives identical standings.
+- **Mutation check** (`node tools/mutate.ts`, 2026-11-18): 17 single-rule
+  mutations (min-lap, holdoff, ignore, false start, first crossing,
+  false-start penalty, tEntryUs order, aborted sequence, practice filter,
+  laps finish, time finish, undo, lap adjust, penalties in total, DQ last,
+  reboot gap, laneSeq gaps). Every one fails 1–13 tests.
+
+## Race rules (defaults, `src/race/rules/config.ts`)
+
+- Start: the race begins at the first EVT_LIGHTS_OUT after an un-aborted
+  EVT_SEQ_STARTED of the same boot. Crossings before the sequence are practice.
+- First crossing: `startsTiming` (grid behind the line): the first crossing
+  after lights out starts lap 1; `completesLap1` (grid after the line): lap 1
+  runs from Tout. Reaction time = first crossing − Tout (includes the run-up).
+- False start: a crossing of the start procedure before Tout (logged after
+  EVT_SEQ_STARTED or at/after T0). Default action `flag`; `penalty` (5 s) or
+  `disqualify` configurable. In `startsTiming` it is the car's start crossing.
+- Laps: crossings ordered by tEntryUs; rejected if IN_HOLDOFF
+  (`rejectInHoldoff`) or under `minLapMs` (2 s) since the last counted
+  crossing; a rejected crossing never moves the lap start. BLOCKED counts at
+  its entry time (`blockedCountsAsCrossing`); CLEARED never. Flags: suspect
+  timing (NO_LOCK/UNALIGNED/EXTRAPOLATED), lost lane events (laneSeq gap),
+  lane outage, reboot gap, blocked, accepted.
+- Finish: laps race: first to the lap count takes the flag, the others
+  finish on their next counted crossing. Time race: the flag is out at the
+  first counted crossing at or after the duration; every car finishes on its
+  next one. The race is finished when every started, non-DQ, non-retired car
+  has finished, or on `endRace`.
+- Corrections are host actions: ±laps (count from the start), penalty ms,
+  disqualify, retire, ignore/accept one crossing, endRace (freezes at its log
+  position), undo (undo of undo works). Invalid ones are ignored with a reason.
+- Standings: classified before DQ, laps desc, total time (race time of the
+  last counted crossing + penalties) asc; gap/interval in laps or ms.
+- Reboot mid-race: a new bootId is a flagged timing gap; the lap spanning it
+  counts with no time; race time continues from the old boot's last event.
+
+## Contract change requests (protocol 0.2 is frozen; workarounds in place)
+
+1. **HELLO_RSP: report the board type** (one reserved byte → `boardType`), so
+   the app can tell the bootloader from the app without NODE_LIST.
+   Workaround: NODE_LIST CTRL boardType CONTROL_BOOT (the sim's bootloader
+   serves NODE_LIST), and ERR_UNSUPPORTED to NODE_LIST is read as bootloader.
+2. **`[usb]` needs the bootloader PID** (CONTROL guide §5.7: "second PID,
+   TimeTaker (update)"): Web Serial filters by VID/PID. Workaround: the CLI
+   finds ports by VID + product name prefix; the browser picker needs it.
+3. **UPDATE resume point**: `UPDATE_BEGIN_RSP.nextOffset` (or an
+   UPDATE_STATUS request) would make resuming explicit. Workaround: re-send the
+   last acknowledged chunk (acknowledged again by contract) to learn it.
+4. **HELLO_RSP / EVT_BOOT: firmware version of CTRL** would save a NODE_LIST
+   round trip (optional).

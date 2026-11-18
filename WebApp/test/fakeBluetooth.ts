@@ -15,7 +15,8 @@ import type { Transport } from '../src/transport/transport.ts';
 class FakeChar extends EventTarget implements CharacteristicLike {
   value: DataView | null = null;
   notifying = false;
-  constructor(readonly onWrite?: (b: Uint8Array) => Promise<void>) { super(); }
+  readonly onWrite?: (b: Uint8Array) => Promise<void>;
+  constructor(onWrite?: (b: Uint8Array) => Promise<void>) { super(); this.onWrite = onWrite; }
   async startNotifications(): Promise<this> { this.notifying = true; return this; }
   async stopNotifications(): Promise<this> { this.notifying = false; return this; }
   async writeValueWithoutResponse(data: BufferSource): Promise<void> {
@@ -40,8 +41,10 @@ export class FakeBleDevice extends EventTarget implements BluetoothDeviceLike {
   #tx = new FakeChar();
   #connected = false;
 
-  constructor(sim: SimDevice, name = 'TimeTaker', readonly mtuPayload = 20) {
+  readonly mtuPayload: number;
+  constructor(sim: SimDevice, name = 'TimeTaker', mtuPayload = 20) {
     super();
+    this.mtuPayload = mtuPayload;
     this.#sim = sim;
     this.name = name;
     this.#rx = new FakeChar(async (b) => {
@@ -87,7 +90,9 @@ export class FakeBleDevice extends EventTarget implements BluetoothDeviceLike {
 
 export class FakeBluetooth implements BluetoothLike {
   lastRequest: RequestDeviceOptions | null = null;
-  constructor(readonly devices: FakeBleDevice[], readonly granted: FakeBleDevice[] = []) {}
+  readonly devices: FakeBleDevice[];
+  readonly granted: FakeBleDevice[];
+  constructor(devices: FakeBleDevice[], granted: FakeBleDevice[] = []) { this.devices = devices; this.granted = granted; }
   async requestDevice(o: RequestDeviceOptions): Promise<FakeBleDevice> {
     this.lastRequest = o;
     const f = o.filters[0];
