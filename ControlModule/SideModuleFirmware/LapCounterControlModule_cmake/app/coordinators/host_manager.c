@@ -28,7 +28,6 @@
 #include "sys_time.h"
 #include "device_id.h"
 #include "settings_store.h"
-#include "boot_shared.h"
 #include "ctrl_master.h"
 #include "lane_manager.h"
 #include "sequence_manager.h"
@@ -457,7 +456,7 @@ static ctrlStatus_e hostManagerNodeList(uint8_t *rsp, uint16_t rspCap, uint16_t 
         .fwPatch    = (uint8_t)CTRL_FW_VERSION_PATCH,
         .protoMinor = (uint8_t)HP_PROTO_MINOR,
         .fwGitRev   = (uint32_t)CTRL_FW_GIT_REV,
-        .imageCrc   = ctrlMasterImageCrc(),
+        .imageCrc   = 0U,   /* unknown: no image header since the bootloader went (v1) */
     };
 
     /* The BLE bridge: ABSENT until its NRF_HELLO, FAULT on a link MAJOR mismatch. */
@@ -557,11 +556,7 @@ static ctrlStatus_e hostManagerReboot(const uint8_t *req, uint16_t reqLen, uint1
     hpRebootReq_t r;
     memcpy(&r, req, sizeof(r));
     if (r.target == (uint8_t)HP_REBOOT_BOOTLOADER) {
-#ifdef CTRL_APP_WITH_BOOTLOADER
-        bootShared.request = BOOT_SHARED_ENTER_BOOT;   /* ctrl_boot stays and waits */
-#else
-        return CTRL_ERR_UNSUPPORTED;   /* standalone image: there is no bootloader in flash */
-#endif
+        return CTRL_ERR_UNSUPPORTED;   /* reserved: v1 has no bootloader (SWD only) */
     } else if (r.target != (uint8_t)HP_REBOOT_APP) {
         return CTRL_ERR_INVALID_ARG;
     }
@@ -790,14 +785,7 @@ static ctrlStatus_e hostManagerOnRequest(hostSession_t *session, uint8_t msgId,
         *rspLen = HP_ABORT_SEQUENCE_RSP_BYTES;
         return CTRL_OK;
 
-    case HP_MSG_UPDATE_BEGIN:
-    case HP_MSG_UPDATE_CHUNK:
-    case HP_MSG_UPDATE_END:
-    case HP_MSG_UPDATE_ABORT:
-    case HP_MSG_BOOT_APP:
-        return CTRL_ERR_INVALID_STATE;   /* the bootloader's: REBOOT{BOOTLOADER} first */
-
-    default:
+    default:   /* also 0xA0-0xAF, the update ids reserved since protocol 0.4 */
         return CTRL_ERR_UNSUPPORTED;
     }
 }
@@ -824,7 +812,6 @@ ctrlStatus_e hostManagerInit(void)
     const hostSessionConfig_t usbCfg = {
         .transport     = (uint8_t)HP_TRANSPORT_USB,
         .bindState     = (uint8_t)HP_BIND_TRUSTED,   /* a cable is physical access */
-        .boardType     = (uint8_t)HP_BOARD_CONTROL,
         .bootId        = deviceIdBootId(),
         .log           = &hostManagerEventLog,
         .nowUs         = sysTimeNowUs,
@@ -837,7 +824,6 @@ ctrlStatus_e hostManagerInit(void)
     const hostSessionConfig_t bleCfg = {
         .transport     = (uint8_t)HP_TRANSPORT_BLE,
         .bindState     = (uint8_t)HP_BIND_UNBOUND,   /* decided at HELLO by the bind list */
-        .boardType     = (uint8_t)HP_BOARD_CONTROL,
         .bootId        = deviceIdBootId(),
         .log           = &hostManagerEventLog,
         .nowUs         = sysTimeNowUs,

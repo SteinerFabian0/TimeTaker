@@ -37,7 +37,7 @@
 # Message ID ranges (gaps on purpose; add inside a group, never renumber):
 #   0x00-0x0F session   0x10-0x1F system   0x20-0x3F lanes   0x40-0x4F sequences
 #   0x50-0x5F stream subscriptions         0x60-0x7F power (reserved)
-#   0x80-0x8F display/aux (reserved)       0xA0-0xAF update
+#   0x80-0x8F display/aux (reserved)       0xA0-0xAF reserved (was update)
 #   0xC0-0xDF events    0xE0-0xEF streams  0xF0-0xFF debug streams
 #
 # Compatibility: MINOR adds messages, or fields at the END of a payload.
@@ -52,7 +52,7 @@
 
 [protocol]
 major = 0
-minor = 3
+minor = 4
 max_payload = 240   # header 4 + payload 240 = 244 raw bytes; the nRF link adds 1 channel byte (245)
 max_event_payload = 24   # events incl. evSeq: the control module's event log slot (event_log.h)
 
@@ -63,8 +63,6 @@ max_event_payload = 24   # events incl. evSeq: the control module's event log sl
 vid = 0x1209
 pid = 0x0001
 product = "TimeTaker"
-pid_boot = 0x0002                  # the control bootloader enumerates with its own PID
-product_boot = "TimeTaker (update)"
 
 [[flag]]
 name = "RESPONSE"
@@ -210,7 +208,8 @@ name = "ERR_SETTINGS_CORRUPT"
 value = -41
 doc = "Stored settings failed their CRC; defaults loaded"
 
-# Firmware update (-50 .. -59)
+# Firmware update (-50 .. -59): reserved. v1 has no field update (no
+# bootloader); the values stay so they are never reused.
 [[status]]
 name = "ERR_IMAGE_TOO_BIG"
 value = -50
@@ -283,8 +282,8 @@ values = [
   { name = "CONTROL", value = 1 },
   { name = "LANE", value = 2 },
   { name = "BLE_BRIDGE", value = 3 },
-  { name = "CONTROL_BOOT", value = 4, doc = "Control module running its bootloader" },
-  { name = "LANE_BOOT", value = 5, doc = "Lane running its (future) bootloader" },
+  { name = "CONTROL_BOOT", value = 4, doc = "Reserved: no bootloader in v1 (value kept stable)" },
+  { name = "LANE_BOOT", value = 5, doc = "Reserved: no bootloader in v1 (value kept stable)" },
 ]
 
 [[enum]]
@@ -394,7 +393,7 @@ name = "rebootTarget"
 prefix = "REBOOT"
 values = [
   { name = "APP", value = 0 },
-  { name = "BOOTLOADER", value = 1 },
+  { name = "BOOTLOADER", value = 1, doc = "Reserved: no bootloader in v1; the device answers ERR_UNSUPPORTED" },
 ]
 
 [[enum]]
@@ -566,11 +565,11 @@ response = [
   { name = "logOldestSeq", type = "u32", doc = "Oldest evSeq still in the event log" },
   { name = "logNextSeq", type = "u32", doc = "evSeq the next event will get" },
   { name = "otherSessions", type = "u8", doc = "Number of other live sessions (USB + BLE at once)" },
-  { name = "boardType", type = "u8", enum = "boardType", doc = "What answers: CONTROL (the app) or CONTROL_BOOT (the bootloader). Since 0.3; 0 from older firmware" },
+  { name = "boardType", type = "u8", enum = "boardType", doc = "What answers: CONTROL (CONTROL_BOOT is reserved, no bootloader in v1). Since 0.3; 0 from older firmware" },
   { name = "reserved", type = "u8[2]" },
 ]
 example_request = { protoMajor = 0, protoMinor = 1, clientKind = 1, reserved = 0, clientId = "00112233445566778899aabbccddeeff", clientName = "Laptop Großonkel" }
-example_response = { protoMajor = 0, protoMinor = 3, transport = 2, bindState = 1, bootId = 0x5eed1234, sysUs = 1234567890123, logOldestSeq = 0, logNextSeq = 42, otherSessions = 1, boardType = 1, reserved = "0000" }
+example_response = { protoMajor = 0, protoMinor = 4, transport = 2, bindState = 1, bootId = 0x5eed1234, sysUs = 1234567890123, logOldestSeq = 0, logNextSeq = 42, otherSessions = 1, boardType = 1, reserved = "0000" }
 
 [[message]]
 id = 0x02
@@ -696,12 +695,12 @@ example_response = {}
 id = 0x11
 name = "REBOOT"
 kind = "request"
-doc = "Reboots the control module, into the app or into its bootloader. The response goes out before the reset."
+doc = "Reboots the control module. The response goes out before the reset. target BOOTLOADER is reserved (no bootloader in v1) and answers ERR_UNSUPPORTED."
 request = [
   { name = "target", type = "u8", enum = "rebootTarget" },
 ]
 response = []
-example_request = { target = 1 }
+example_request = { target = 0 }
 example_response = {}
 
 [[message]]
@@ -931,72 +930,11 @@ request = []
 response = []
 
 # ---------------------------------------------------------------------------
-# Update (0xA0 - 0xAF). Served by the control module's bootloader
-# (boardType CONTROL_BOOT); the app answers them ERR_INVALID_STATE and the
-# host uses REBOOT{BOOTLOADER} first.
+# 0xA0 - 0xAF: reserved. Held the firmware update messages (UPDATE_BEGIN /
+# CHUNK / END / ABORT, BOOT_APP) until protocol 0.4; v1 flashes every board
+# over SWD and has no field update. Do not reuse these ids for anything
+# else; the old design is at git tag archive/bootloader-update.
 # ---------------------------------------------------------------------------
-
-[[message]]
-id = 0xA0
-name = "UPDATE_BEGIN"
-kind = "request"
-doc = "Starts an update: erases the app region. The image must be for this board type."
-request = [
-  { name = "boardType", type = "u8", enum = "boardType" },
-  { name = "reserved", type = "u8[3]" },
-  { name = "size", type = "u32", doc = "Image bytes" },
-  { name = "crc32", type = "u32", doc = "CRC-32 (IEEE) of the whole image" },
-]
-response = [
-  { name = "chunkMax", type = "u16", doc = "Largest data tail UPDATE_CHUNK accepts" },
-  { name = "reserved", type = "u16" },
-]
-example_request = { boardType = 1, reserved = "000000", size = 131072, crc32 = 0x1234abcd }
-example_response = { chunkMax = 224, reserved = 0 }
-
-[[message]]
-id = 0xA1
-name = "UPDATE_CHUNK"
-kind = "request"
-doc = "Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe. Resume rule: re-sent bytes (offset below nextOffset) that match what is already written are acknowledged without rewriting, and the response always carries the real nextOffset, so a host that restarts from an earlier offset is fast-forwarded to where the bootloader stands."
-request = [
-  { name = "offset", type = "u32" },
-  { name = "data", type = "u8[]" },
-]
-response = [
-  { name = "nextOffset", type = "u32" },
-]
-example_request = { offset = 224, data = "00ff10" }
-example_response = { nextOffset = 227 }
-
-[[message]]
-id = 0xA2
-name = "UPDATE_END"
-kind = "request"
-example_request = {}
-example_response = { status = -51 }
-doc = "Verifies the CRC over the written image and writes the image header last. ERR_IMAGE_CRC if it does not match."
-request = []
-response = []
-
-[[message]]
-id = 0xA3
-name = "UPDATE_ABORT"
-kind = "request"
-example_request = {}
-doc = "Abandons the update. The bootloader stays (no valid app)."
-request = []
-response = []
-
-[[message]]
-id = 0xA4
-name = "BOOT_APP"
-kind = "request"
-example_request = {}
-example_response = {}
-doc = "Leaves the bootloader and starts the app, if its header and CRC are valid. The response goes out first."
-request = []
-response = []
 
 # ---------------------------------------------------------------------------
 # Events (0xC0 - 0xDF). evSeq u32 is injected as the first field.

@@ -15,8 +15,8 @@
  *     (watchdog or fault) in a row PARK the firmware. Unlike the hub there is
  *     no Standby to sulk in: parked means ctrl_master starts no watchdog and
  *     powers nothing (the lanes stay off anyway until a host asks), so a host
- *     can still read STATUS and update, or, with the bootloader present, the
- *     app hands over to the bootloader. Stood down while a probe is attached.
+ *     can still read STATUS; the fix is a reflash over SWD (v1 has no field
+ *     update). Stood down while a probe is attached.
  *
  * Context: faultGuardInit() first in ctrlInit(); faultGuardTick() every pass;
  * the handlers at fault level. No HAL in the handlers.

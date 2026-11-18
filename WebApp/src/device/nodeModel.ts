@@ -14,7 +14,7 @@
  */
 
 import {
-  BleLinkState, BoardType, LaneState, MsgId, NodeClass, NodeState,
+  BleLinkState, LaneState, MsgId, NodeClass, NodeState,
 } from '../protocol/generated.ts';
 import type { NodeInfo } from '../protocol/generated.ts';
 import type { DeviceEvent } from './deviceSession.ts';
@@ -48,7 +48,6 @@ export interface NodeModel {
   readonly lanes: readonly LaneNode[];
   readonly bleLink: BleLink;
   readonly seqRunning: boolean;
-  readonly inBootloader: boolean;
 }
 
 const emptyLane = (index: number): LaneNode => ({ index, phase: 'absent', syncOk: true, faultStatus: 0, info: null, changedUs: 0 });
@@ -56,7 +55,7 @@ const emptyLane = (index: number): LaneNode => ({ index, phase: 'absent', syncOk
 export function emptyNodeModel(): NodeModel {
   return {
     bootId: null, ctrl: null, ble: null, lanes: Array.from({ length: 7 }, (_, i) => emptyLane(i)),
-    bleLink: { state: 'unknown', phy: 0, attMtu: 0, intervalMs: 0 }, seqRunning: false, inBootloader: false,
+    bleLink: { state: 'unknown', phy: 0, attMtu: 0, intervalMs: 0 }, seqRunning: false,
   };
 }
 
@@ -88,7 +87,7 @@ export function applyNodeList(m: NodeModel, nodes: readonly NodeInfo[]): NodeMod
       lanes[l.index] = { ...l, phase: 'absent' };
     }
   }
-  return { ...m, ctrl, ble, lanes, inBootloader: ctrl?.boardType === BoardType.CONTROL_BOOT };
+  return { ...m, ctrl, ble, lanes };
 }
 
 export function applyNodeEvent(m: NodeModel, e: DeviceEvent): NodeModel {
@@ -97,7 +96,7 @@ export function applyNodeEvent(m: NodeModel, e: DeviceEvent): NodeModel {
   const us = (x: unknown): number => (typeof x === 'bigint' ? Number(x) : 0);
   switch (e.msgId) {
     case MsgId.EVT_BOOT:
-      return { ...emptyNodeModel(), bootId: e.bootId, ctrl: m.ctrl, ble: m.ble, inBootloader: m.inBootloader };
+      return { ...emptyNodeModel(), bootId: e.bootId, ctrl: m.ctrl, ble: m.ble };
     case MsgId.EVT_LANE_STATE: {
       const idx = v['lane'] as number;
       if (idx < 1 || idx > 6) return m;

@@ -13,7 +13,6 @@
 #include "stm32c5xx_hal_dbgmcu.h"   /* not pulled in by the umbrella header in this config */
 #include "mx_iwdg.h"
 #include "ctrl_status.h"
-#include "boot_shared.h"
 
 #define FAULT_GUARD_MAGIC  0xFA17C0DEU
 
@@ -34,9 +33,6 @@ typedef struct {
 
 /* Not static: easy to find in the .map and the debugger. */
 volatile faultGuardBreadcrumb_t faultGuardBreadcrumb __attribute__((section(".noinit")));
-
-/* The app's half of the shared block; boot_shared.h. */
-bootShared_t bootShared __attribute__((section(".boot_shared")));
 
 static bool faultGuardFaultBoot;
 static bool faultGuardWatchdogBoot;

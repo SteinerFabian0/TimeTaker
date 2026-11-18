@@ -29,7 +29,7 @@ describe('tt --sim', () => {
   });
 
   test('commands: hello, nodes, bind list, lane errors, usage', async () => {
-    assert.match((await cli(['--sim', 'hello'])).out[0]!, /protocol 0\.3 · USB · TRUSTED/);
+    assert.match((await cli(['--sim', 'hello'])).out[0]!, /protocol 0\.4 · USB · TRUSTED/);
     assert.ok((await cli(['--sim', 'nodes'])).out.some((l) => l.startsWith('CTRL 0  CONTROL')));
     assert.match((await cli(['--sim', 'bind', 'list'])).out[0]!, /pairing window: closed · 0 bound/);
     const bad = await cli(['--sim', 'lane', 'status', '1']);
@@ -56,7 +56,7 @@ describe('tt over a real tty', { skip: !hasSocat && 'socat not installed' }, () 
       await devTty.open({ onBytes: (b) => { void link.write(b); }, onClose: () => undefined });
       const hello = await cli(['--port', hostPath, 'hello']);
       assert.equal(hello.code, 0, hello.out.join('\n'));
-      assert.match(hello.out[0]!, /protocol 0\.3 · USB · TRUSTED/);
+      assert.match(hello.out[0]!, /protocol 0\.4 · USB · TRUSTED/);
       const nodes = await cli(['--port', hostPath, 'nodes']);
       assert.ok(nodes.out.some((l) => l.startsWith('CTRL 0')));
     } finally {

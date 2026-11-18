@@ -279,7 +279,7 @@ export const SCENARIOS: Scenario[] = [
     async during(ctx) {
       await ctx.sleep(25_000);
       const before = ctx.dev.bootId;
-      await ctx.manager.api.reboot('app');
+      await ctx.manager.api.reboot();
       await ctx.until(() => ctx.dev.bootId !== before, 2000, 'the reboot');
       await ctx.until(() => ctx.manager.state === 'connected' && ctx.manager.session?.hello?.bootId === ctx.dev.bootId, 10_000, 'reconnect');
       await ctx.director.powerLanes(true);

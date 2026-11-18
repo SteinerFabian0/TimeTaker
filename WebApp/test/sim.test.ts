@@ -13,7 +13,7 @@ import { defaultLaneConfig } from '../src/device/simDevice.ts';
 import type { SimDevice } from '../src/device/simDevice.ts';
 import {
   BindChange, BoardType, ButtonId, ClientKind, LaneBusState, LaneEventFlag, LaneEventType, LaneState, LedMode,
-  NodeClass, PressKind, SamplingMode, SeqAbortReason, Status,
+  MsgId, NodeClass, PressKind, RebootTarget, SamplingMode, SeqAbortReason, Status,
 } from '../src/protocol/generated.ts';
 import { named, recorder, rig } from './helpers.ts';
 import type { Recorder, Rig } from './helpers.ts';
@@ -304,35 +304,25 @@ describe('binding and settings', () => {
   });
 });
 
-describe('bootloader', () => {
-  test('app refuses UPDATE_*; bootloader serves only its set and reports CONTROL_BOOT', async () => {
+describe('no bootloader (protocol 0.4)', () => {
+  test('REBOOT{BOOTLOADER} and the old update ids are unsupported; CTRL reports CONTROL, imageCrc 0', async () => {
     const t = rig();
     await t.run(async () => {
-      const { dev, api } = await connected(t);
-      await assert.rejects(api.updateBegin(BoardType.CONTROL, 100, 0), status(Status.ERR_INVALID_STATE));
-      await api.reboot('bootloader');
-      await t.sleep(600);
-      assert.equal(dev.mode, 'bootloader');
+      const dev = t.sim();
       const s = t.session(dev);
       await s.connect();
-      const boot = new DeviceApi(s);
-      assert.equal(s.boardType, BoardType.CONTROL_BOOT);                  // from HELLO
-      assert.equal((await boot.nodeList())[0]?.boardType, BoardType.CONTROL_BOOT);
-      await assert.rejects(boot.status(), status(Status.ERR_UNSUPPORTED));
-      await assert.rejects(boot.updateBegin(BoardType.LANE, 100, 0), status(Status.ERR_IMAGE_BOARD));
-      await assert.rejects(boot.updateBegin(BoardType.CONTROL, 300 * 1024, 0), status(Status.ERR_IMAGE_TOO_BIG));
-      await assert.rejects(boot.updateChunk(0, new Uint8Array(4)), status(Status.ERR_UPDATE_SEQUENCE));
-      assert.equal(await boot.updateBegin(BoardType.CONTROL, 8, 0x12345678), 224);
-      assert.equal(await boot.updateChunk(0, new Uint8Array(4)), 4);
-      assert.equal(await boot.updateChunk(0, new Uint8Array(4)), 4);          // repeat: acked again
-      await assert.rejects(boot.updateChunk(8, new Uint8Array(4)), status(Status.ERR_UPDATE_SEQUENCE));
-      await assert.rejects(boot.updateEnd(), status(Status.ERR_UPDATE_SEQUENCE));
-      assert.equal(await boot.updateChunk(4, new Uint8Array(4)), 8);
-      await assert.rejects(boot.updateEnd(), status(Status.ERR_IMAGE_CRC));
-      await assert.rejects(boot.bootApp(), status(Status.ERR_INVALID_STATE));
-      dev.powerCycle();
-      await t.sleep(500);
-      assert.equal(dev.mode, 'bootloader');                               // no valid app: stays
+      const api = new DeviceApi(s);
+      assert.equal(s.boardType, BoardType.CONTROL);
+      const ctrl = (await api.nodeList())[0];
+      assert.equal(ctrl?.boardType, BoardType.CONTROL);
+      assert.equal(ctrl?.imageCrc, 0);
+      const bootBefore = dev.bootId;
+      assert.equal((await s.requestRaw(MsgId.REBOOT, new Uint8Array([RebootTarget.BOOTLOADER]))).status, Status.ERR_UNSUPPORTED);
+      for (const id of [0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xaf]) {
+        assert.equal((await s.requestRaw(id, new Uint8Array(0))).status, Status.ERR_UNSUPPORTED, `id 0x${id.toString(16)}`);
+      }
+      await t.sleep(600);
+      assert.equal(dev.bootId, bootBefore);                               // nothing rebooted
     });
   });
 });

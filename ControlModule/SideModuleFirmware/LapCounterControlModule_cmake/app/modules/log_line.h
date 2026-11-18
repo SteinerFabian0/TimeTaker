@@ -1,7 +1,7 @@
 /*
  * Log line builder for DBG_LOG streams: text, decimals and hex appended into
  * a fixed buffer, never past its end. No printf: newlib-nano's costs a few KB
- * of flash and the bootloader shares this budget.
+ * of flash.
  *
  * Mnemonics stay stable (like the hub's log vocabulary): the first word names
  * the subsystem ("LANE", "I3C", "BLE", "BIND", "SEQ", "SET", "FAULT", "BOOT").

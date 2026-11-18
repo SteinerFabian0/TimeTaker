@@ -42,7 +42,7 @@ VBUS.
 **C0-3 HELLO.** tt bench client: HELLO, NODE_LIST, STATUS.
 *Expect:* HELLO OK, transport USB, bindState TRUSTED, a bootId, logNextSeq ≥ 1;
 EVT_BOOT is evSeq 0 (RESUME from 0 shows it) with resetCause POWER_ON;
-NODE_LIST: CTRL (boardType CONTROL, imageCrc ≠ 0 = the stamp worked) and BLE
+NODE_LIST: CTRL (boardType CONTROL, imageCrc 0: no image header in v1) and BLE
 (ABSENT without the nRF); STATUS lastError 0 — or ERR_OPTION_BYTES (-71) on a
 chip optprog.py has not seen (F-4). D601 steady while connected.
 
@@ -114,7 +114,7 @@ EVENT_FIFO parsing (DBG "FIFO BAD"); "SEQ GAP" lines = lost on the lane.
 (a helper waving at two lanes), pull USB for 30 s, plug back, tt bench client:
 HELLO, RESUME{bootId, last evSeq + 1}.
 *Expect:* every crossing from the dropout arrives, in order, exactly once;
-evSeq contiguous. *If not:* ERR_LOG_GAP = more than 1024 events (log too
+evSeq contiguous. *If not:* ERR_LOG_GAP = more than 1600 events (log too
 small for that test); ERR_BOOT_MISMATCH = the box rebooted (check EVT_BOOT).
 
 **E-3 Raw stream.** LANE_RAW_STREAM{3, 0, 4}.
@@ -195,9 +195,8 @@ lastFaultId 1 with a PC in `faultGuardInjectHardFault`.
 *Expect:* the loop hangs; ~1.4–2.6 s later reboot, resetCause WATCHDOG (4).
 With a probe halted at a breakpoint the IWDG must NOT bite (frozen).
 **F-3 Boot-loop guard.** Repeat F-2 six times without 60 s of uptime between.
-*Expect (standalone):* the 6th boot runs without the watchdog (F-2 now hangs
-for good), lastError ERR_INVALID_STATE. *With the bootloader:* the box comes
-up as "TimeTaker (update)". Power-cycle clears it.
+*Expect:* the 6th boot runs without the watchdog (F-2 now hangs
+for good), lastError ERR_INVALID_STATE. Power-cycle clears it.
 **F-4 Option bytes.** `python3 tools/optprog.py --dry-run`, then without,
 then power-cycle. *Expect:* BOOT_SEL = 1, IWDG_STDBY = 0; STATUS lastError no
 longer -71. Then hold SW604 BOOT, tap SW605 NRST: the ROM DFU device appears
@@ -207,21 +206,10 @@ docstring): set BOOT_SEL = 0, BOOT0 = 0 and re-test.
 **F-5 Fault inputs.** Short PB12 (USB_FAULT) to GND briefly through 1 k.
 *Expect:* EVT_FAULT{USB, -61}, STATUS usbFaults +1, at most one event per second.
 
-## C7 — Bootloader
+## C7 — Bootloader (removed)
 
-**U-1 Boot path.** Flash `ctrl_boot.elf` + the `release_GCC_boot` app.
-*Expect:* the app runs normally (one extra reset at boot, invisible).
-Erase the app's page 0x0800_8000 only: the box comes up as PID 1209:0002
-"TimeTaker (update)", NODE_LIST boardType CONTROL_BOOT.
-**U-2 Entry conditions.** From the app: REBOOT{BOOTLOADER} → update mode.
-Hold BTN1 while plugging USB → update mode. nRF holds BOOT_REQ (PB4) low and
-pulses NRST → update mode. BOOT_APP → back to the app.
-**U-3 Update over USB.** tt bench client / web app updater: UPDATE_BEGIN{1,
-size, zlib.crc32(.bin)} (chunkMax 224), UPDATE_CHUNK × n, UPDATE_END, BOOT_APP.
-*Expect:* the new version in NODE_LIST. A lane image (boardType 2) →
-ERR_IMAGE_BOARD; a wrong crc → ERR_IMAGE_CRC at END and the bootloader stays.
-**U-4 Interrupted update.** Pull USB halfway; plug back: still in update mode
-(no valid header). UPDATE_BEGIN with the same size/crc resumes; resending from
-offset 0 is acknowledged and nextOffset jumps to where it stopped.
-**U-5 Update over BLE.** Same as U-3 with a bound web app over BLE (an
-unbound client gets ERR_NOT_BOUND).
+No field update in v1 (2026-11-18): every board is flashed over SWD /
+Tag-Connect, so there is nothing to bench here. The bootloader tests U-1..U-5
+are at git tag `archive/bootloader-update`. What remains to check (with C0-3):
+`REBOOT{BOOTLOADER}` and a request with id 0xA0 both answer ERR_UNSUPPORTED
+(`tt suite usb` does it), and the box does not reset.

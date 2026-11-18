@@ -221,7 +221,8 @@ typedef struct __attribute__((packed)) {
     uint8_t  state;            /* laneState_e                                     */
     uint8_t  samplingMode;     /* laneSamplingMode_e                              */
     uint16_t flags;            /* LANE_STATUS_*                                   */
-    uint8_t  fifoCount;        /* events waiting in EVENT_FIFO                    */
+    uint8_t  fifoCount;        /* events waiting in EVENT_FIFO, saturates at
+                                * LANE_FIFO_COUNT_MAX (the FIFO may be deeper)    */
     uint8_t  schedulePending;  /* actions waiting in the SCHEDULE queue           */
     uint16_t nextEventSeq;     /* seq the next event will get                     */
     uint16_t droppedEvents;    /* FIFO overflows since boot / clear (saturates)   */
@@ -261,11 +262,17 @@ typedef struct __attribute__((packed)) {
  */
 typedef struct __attribute__((packed)) {
     uint8_t  count;            /* records that follow (0..LANE_FIFO_READ_MAX)     */
-    uint8_t  remaining;        /* still queued after these                        */
+    uint8_t  remaining;        /* still queued after these, saturates at
+                                * LANE_FIFO_COUNT_MAX                             */
     uint16_t reserved;
 } laneFifoHeader_t;
 
 #define LANE_FIFO_READ_MAX           4U
+/* fifoCount and remaining are u8 but the lane's FIFO can hold more (v1:
+ * thousands). Both saturate here: 255 means "255 or more". The controller
+ * then cannot derive the oldest queued seq from STATUS and takes the first
+ * record it reads as the start (gaps still show in droppedEvents). */
+#define LANE_FIFO_COUNT_MAX          255U
 #define LANE_FIFO_READ_BYTES         (sizeof(laneFifoHeader_t) + LANE_FIFO_READ_MAX * sizeof(laneEvent_t))
 
 /* SIGNAL (R): the detector's view, for diagnostics and calibration. */

@@ -173,7 +173,8 @@ static uint32_t busBuildRead(uint8_t reg, uint8_t *buf, uint32_t cap, uint8_t *o
     case LANE_REG_STATUS: {
         laneStatus_t s = busStatus;
         const eventFifo_t *f = senseManagerEventFifo();
-        s.fifoCount     = eventFifoCount(f);
+        const uint16_t queued = eventFifoCount(f);
+        s.fifoCount     = (queued > LANE_FIFO_COUNT_MAX) ? (uint8_t)LANE_FIFO_COUNT_MAX : (uint8_t)queued;
         s.nextEventSeq  = eventFifoNextSeq(f);
         s.droppedEvents = eventFifoDropped(f);
         memcpy(buf, &s, sizeof(s));

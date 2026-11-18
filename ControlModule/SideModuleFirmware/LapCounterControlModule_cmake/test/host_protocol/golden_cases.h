@@ -233,17 +233,17 @@ static const uint8_t goldenHelloRequestWire[] = {
 };
 
 /* HELLO response */
-static const hpHelloRsp_t goldenHelloResponseFixed = { .status = 0, .protoMajor = 0U, .protoMinor = 3U, .transport = 2U, .bindState = 1U, .bootId = 1592594996U, .sysUs = UINT64_C(1234567890123), .logOldestSeq = 0U, .logNextSeq = 42U, .otherSessions = 1U, .boardType = 1U, .reserved = { 0x00, 0x00 } };
+static const hpHelloRsp_t goldenHelloResponseFixed = { .status = 0, .protoMajor = 0U, .protoMinor = 4U, .transport = 2U, .bindState = 1U, .bootId = 1592594996U, .sysUs = UINT64_C(1234567890123), .logOldestSeq = 0U, .logNextSeq = 42U, .otherSessions = 1U, .boardType = 1U, .reserved = { 0x00, 0x00 } };
 static const uint8_t goldenHelloResponsePayload[] = {
-    0x00, 0x00, 0x00, 0x03, 0x02, 0x01, 0x34, 0x12, 0xED, 0x5E, 0xCB, 0x04,
+    0x00, 0x00, 0x00, 0x04, 0x02, 0x01, 0x34, 0x12, 0xED, 0x5E, 0xCB, 0x04,
     0xFB, 0x71, 0x1F, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A, 0x00,
     0x00, 0x00, 0x01, 0x01, 0x00, 0x00
 };
 static const uint8_t goldenHelloResponseWire[] = {
-    0x05, 0x01, 0x01, 0x01, 0x10, 0x01, 0x01, 0x0E, 0x03, 0x02, 0x01, 0x34,
+    0x05, 0x01, 0x01, 0x01, 0x10, 0x01, 0x01, 0x0E, 0x04, 0x02, 0x01, 0x34,
     0x12, 0xED, 0x5E, 0xCB, 0x04, 0xFB, 0x71, 0x1F, 0x01, 0x01, 0x01, 0x01,
-    0x01, 0x01, 0x02, 0x2A, 0x01, 0x01, 0x03, 0x01, 0x01, 0x01, 0x03, 0xD9,
-    0xC2, 0x00
+    0x01, 0x01, 0x02, 0x2A, 0x01, 0x01, 0x03, 0x01, 0x01, 0x01, 0x03, 0xEB,
+    0xA8, 0x00
 };
 
 /* PING request */
@@ -354,9 +354,9 @@ static const uint8_t goldenBindAllowResponsePayload[] = { 0x00, 0x00 };
 static const uint8_t goldenBindAllowResponseWire[] = { 0x05, 0x08, 0x01, 0x08, 0x10, 0x01, 0x03, 0xA3, 0x6F, 0x00 };
 
 /* REBOOT request */
-static const hpRebootReq_t goldenRebootRequestFixed = { .target = 1U };
-static const uint8_t goldenRebootRequestPayload[] = { 0x01 };
-static const uint8_t goldenRebootRequestWire[] = { 0x02, 0x11, 0x06, 0x11, 0x10, 0x01, 0x06, 0xD8, 0x00 };
+static const hpRebootReq_t goldenRebootRequestFixed = { .target = 0U };
+static const uint8_t goldenRebootRequestPayload[] = { 0x00 };
+static const uint8_t goldenRebootRequestWire[] = { 0x02, 0x11, 0x03, 0x11, 0x10, 0x03, 0x27, 0xC8, 0x00 };
 
 /* REBOOT response */
 static const hpRebootRsp_t goldenRebootResponseFixed = { .status = 0 };
@@ -518,58 +518,6 @@ static const uint8_t goldenAbortSequenceRequestWire[] = { 0x02, 0x41, 0x05, 0x41
 static const int16_t goldenAbortSequenceResponseFixed = -3;
 static const uint8_t goldenAbortSequenceResponsePayload[] = { 0xFD, 0xFF };
 static const uint8_t goldenAbortSequenceResponseWire[] = { 0x09, 0x41, 0x01, 0x41, 0x10, 0xFD, 0xFF, 0xD7, 0xAB, 0x00 };
-
-/* UPDATE_BEGIN request */
-static const hpUpdateBeginReq_t goldenUpdateBeginRequestFixed = { .boardType = 1U, .reserved = { 0x00, 0x00, 0x00 }, .size = 131072U, .crc32 = 305441741U };
-static const uint8_t goldenUpdateBeginRequestPayload[] = { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xCD, 0xAB, 0x34, 0x12 };
-static const uint8_t goldenUpdateBeginRequestWire[] = {
-    0x02, 0xA0, 0x04, 0xA0, 0x10, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02,
-    0x07, 0xCD, 0xAB, 0x34, 0x12, 0x32, 0x4C, 0x00
-};
-
-/* UPDATE_BEGIN response */
-static const hpUpdateBeginRsp_t goldenUpdateBeginResponseFixed = { .status = 0, .chunkMax = 224U, .reserved = 0U };
-static const uint8_t goldenUpdateBeginResponsePayload[] = { 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00 };
-static const uint8_t goldenUpdateBeginResponseWire[] = {
-    0x05, 0xA0, 0x01, 0xA0, 0x10, 0x01, 0x02, 0xE0, 0x01, 0x01, 0x03, 0x5B,
-    0xE2, 0x00
-};
-
-/* UPDATE_CHUNK request */
-static const hpUpdateChunkReq_t goldenUpdateChunkRequestFixed = { .offset = 224U };
-static const uint8_t goldenUpdateChunkRequestTail[] = { 0x00, 0xFF, 0x10 };
-static const uint8_t goldenUpdateChunkRequestPayload[] = { 0xE0, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x10 };
-static const uint8_t goldenUpdateChunkRequestWire[] = {
-    0x02, 0xA1, 0x04, 0xA1, 0x10, 0xE0, 0x01, 0x01, 0x01, 0x05, 0xFF, 0x10,
-    0x62, 0xE8, 0x00
-};
-
-/* UPDATE_CHUNK response */
-static const hpUpdateChunkRsp_t goldenUpdateChunkResponseFixed = { .status = 0, .nextOffset = 227U };
-static const uint8_t goldenUpdateChunkResponsePayload[] = { 0x00, 0x00, 0xE3, 0x00, 0x00, 0x00 };
-static const uint8_t goldenUpdateChunkResponseWire[] = {
-    0x05, 0xA1, 0x01, 0xA1, 0x10, 0x01, 0x02, 0xE3, 0x01, 0x01, 0x03, 0x11,
-    0x51, 0x00
-};
-
-/* UPDATE_END request */
-static const uint8_t goldenUpdateEndRequestWire[] = { 0x02, 0xA2, 0x05, 0xA2, 0x10, 0xF3, 0xEA, 0x00 };
-
-/* UPDATE_END response */
-static const int16_t goldenUpdateEndResponseFixed = -51;
-static const uint8_t goldenUpdateEndResponsePayload[] = { 0xCD, 0xFF };
-static const uint8_t goldenUpdateEndResponseWire[] = { 0x09, 0xA2, 0x01, 0xA2, 0x10, 0xCD, 0xFF, 0xAC, 0xF4, 0x00 };
-
-/* UPDATE_ABORT request */
-static const uint8_t goldenUpdateAbortRequestWire[] = { 0x02, 0xA3, 0x05, 0xA3, 0x10, 0x76, 0xAF, 0x00 };
-
-/* BOOT_APP request */
-static const uint8_t goldenBootAppRequestWire[] = { 0x02, 0xA4, 0x05, 0xA4, 0x10, 0xCC, 0x67, 0x00 };
-
-/* BOOT_APP response */
-static const hpBootAppRsp_t goldenBootAppResponseFixed = { .status = 0 };
-static const uint8_t goldenBootAppResponsePayload[] = { 0x00, 0x00 };
-static const uint8_t goldenBootAppResponseWire[] = { 0x05, 0xA4, 0x01, 0xA4, 0x10, 0x01, 0x03, 0x2C, 0x20, 0x00 };
 
 /* EVT_BOOT body */
 static const hpEvtBoot_t goldenEvtBootFixed = { .evSeq = 0U, .resetCause = 1U, .reserved = { 0x00, 0x00, 0x00 }, .bootId = 1592594996U, .sysUs = UINT64_C(1500) };
@@ -842,33 +790,6 @@ static const goldenMsgCase_t goldenMsgCases[] = {
     { "ABORT_SEQUENCE response", { .msgId = 0x41U, .flags = 0x01U, .tag = 0x1041U },
       &goldenAbortSequenceResponseFixed, sizeof(int16_t), NULL, 0U,
       goldenAbortSequenceResponsePayload, 2U, goldenAbortSequenceResponseWire, 10U },
-    { "UPDATE_BEGIN request", { .msgId = 0xA0U, .flags = 0x00U, .tag = 0x10A0U },
-      &goldenUpdateBeginRequestFixed, HP_UPDATE_BEGIN_REQ_BYTES, NULL, 0U,
-      goldenUpdateBeginRequestPayload, 12U, goldenUpdateBeginRequestWire, 20U },
-    { "UPDATE_BEGIN response", { .msgId = 0xA0U, .flags = 0x01U, .tag = 0x10A0U },
-      &goldenUpdateBeginResponseFixed, HP_UPDATE_BEGIN_RSP_BYTES, NULL, 0U,
-      goldenUpdateBeginResponsePayload, 6U, goldenUpdateBeginResponseWire, 14U },
-    { "UPDATE_CHUNK request", { .msgId = 0xA1U, .flags = 0x00U, .tag = 0x10A1U },
-      &goldenUpdateChunkRequestFixed, HP_UPDATE_CHUNK_REQ_BYTES, goldenUpdateChunkRequestTail, sizeof(goldenUpdateChunkRequestTail),
-      goldenUpdateChunkRequestPayload, 7U, goldenUpdateChunkRequestWire, 15U },
-    { "UPDATE_CHUNK response", { .msgId = 0xA1U, .flags = 0x01U, .tag = 0x10A1U },
-      &goldenUpdateChunkResponseFixed, HP_UPDATE_CHUNK_RSP_BYTES, NULL, 0U,
-      goldenUpdateChunkResponsePayload, 6U, goldenUpdateChunkResponseWire, 14U },
-    { "UPDATE_END request", { .msgId = 0xA2U, .flags = 0x00U, .tag = 0x10A2U },
-      NULL, 0U, NULL, 0U,
-      NULL, 0U, goldenUpdateEndRequestWire, 8U },
-    { "UPDATE_END response", { .msgId = 0xA2U, .flags = 0x01U, .tag = 0x10A2U },
-      &goldenUpdateEndResponseFixed, sizeof(int16_t), NULL, 0U,
-      goldenUpdateEndResponsePayload, 2U, goldenUpdateEndResponseWire, 10U },
-    { "UPDATE_ABORT request", { .msgId = 0xA3U, .flags = 0x00U, .tag = 0x10A3U },
-      NULL, 0U, NULL, 0U,
-      NULL, 0U, goldenUpdateAbortRequestWire, 8U },
-    { "BOOT_APP request", { .msgId = 0xA4U, .flags = 0x00U, .tag = 0x10A4U },
-      NULL, 0U, NULL, 0U,
-      NULL, 0U, goldenBootAppRequestWire, 8U },
-    { "BOOT_APP response", { .msgId = 0xA4U, .flags = 0x01U, .tag = 0x10A4U },
-      &goldenBootAppResponseFixed, HP_BOOT_APP_RSP_BYTES, NULL, 0U,
-      goldenBootAppResponsePayload, 2U, goldenBootAppResponseWire, 10U },
     { "EVT_BOOT body", { .msgId = 0xC0U, .flags = 0x02U, .tag = 0x0000U },
       &goldenEvtBootFixed, HP_EVT_BOOT_BYTES, NULL, 0U,
       goldenEvtBootPayload, 20U, goldenEvtBootWire, 28U },

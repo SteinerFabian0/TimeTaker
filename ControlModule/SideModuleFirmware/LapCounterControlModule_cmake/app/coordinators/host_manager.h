@@ -50,9 +50,12 @@
 #include "ctrl_status.h"
 #include "log_line.h"
 
-/* About 24 KB of RAM: roughly 1000 crossings, many minutes of racing. The log
- * only bridges dropouts and transport switches; the app keeps the history. */
-#define HOST_MANAGER_EVENT_LOG_CAPACITY  1024U
+/* 1600 slots x 22 B = 35.2 KB of RAM: roughly 1600 crossings, many minutes
+ * of racing. The log only bridges dropouts, slow links and transport
+ * switches; the app keeps the history. Sized to leave about 8 KB of the 64 KB
+ * RAM free with the 4 KB stack (CONTROL_FIRMWARE_NOTES "RAM map"); grow or
+ * shrink it when other RAM users change. */
+#define HOST_MANAGER_EVENT_LOG_CAPACITY  1600U
 
 #define HOST_MANAGER_BIND_WINDOW_S       60U     /* BLE button LONG */
 #define HOST_MANAGER_BIND_WINDOW_MAX_S   600U    /* BIND_ALLOW is clamped to this */

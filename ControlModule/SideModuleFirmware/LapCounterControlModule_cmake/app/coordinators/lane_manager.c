@@ -308,8 +308,10 @@ static void laneConfigured(uint8_t lane, const laneStatus_t *st)
     const uint32_t  now = HAL_GetTick();
     s->state       = SLOT_CONFIGURED;
     s->failStreak  = 0U;
-    s->seqKnown    = true;
-    s->nextSeq     = (uint16_t)(st->nextEventSeq - st->fifoCount);   /* first record still queued */
+    /* First record still queued, unless the count saturated (deep lane FIFO):
+     * then the first record read sets it (lane_protocol.h LANE_FIFO_COUNT_MAX). */
+    s->seqKnown    = st->fifoCount < LANE_FIFO_COUNT_MAX;
+    s->nextSeq     = (uint16_t)(st->nextEventSeq - st->fifoCount);
     s->lastDropped = st->droppedEvents;
     s->lastShifts  = st->syncShifts;
     s->lastPollMs  = now;

@@ -32,19 +32,21 @@ the STM32 (USART1). It is a **boring bridge, and it must stay boring.**
 | Bridge the Nordic UART Service (NUS) to the STM, both ways | Store anything about hosts (no bonding, no bind list) |
 | Run the bind button (SW501) and the BLE LED (D603) | Decide anything: binding, pairing windows, kicking clients are the STM's |
 | Tell the STM about the link (connected, MTU, PHY) | Talk to the lanes, the clock, or anything else |
-| Reset the STM, or strap it into its bootloader (later) | Update itself in the field: SWD only |
+| Hold the STM's reset and boot lines in their safe state | Update itself in the field: SWD only |
 
 **Why this split:** the nRF can only be reflashed over SWD (J501), and its
 RAM is nearly full with the BLE stack alone. Every feature put here is a
-feature that is hard to fix later. All intelligence lives in the STM, which
-gets field updates over USB and BLE (SYSTEM_ARCHITECTURE §10).
+feature that is hard to fix later. All intelligence lives in the STM. (v1
+has no field update on any board: everything is flashed over SWD,
+SYSTEM_ARCHITECTURE §10.)
 
 ---
 
 ## 2. Where it stands (2026-11-18)
 
-**Cards B1–B4 are built and compile for real; B5's mechanism exists without
-a trigger. Nothing has run on hardware: the PCBs are still in production.**
+**Cards B1–B4 are built and compile for real; B5 was dropped with the
+control bootloader (no field update in v1). Nothing has run on hardware: the
+PCBs are still in production.**
 Details, numbers and open items: §14. Bench procedures: `BENCH_TESTS.md`.
 
 - Build: `tools/build.sh` (or, in the toolchain shell,
@@ -84,7 +86,7 @@ disconnected inputs then.
 |---|---|---|---|---|
 | P0.00 | BLE_BTN | Bind button SW501 to GND | Input, no internal pull (R501 10 k pull-up on the board), active low | Floats high via R501 |
 | P0.01 | BLE_GPIO2 | ↔ STM PA15. **Spare.** | Leave as a disconnected input | STM side has JTDI pull-up after reset |
-| P0.04 | BLE_GPIO1 | **BOOT_REQ** → STM PB4, active low | Output push-pull, **high** (inactive) | Floats; PB4's NJTRST pull-up reads it as "no request" |
+| P0.04 | BLE_GPIO1 | **BOOT_REQ** → STM PB4, active low. **Unused in v1** (no STM bootloader) | Output push-pull, **high** (inactive), never changed | Floats; PB4's NJTRST pull-up reads it as "no request" |
 | P0.05 | BLE_IRQ | → STM PB5: high while a central is connected | Output push-pull, low at boot | Floats; PB5 has a pull-down → "not connected" |
 | P0.12 | BOOT0 | → STM BOOT0 (recovery into the ST ROM only) | **Never driven in v1**: disconnected input | R201 10 k pull-down on the STM side holds it low |
 | P0.14 | NRST | → STM NRST | Output **open drain** (S0D1), inactive = released. Never push-pull, not even for one instruction. | Floats; the STM's own NRST pull-up holds it |
@@ -391,23 +393,20 @@ tells it (`UI_STATE`, `CUE`). First matching row wins:
 Patterns run from one `k_timer` at 50 ms resolution. The LED code is a
 table, not logic.
 
-### 7.3 STM reset and the bootloader strap (`stm_ctrl`)
+### 7.3 STM reset and boot lines (`stm_ctrl`)
 
-- **NRST (P0.14), open drain.** `stmCtrlResetPulse()` pulls it low for 10 ms
-  and releases it. Never drive it high.
-- **BOOT_REQ (P0.04), active low.** `stmCtrlResetIntoBootloader()` drives
-  BOOT_REQ low, pulses NRST, holds BOOT_REQ low 200 ms (the STM bootloader
-  samples it at reset), then drives it high again.
+- **NRST (P0.14), open drain.** Released at init. `stmCtrlResetPulse()`
+  pulls it low for 10 ms and releases it; nothing calls it in v1. Never
+  drive it high.
+- **BOOT_REQ (P0.04), active low:** driven high (inactive) at init and never
+  changed. It was the strap into the control bootloader; v1 has no
+  bootloader (every board is flashed over SWD), so the line is unused.
 - **BOOT0 (P0.12)** stays undriven in v1. Entering the ST ROM bootloader
   needs a USB cable anyway (HARDWARE_REFERENCE §6), and then the user can
   press SW604 BOOT + SW605 NRST.
-- **Nothing triggers these in v1.** The control bootloader does not exist
-  yet (control guide task C7). The trigger gets decided with it (task B5).
-  The proposal: **5 short presses within 3 s, and only while the STM has
-  been silent on the link for ≥ 5 s.** A working STM is updated with
-  `REBOOT{BOOTLOADER}` from the web app, so the strap is only for an STM
-  that cannot talk; and the silence condition keeps a child's button
-  mashing from resetting the timing system mid-race.
+- **Removed 2026-11-18:** `stmCtrlResetIntoBootloader()` and task B5 (the
+  button trigger for it), together with the control bootloader. Both are at
+  git tag `archive/bootloader-update`.
 
 ---
 
@@ -516,7 +515,7 @@ unforeseen buffer.
   box. Pause it while halted by the debugger.
 - **Reset cause** goes into `NRF_HELLO.resetCause` (POWER_ON, PIN, WATCHDOG,
   LOCKUP, SOFT). The STM shows it in NODE_LIST and logs it.
-- **The STM can be absent** (in reset, in its bootloader, unflashed). The
+- **The STM can be absent** (in reset, unflashed, being flashed). The
   nRF keeps advertising and bridging; DATA to a silent STM just goes
   nowhere and the web app's HELLO times out. Nothing on the nRF waits for
   the STM.
@@ -569,7 +568,7 @@ modules (no Zephyr includes) so these tests can exist.
 | **B2** | `ble_link_protocol.h` in both trees, `stm_link` (UART, framing, DATA slots, credits, all CTRL messages), host tests of §11.1 | B1 | With the STM echo knob (control C5's first step), phone writes come back through both chips; a 10 KB burst passes without loss |
 | **B3** | Bind UI end to end: button → `BUTTON`, `UI_STATE`/`CUE` → LED, `KICK`, `ADVERTISE` | B2 + control C5 | The binding flow of SYSTEM_ARCHITECTURE §9.5 works with the web app |
 | **B4** | Stage B (MTU, DLE, 2M PHY as RAM allows), `STATS`, watchdog | B2 | Throughput measured and written into §14; WDT resets a deliberately hung loop |
-| **B5** | Recovery strap trigger (§7.3) | control C7 | An STM with a broken app can be put into its bootloader from the button |
+| ~~B5~~ | Removed 2026-11-18 with the control bootloader (no field update in v1; tag `archive/bootloader-update`) | | |
 
 ---
 
@@ -629,7 +628,7 @@ SYSTEM_ARCHITECTURE §9 on 2026-11-17):
 | `src/main.c` | Init order, k_poll event loop, bridge state, WDT 4 s, reset cause, STATS 1/s |
 | `src/ble_link.c` | Advertising §6.1, NUS, conn/MTU/PHY/DLE callbacks, notify with completion tagged by slot + connection generation, RSSI |
 | `src/stm_link.c` | UARTE async RX (2×64 B DMA → 512 B ring), TX ring 512 B under a spinlock, frame_codec, counters |
-| `src/bind_ui.c`, `src/stm_ctrl.c` | 10 ms button timer + LED renderer; BLE_IRQ, BOOT_REQ, NRST open drain, `stmCtrlResetIntoBootloader()` (no trigger: B5) |
+| `src/bind_ui.c`, `src/stm_ctrl.c` | 10 ms button timer + LED renderer; BLE_IRQ, BOOT_REQ (held high, unused), NRST open drain released |
 | Pure modules | `button_classifier`, `led_table`, `data_slots` (credits + MTU split), `link_msg` (framing, CTRL pack/parse, KICK reason, reset cause), `byte_ring` |
 | `cmake/version*.cmake` | `fw_version.h`: 0.1.0 + git rev (+dirty), as the STM does |
 | `test/` | `run_all.sh`, `mutation_check.py` |
@@ -689,5 +688,5 @@ the real baud error; stack sizes (run the debug image's thread analyzer);
 notify/credit timing under load and throughput; advertising restart after
 disconnect; RSSI read; LED/button timing by eye; WDT reset.
 
-**Open:** B5 trigger (with control C7); release APPROTECT (§13 Q3); measured
+**Open:** release APPROTECT (§13 Q3); measured
 stacks, baud error and throughput go here after the bench (BENCH_TESTS.md).

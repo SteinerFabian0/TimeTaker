@@ -21,8 +21,8 @@ What it sets (CONTROL_FIRMWARE_GUIDE §5.6 item 4):
   BOOT0            not touched (only matters with BOOT_SEL = 0).
 
 Deliberately NOT touched: IWDG_SW (software start, the firmware starts it),
-IWDG_STOP, RDP, WRP. Write protection of the bootloader pages (WRP1R) comes
-once ctrl_boot is final; the WRP bit polarity is not verified on the C5 yet.
+IWDG_STOP, RDP, WRP. (v1 has no bootloader, so there are no pages to
+write-protect; every image goes on over SWD.)
 
   * Option bytes reload ONLY on a power-on reset: unplug USB (and the probe's
     3V3 if it powers the board) once after this runs.

@@ -133,8 +133,6 @@ typedef struct {
 static frame_t  outFrames[64];
 static int      outCount;
 
-static uint8_t setupBoardType = (uint8_t)HP_BOARD_CONTROL;
-
 static void setupWith(uint8_t transport, uint8_t bindState, bool withHello)
 {
     rxHead = rxTail = 0U;
@@ -147,7 +145,6 @@ static void setupWith(uint8_t transport, uint8_t bindState, bool withHello)
     const hostSessionConfig_t cfg = {
         .transport = transport,
         .bindState = bindState,
-        .boardType = setupBoardType,
         .bootId    = BOOT_ID,
         .log       = &elog,
         .nowUs     = fakeClock,
@@ -293,17 +290,9 @@ static void testHello(void)
           r.bootId == BOOT_ID && r.transport == HP_TRANSPORT_USB && r.bindState == HP_BIND_TRUSTED
           && r.sysUs == fakeNowUs && r.logOldestSeq == 0U && r.logNextSeq == 2U
           && r.protoMajor == HP_PROTO_MAJOR && r.protoMinor == HP_PROTO_MINOR);
-    check("hello: reports the configured board type (CONTROL), reserved zero",
+    check("hello: reports board type CONTROL, reserved zero",
           r.boardType == HP_BOARD_CONTROL && r.reserved[0] == 0U && r.reserved[1] == 0U);
     check("hello: history is not pushed (cursor starts at the head)", outCount == 1);
-
-    setupBoardType = (uint8_t)HP_BOARD_CONTROL_BOOT;   /* the bootloader's session config */
-    setup();
-    openSession();
-    memcpy(&r, outFrames[0].payload, sizeof(r));
-    setupBoardType = (uint8_t)HP_BOARD_CONTROL;
-    check("hello: the bootloader's session reports CONTROL_BOOT",
-          outCount == 1 && r.status == 0 && r.boardType == HP_BOARD_CONTROL_BOOT);
 }
 
 static void testPing(void)

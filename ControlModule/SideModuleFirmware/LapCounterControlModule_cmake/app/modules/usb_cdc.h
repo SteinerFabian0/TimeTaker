@@ -42,15 +42,9 @@
  * the same source as the web app's port filter, so the two cannot drift.
  * Today: the pid.codes test pair (https://pid.codes/1209/0001/), fine for
  * private development, NOT for a published design (SYSTEM_ARCHITECTURE §8). */
-#define USB_CDC_VID   HP_USB_VID
-#ifdef CTRL_BOOTLOADER
-/* The bootloader shows up with its own PID and product string ([usb] pid_boot). */
-#define USB_CDC_PID   HP_USB_PID_BOOT
-#define USB_CDC_PRODUCT HP_USB_PRODUCT_BOOT
-#else
-#define USB_CDC_PID   HP_USB_PID
+#define USB_CDC_VID     HP_USB_VID
+#define USB_CDC_PID     HP_USB_PID
 #define USB_CDC_PRODUCT HP_USB_PRODUCT
-#endif
 
 /* Starts the USB device stack. Assumes deviceIdInit() has run (serial string). */
 ctrlStatus_e usbCdcInit(void);

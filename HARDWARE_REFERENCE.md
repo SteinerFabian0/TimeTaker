@@ -97,7 +97,7 @@ and a schematic disagree, the schematic wins. Fix this file when that happens.
 | 32/33 | PA11/PA12 | USB_DN/DP | USB FS device. Routed through the TPD4S201 SBU channels for OVP and ESD (same trick as Yuhka V1). |
 | 34/37/39 | PA13/PA14/PB3 | SWD | Debug |
 | 38 | PA15 | BLE_GPIO2 | nRF P0.01. JTDI: pulled up after reset. Spare. |
-| 40 | PB4 | BLE_GPIO1 | nRF P0.04. NJTRST: pulled up after reset. **BOOT_REQ**, active low, read by the future control bootloader at reset (SYSTEM_ARCHITECTURE §9.4). |
+| 40 | PB4 | BLE_GPIO1 | nRF P0.04. NJTRST: pulled up after reset. **BOOT_REQ**, active low. **Unused in v1** (no control bootloader; every board is flashed over SWD): input with pull-up, the nRF holds it high (SYSTEM_ARCHITECTURE §9.4, §10). |
 | 41 | PB5 | BLE_IRQ | nRF P0.05 → STM. Input with pull-down, EXTI rising. High while a BLE central is connected. |
 | 42 | PB6 | UART1_TX | → nRF P0.16 (RX). USART1, 460800 8N1 |
 | 43 | PB7 | UART1_RX | ← nRF P0.18 (TX) |
@@ -202,7 +202,7 @@ All LEDs are red 5 mm THT parts.
 |---|---|---|---|
 | P0.00 | BLE_BTN | in | Bind button SW501 (10 k pull-up, press = low) |
 | P0.01 | BLE_GPIO2 | — | ↔ STM PA15 (spare) |
-| P0.04 | BLE_GPIO1 | out | → STM PB4: **BOOT_REQ**, active low |
+| P0.04 | BLE_GPIO1 | out | → STM PB4: **BOOT_REQ**, active low; unused in v1, driven high |
 | P0.05 | BLE_IRQ | out | → STM PB5: high while a central is connected |
 | P0.12 | BOOT0 | out | → STM BOOT0 (R604 limits current against SW604) |
 | P0.14 | NRST | out, **open drain** | → STM NRST. Only pull low, never drive high. |
@@ -306,12 +306,13 @@ the protocol is in `SYSTEM_ARCHITECTURE.md`.
 
 ## 6. Boot, ROM bootloader and firmware-update facts
 
-These facts constrain the update design in `SYSTEM_ARCHITECTURE.md` §10.
+These facts constrain any field-update design (`SYSTEM_ARCHITECTURE.md` §10).
+v1 has no field update: every board is flashed over SWD / Tag-Connect.
 
 | Fact | Source | Consequence |
 |---|---|---|
 | The C5 ROM bootloader supports **USART, FDCAN, USB (DFU) and SPI**. **No I²C or I3C.** | Datasheet (local) | Lanes cannot be updated over the lane bus through ROM. They need SWD or their own I3C bootloader. |
-| ROM USART1 uses **PA9 (TX) / PA10 (RX)**, 8E1 | ST community post on C542 boot settings, citing AN2606 (**check against the current AN2606 table**) | On the control module, PA9/PA10 are BUS_SCL and CHAIN_OUT. The nRF sits on **PB6/PB7**, so **the nRF cannot reach the ROM bootloader**. BLE updates need our own STM bootloader. This answers the open question in the BLE sheet note. |
+| ROM USART1 uses **PA9 (TX) / PA10 (RX)**, 8E1 | ST community post on C542 boot settings, citing AN2606 (**check against the current AN2606 table**) | On the control module, PA9/PA10 are BUS_SCL and CHAIN_OUT. The nRF sits on **PB6/PB7**, so **the nRF cannot reach the ROM bootloader**. A BLE update would need our own STM bootloader (built, then deferred: git tag `archive/bootloader-update`). |
 | ROM USB DFU on PA11/PA12 | Same post | BOOT (SW604) + NRST (SW605), then STM32CubeProgrammer over USB: the recovery path for the control module |
 | ROM SPI pins (C5): SPI1 PA7/PA6/PA5/PA4, SPI2 PB15/PB14/PB13/PB12 | Search snippet of ST AN6308, **unverified** | Both collide with used pins on the control module. Not an option. |
 | `BOOT_SEL` option bit: 1 = BOOT0 comes from the pin, 0 = from the BOOT0 option bit | ST community / RM0522 | Program the option bytes so the BOOT0 pin is honoured (both boards have real pull-downs). Do **not** copy the C542 hub's BOOT_SEL script, which was written for a floating-BOOT0 board. |

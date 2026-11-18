@@ -2,8 +2,8 @@
  * USB transport: Web Serial (Chrome/Edge, desktop) to the control module's
  * CDC-ACM port.
  *
- * The port picker only lists devices with the TimeTaker VID and the app's or
- * the bootloader's PID (USB_ID, generated from [usb] in host_protocol.toml).
+ * The port picker only lists devices with the TimeTaker VID and PID (USB_ID,
+ * generated from [usb] in host_protocol.toml).
  * The baud rate means nothing to a CDC device but Web Serial requires one. On Linux the user needs access to
  * /dev/ttyACM* (see WebApp/README.md).
  *
@@ -13,8 +13,7 @@
 
 import { USB_ID } from '../protocol/generated.ts';
 
-/** The app's PID and the bootloader's: an update re-enumerates between them. */
-const USB_PIDS: readonly number[] = [USB_ID.productId, USB_ID.productIdBoot];
+const USB_PIDS: readonly number[] = [USB_ID.productId];
 import type { Transport, TransportHandlers } from './transport.ts';
 
 interface SerialPortFilter { usbVendorId?: number; usbProductId?: number }

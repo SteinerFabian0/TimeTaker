@@ -120,9 +120,10 @@ ctrlStatus_e panelManagerRun(void)
 
     uint32_t traffic = hostManagerTrafficCount();
     if (traffic != panelTrafficSeen && !indicatorLedIsBlinking(INDICATOR_LED_ACT)) {
-        panelTrafficSeen = traffic;
         ctrlStatus_e status = indicatorLedBlink(INDICATOR_LED_ACT, 60U, 500U, 1U);
-        if (status != CTRL_OK) {
+        if (status == CTRL_OK) {
+            panelTrafficSeen = traffic;  /* else retried next pass */
+        } else {
             result = status;
         }
     }

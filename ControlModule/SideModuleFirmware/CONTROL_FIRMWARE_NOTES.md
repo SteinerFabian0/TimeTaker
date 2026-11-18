@@ -111,12 +111,11 @@ The firmware calls the "generated only" blocks when it needs them (`mx_spi2_init
 - **USB:** CubeMX configures only the PCD driver. The firmware runs
   **TinyUSB CDC-ACM** instead and excludes the generated `mx_usb_drd_fs.c`
   (see Firmware status below).
-- **Firmware update:** the ROM bootloader's USART1 is PA9/PA10 (the lane bus),
-  not PB6/PB7, so the nRF cannot reach it. BLE/USB updates go through our own
-  bootloader (SYSTEM_ARCHITECTURE §10.1). Its entry strap is BOOT_REQ = PB4,
-  active low. PB4's NJTRST pull-up at reset means an nRF in reset reads as "no
-  request". Since the 2026-11-17 pass the app's CubeMX config has the pull-up
-  too, so the app and the bootloader agree.
+- **Firmware update:** none in the field in v1 (decided 2026-11-18): every
+  board is flashed over SWD / Tag-Connect (SYSTEM_ARCHITECTURE §10). PB4
+  BOOT_REQ (nRF → STM, active low) is **unused in v1**; it keeps its input
+  pull-up, and the nRF holds it high. The removed bootloader is at git tag
+  `archive/bootloader-update`.
 - **Host protocol:** `app/config/host_protocol.h` is generated from
   `../../protocol/host_protocol.toml` (`protocol/gen_protocol.py`). Never edit
   it by hand.
@@ -125,33 +124,38 @@ The firmware calls the "generated only" blocks when it needs them (`mx_spi2_init
 
 ## Firmware status
 
-Updated 2026-11-18 (task cards C1–C7, no board). Everything in
-`CONTROL_FIRMWARE_GUIDE.md` §9 C1–C7 that can be written without hardware is
-written, builds and is host-tested; **nothing is flashed or bench-tested**.
+Updated 2026-11-18 (task cards C1–C6, no board; C7 removed the same day:
+no field update in v1). Everything in `CONTROL_FIRMWARE_GUIDE.md` §9 C1–C6
+that can be written without hardware is written, builds and is host-tested;
+**nothing is flashed or bench-tested**.
 The bench procedures are in `BENCH_TESTS.md`. The older C0 checklist below
 ("On the bench") is now BENCH_TESTS.md C0.
 
-**Sizes (2026-11-18):** debug app 61.4 KB flash / 43.9 KB RAM (24 KB event
-log, 4 KB stack, 3 KB nRF rings); release app 60.7 KB / 43.9 KB; `ctrl_boot`
-29.4 KB flash of 32 KB / 15.8 KB RAM.
+**Sizes (2026-11-18, after the bootloader removal):** debug app 60.8 KB
+flash / 55.4 KB RAM, release 60.1 KB / 55.4 KB, of 240 KB / 64 KB.
 
-**Flash layout** (`app/modules/image_header.h`): ctrl_boot 0x0800_0000 (32 KB,
-4 pages — 24 KB did not fit), app 0x0800_8000 (208 KB, header at +0x400),
-settings 0x0803_C000 (2 pages, bank 2). The default `debug_GCC_main` /
-`release_GCC_main` presets still link a standalone app at 0x0800_0000;
-`debug_GCC_boot` / `release_GCC_boot` link it behind the bootloader.
+**RAM map** (release, 64 KB; stack included): event log 35.2 KB (1600 slots ×
+22 B, `HOST_MANAGER_EVENT_LOG_CAPACITY`), stack 4 KB, nRF rings 3 KB, TinyUSB
+CDC 2.6 KB, I3C queues 1.9 KB, lane slots 1.5 KB, the two host sessions
+1.4 KB, heap 0.5 KB, everything else about 5.3 KB; **8.6 KB free** (target:
+about 8 KB). The event log takes what the bootloader's hand-over and the
+update path left; grow or shrink it when other RAM users change.
+
+**Flash layout** (`app/modules/flash_drv.h`): app 0x0800_0000 (240 KB, the
+only layout), settings 0x0803_C000 (2 pages, bank 2). `flash_drv` erases and
+programs the settings pages only. Presets: `debug_GCC_main`,
+`release_GCC_main`.
 
 **New modules:** `i3c_ctrl`, `nrf_link`, `settings_store`, `flash_drv`
 (LL: the HAL flash program/erase are disabled in hal_conf), `rng`,
 `fault_guard`, `sys_power`, `exti_latch` (owns HAL_EXTI_TriggerCallback);
 pure and host-tested: `lane_logic`, `seq_planner`, `bind_list`,
 `settings_record`, `crc32`, `nrf_link_proto`, `byte_ring`, `stream_budget`,
-`image_header`, `update_writer`, plus `log_line`, `boot_shared.h`.
+plus `log_line`.
 Coordinators: `lane_manager` (rewritten), `sequence_manager` (new),
-`host_manager` (BLE session, bind policy, every 0.2 request), `panel_manager`
+`host_manager` (BLE session, bind policy, every 0.4 request), `panel_manager`
 (BTN2 long = abort), `ctrl_master` (init order, watchdog, fault inputs).
-`boot/boot_main.c` is the bootloader; `tools/image_stamp.py` stamps the
-header after every link; `tools/optprog.py` programs the option bytes.
+`tools/optprog.py` programs the option bytes.
 
 **Findings:** `HAL_I3C_PRIVATE_WITH_ARB_RESTART` is miscoded in the C5 HAL
 (see `i3c_ctrl.h`); the C5 LL/HAL say BOOT_SEL = 1 means "BOOT0 from the
@@ -228,7 +232,7 @@ That is the hub's and the lane's pattern.
     `sys_time.h`).
 - **Lane pins at boot:** `lane_chain` parks PA8/PA9 (I3C) as analog and holds
   CHAIN_OUT low as the first step of `ctrlInit()`.
-- **Event log:** 1024 events in RAM. EVT_BOOT is evSeq 0. Every session
+- **Event log:** 1600 events in RAM (35.2 KB; "RAM map" above). EVT_BOOT is evSeq 0. Every session
   pumps from its own cursor; RESUME replays (SYSTEM_ARCHITECTURE §7.4).
 - **bootId:** a `.noinit` boot counter hashed with the UID. A `.noinit`
   section was added to the linker script, and fault_guard's breadcrumb will

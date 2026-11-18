@@ -24,15 +24,13 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "host protocol structs assume a little-endian target");
 
 #define HP_PROTO_MAJOR      0U
-#define HP_PROTO_MINOR      3U
+#define HP_PROTO_MINOR      4U
 #define HP_MAX_PAYLOAD      240U
 #define HP_MAX_FRAME_RAW    (4U + HP_MAX_PAYLOAD)  /* header + payload, before CRC and COBS */
 
 #define HP_USB_VID          0x1209U  /* USB identity: see [usb] in the TOML */
 #define HP_USB_PID          0x0001U
 #define HP_USB_PRODUCT      "TimeTaker"
-#define HP_USB_PID_BOOT     0x0002U  /* the control bootloader */
-#define HP_USB_PRODUCT_BOOT "TimeTaker (update)"
 
 /* Header flags */
 #define HP_FLAG_RESPONSE   0x01U /* Response to the request with the same msgId and tag */
@@ -106,8 +104,8 @@ typedef enum {
     HP_BOARD_CONTROL      = 1,
     HP_BOARD_LANE         = 2,
     HP_BOARD_BLE_BRIDGE   = 3,
-    HP_BOARD_CONTROL_BOOT = 4, /* Control module running its bootloader */
-    HP_BOARD_LANE_BOOT    = 5, /* Lane running its (future) bootloader */
+    HP_BOARD_CONTROL_BOOT = 4, /* Reserved: no bootloader in v1 (value kept stable) */
+    HP_BOARD_LANE_BOOT    = 5, /* Reserved: no bootloader in v1 (value kept stable) */
 } hpBoardType_e;
 
 typedef enum {
@@ -184,7 +182,7 @@ typedef enum {
 
 typedef enum {
     HP_REBOOT_APP        = 0,
-    HP_REBOOT_BOOTLOADER = 1,
+    HP_REBOOT_BOOTLOADER = 1, /* Reserved: no bootloader in v1; the device answers ERR_UNSUPPORTED */
 } hpRebootTarget_e;
 
 typedef enum {
@@ -340,11 +338,6 @@ _Static_assert(sizeof(hpDeviceSettings_t) == 28U, "hpDeviceSettings_t layout");
 #define HP_MSG_LANE_CALIBRATE   0x28U  /* request */
 #define HP_MSG_START_SEQUENCE   0x40U  /* request */
 #define HP_MSG_ABORT_SEQUENCE   0x41U  /* request */
-#define HP_MSG_UPDATE_BEGIN     0xA0U  /* request */
-#define HP_MSG_UPDATE_CHUNK     0xA1U  /* request */
-#define HP_MSG_UPDATE_END       0xA2U  /* request */
-#define HP_MSG_UPDATE_ABORT     0xA3U  /* request */
-#define HP_MSG_BOOT_APP         0xA4U  /* request */
 #define HP_MSG_EVT_BOOT         0xC0U  /* event */
 #define HP_MSG_EVT_CROSSING     0xC1U  /* event */
 #define HP_MSG_EVT_LANE_STATE   0xC2U  /* event */
@@ -386,7 +379,7 @@ typedef struct __attribute__((packed)) {
     uint32_t logOldestSeq;  /* Oldest evSeq still in the event log */
     uint32_t logNextSeq;    /* evSeq the next event will get */
     uint8_t  otherSessions; /* Number of other live sessions (USB + BLE at once) */
-    uint8_t  boardType;     /* hpBoardType_e; What answers: CONTROL (the app) or CONTROL_BOOT (the bootloader). Since 0.3; 0 from older firmware */
+    uint8_t  boardType;     /* hpBoardType_e; What answers: CONTROL (CONTROL_BOOT is reserved, no bootloader in v1). Since 0.3; 0 from older firmware */
     uint8_t  reserved[2];
 } hpHelloRsp_t;
 _Static_assert(sizeof(hpHelloRsp_t) == 30U, "hpHelloRsp_t layout");
@@ -511,7 +504,7 @@ _Static_assert(sizeof(hpBindAllowRsp_t) == 2U, "hpBindAllowRsp_t layout");
 #define HP_BIND_ALLOW_RSP_BYTES 2U
 
 /* ---- 0x11 REBOOT (request) ---------------------------------------
- * Reboots the control module, into the app or into its bootloader. The response goes out before the reset.
+ * Reboots the control module. The response goes out before the reset. target BOOTLOADER is reserved (no bootloader in v1) and answers ERR_UNSUPPORTED.
  */
 
 /* REBOOT request */
@@ -819,93 +812,6 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(hpAbortSequenceRsp_t) == 2U, "hpAbortSequenceRsp_t layout");
 #define HP_ABORT_SEQUENCE_RSP_BYTES 2U
 
-/* ---- 0xA0 UPDATE_BEGIN (request) ---------------------------------
- * Starts an update: erases the app region. The image must be for this board type.
- */
-
-/* UPDATE_BEGIN request */
-typedef struct __attribute__((packed)) {
-    uint8_t  boardType;   /* hpBoardType_e */
-    uint8_t  reserved[3];
-    uint32_t size;        /* Image bytes */
-    uint32_t crc32;       /* CRC-32 (IEEE) of the whole image */
-} hpUpdateBeginReq_t;
-_Static_assert(sizeof(hpUpdateBeginReq_t) == 12U, "hpUpdateBeginReq_t layout");
-#define HP_UPDATE_BEGIN_REQ_BYTES 12U
-
-/* UPDATE_BEGIN response */
-typedef struct __attribute__((packed)) {
-    int16_t  status;   /* ctrlStatus_e. On error the payload is this field only. */
-    uint16_t chunkMax; /* Largest data tail UPDATE_CHUNK accepts */
-    uint16_t reserved;
-} hpUpdateBeginRsp_t;
-_Static_assert(sizeof(hpUpdateBeginRsp_t) == 6U, "hpUpdateBeginRsp_t layout");
-#define HP_UPDATE_BEGIN_RSP_BYTES 6U
-
-/* ---- 0xA1 UPDATE_CHUNK (request) ---------------------------------
- * Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe. Resume rule: re-sent bytes (offset below nextOffset) that match what is already written are acknowledged without rewriting, and the response always carries the real nextOffset, so a host that restarts from an earlier offset is fast-forwarded to where the bootloader stands.
- */
-
-/* UPDATE_CHUNK request */
-typedef struct __attribute__((packed)) {
-    uint32_t offset;
-    uint8_t  data[]; /* tail: rest of the payload */
-} hpUpdateChunkReq_t;
-_Static_assert(sizeof(hpUpdateChunkReq_t) == 4U, "hpUpdateChunkReq_t layout");
-#define HP_UPDATE_CHUNK_REQ_BYTES 4U
-#define HP_UPDATE_CHUNK_REQ_ITEM_BYTES 1U
-#define HP_UPDATE_CHUNK_REQ_MAX_ITEMS ((HP_MAX_PAYLOAD - HP_UPDATE_CHUNK_REQ_BYTES) / HP_UPDATE_CHUNK_REQ_ITEM_BYTES)
-
-/* UPDATE_CHUNK response */
-typedef struct __attribute__((packed)) {
-    int16_t  status;     /* ctrlStatus_e. On error the payload is this field only. */
-    uint32_t nextOffset;
-} hpUpdateChunkRsp_t;
-_Static_assert(sizeof(hpUpdateChunkRsp_t) == 6U, "hpUpdateChunkRsp_t layout");
-#define HP_UPDATE_CHUNK_RSP_BYTES 6U
-
-/* ---- 0xA2 UPDATE_END (request) -----------------------------------
- * Verifies the CRC over the written image and writes the image header last. ERR_IMAGE_CRC if it does not match.
- */
-
-/* UPDATE_END request: empty payload */
-#define HP_UPDATE_END_REQ_BYTES 0U
-
-/* UPDATE_END response */
-typedef struct __attribute__((packed)) {
-    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
-} hpUpdateEndRsp_t;
-_Static_assert(sizeof(hpUpdateEndRsp_t) == 2U, "hpUpdateEndRsp_t layout");
-#define HP_UPDATE_END_RSP_BYTES 2U
-
-/* ---- 0xA3 UPDATE_ABORT (request) ---------------------------------
- * Abandons the update. The bootloader stays (no valid app).
- */
-
-/* UPDATE_ABORT request: empty payload */
-#define HP_UPDATE_ABORT_REQ_BYTES 0U
-
-/* UPDATE_ABORT response */
-typedef struct __attribute__((packed)) {
-    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
-} hpUpdateAbortRsp_t;
-_Static_assert(sizeof(hpUpdateAbortRsp_t) == 2U, "hpUpdateAbortRsp_t layout");
-#define HP_UPDATE_ABORT_RSP_BYTES 2U
-
-/* ---- 0xA4 BOOT_APP (request) -------------------------------------
- * Leaves the bootloader and starts the app, if its header and CRC are valid. The response goes out first.
- */
-
-/* BOOT_APP request: empty payload */
-#define HP_BOOT_APP_REQ_BYTES 0U
-
-/* BOOT_APP response */
-typedef struct __attribute__((packed)) {
-    int16_t status; /* ctrlStatus_e. On error the payload is this field only. */
-} hpBootAppRsp_t;
-_Static_assert(sizeof(hpBootAppRsp_t) == 2U, "hpBootAppRsp_t layout");
-#define HP_BOOT_APP_RSP_BYTES 2U
-
 /* ---- 0xC0 EVT_BOOT (event) ---------------------------------------
  * Always evSeq 0 of a boot: marks the start of a log.
  */
@@ -1126,11 +1032,6 @@ static inline const char *hpMsgName(uint8_t msgId)
     case HP_MSG_LANE_CALIBRATE: return "LANE_CALIBRATE";
     case HP_MSG_START_SEQUENCE: return "START_SEQUENCE";
     case HP_MSG_ABORT_SEQUENCE: return "ABORT_SEQUENCE";
-    case HP_MSG_UPDATE_BEGIN: return "UPDATE_BEGIN";
-    case HP_MSG_UPDATE_CHUNK: return "UPDATE_CHUNK";
-    case HP_MSG_UPDATE_END: return "UPDATE_END";
-    case HP_MSG_UPDATE_ABORT: return "UPDATE_ABORT";
-    case HP_MSG_BOOT_APP: return "BOOT_APP";
     case HP_MSG_EVT_BOOT: return "EVT_BOOT";
     case HP_MSG_EVT_CROSSING: return "EVT_CROSSING";
     case HP_MSG_EVT_LANE_STATE: return "EVT_LANE_STATE";

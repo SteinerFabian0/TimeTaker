@@ -14,7 +14,7 @@ properties:
   boot-req-gpios:
     type: phandle-array
     required: true
-    description: BOOT_REQ to the STM bootloader, active low (STM PB4).
+    description: BOOT_REQ (STM PB4), active low. Unused in v1 (no STM bootloader); held high.
 
   nrst-gpios:
     type: phandle-array

@@ -7,14 +7,11 @@
  *   node tools/tt.ts [--port /dev/ttyACM0 | --sim] [--json] <command> [args]
  */
 
-import { readFileSync } from 'node:fs';
-
 import { laneMask, ALL_LANES } from '../src/device/deviceApi.ts';
 import { DeviceError } from '../src/device/deviceSession.ts';
 import { SimDevice } from '../src/device/simDevice.ts';
 import { BoardType, LedMode, NodeClass, NodeState, SamplingMode, Transport as HpTransport, BindState } from '../src/protocol/generated.ts';
 import type { LaneConfig } from '../src/protocol/generated.ts';
-import { updateFirmware } from '../src/update/firmwareUpdater.ts';
 import { fromHex, toHex } from '../src/util/bytes.ts';
 import { realScheduler, VirtualClock } from '../src/util/clock.ts';
 import { Bench, formatStream, hex32, nameOf } from './lib/bench.ts';
@@ -23,7 +20,7 @@ import { listPorts } from './lib/ttyTransport.ts';
 
 const USAGE = `tt — TimeTaker bench client
 
-usage: node tools/tt.ts [--port PATH | --sim [--cars]] [--image FILE] [--seconds N] <command>
+usage: node tools/tt.ts [--port PATH | --sim [--cars]] [--seconds N] <command>
 
   ports                              list /dev/ttyACM* with USB identity
   hello                              HELLO and session facts
@@ -43,8 +40,7 @@ usage: node tools/tt.ts [--port PATH | --sim [--cars]] [--image FILE] [--seconds
   start [lights step holdMin holdMax]
   abort
   bind list | bind allow SECONDS | bind remove HEX32 | bind clear
-  reboot [app|bootloader]
-  update FILE                        firmware update (REBOOT{BOOTLOADER} → UPDATE_* → BOOT_APP)
+  reboot                             REBOOT{APP} (no bootloader in v1: flash over SWD)
   suite NAME|all                     bench suites: ${Object.keys(SUITES).join(', ')}
 
 MASK: "1,3,5", "all" or 0x3f. --sim runs against the simulator (virtual time, except watch/raw).`;
@@ -72,7 +68,6 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
   const cars = flag('--cars');
   const json = flag('--json');
   const port = opt('--port');
-  const imagePath = opt('--image');
   const seconds = opt('--seconds');
   const [cmd, ...rest] = args;
   if (!cmd || cmd === 'help' || cmd === '--help') { out(USAGE); return { code: cmd ? 0 : 2 }; }
@@ -199,24 +194,10 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
           for (const e of list.entries) out(`  ${toHex(e.clientId)}  ${e.clientName}  lru ${e.lastUsed}`);
         }
         break;
-      case 'reboot': await api.reboot(sub === 'bootloader' ? 'bootloader' : 'app'); out('rebooting'); break;
-      case 'update': {
-        const file = sub ?? imagePath;
-        if (!file) throw new Error('update FILE');
-        const image = new Uint8Array(readFileSync(file));
-        await bench.close();
-        const r = await updateFirmware(image, {
-          scheduler: clock,
-          connect: async () => { await bench.reconnect(3000); return { api: bench.api, boardType: bench.session.boardType, close: () => bench.session.close('updater') }; },
-          onProgress: (p) => { if (p.phase === 'write' && p.offset % (32 * 224) !== 0) return; out(`${p.phase} ${p.offset}/${p.size}`); },
-        });
-        out(`done: fw ${r.ctrl.fwMajor}.${r.ctrl.fwMinor}.${r.ctrl.fwPatch}, crc ${hex32(r.crc32)}, ${r.recoveries} recoveries`);
-        break;
-      }
+      case 'reboot': await api.reboot(); out('rebooting'); break;
       case 'suite': {
         const names = !sub || sub === 'all' ? Object.keys(SUITES) : sub.split(',');
-        const image = imagePath ? new Uint8Array(readFileSync(imagePath)) : undefined;
-        const results = await runSuites(bench, names, { image });
+        const results = await runSuites(bench, names);
         if (json) print(results);
         return results.some((r) => r.error || r.checks.some((x) => !x.ok)) ? 1 : 0;
       }

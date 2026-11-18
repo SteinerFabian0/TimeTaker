@@ -1,5 +1,5 @@
 /*
- * Byte helpers shared by the store, the updater, the CLI and the tests.
+ * Byte helpers shared by the store, the CLI and the tests.
  */
 
 export function toHex(b: Uint8Array): string {
@@ -25,21 +25,4 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 export function isZero(b: Uint8Array): boolean {
   for (const x of b) if (x !== 0) return false;
   return true;
-}
-
-let crcTable: Uint32Array | null = null;
-
-/** CRC-32 (IEEE 802.3, reflected, init and xorout 0xFFFFFFFF): the image CRC of UPDATE_BEGIN. */
-export function crc32(data: Uint8Array, crc = 0): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      crcTable[n] = c >>> 0;
-    }
-  }
-  let c = (crc ^ 0xffffffff) >>> 0;
-  for (const x of data) c = (crcTable[(c ^ x) & 0xff]! ^ (c >>> 8)) >>> 0;
-  return (c ^ 0xffffffff) >>> 0;
 }

@@ -28,8 +28,8 @@ HardFault / IRQ / NMI / IWDG ──► breadcrumb (.noinit) + reset ──► EV
       │ (more than FAULT_GUARD_MAX_ABNORMAL in a row)
       ▼
 boot-loop guard: parked
-      standalone image:   runs on WITHOUT the watchdog, USB reachable, lanes off
-      bootloader layout:  hands over to ctrl_boot (bootShared.request), waits for an update
+      runs on WITHOUT the watchdog, USB reachable, lanes off; the fix is a
+      reflash over SWD (v1 has no bootloader and no field update)
 ```
 
 Unlike the hub there is no Standby to sulk in: Stop and Standby stop TIM12
@@ -67,8 +67,7 @@ at the end of `ctrlInit()`, `faultGuardTick()` feeds it first thing in every
 `ctrlRun()` pass. Nothing in the loop waits longer than a few ms (the longest
 blocking calls are a flash quad-word program, ~160 µs worst case, and the bus
 recovery, ~100 µs). The IWDG freezes on a debug halt (`HAL_DBGMCU_IWDG_Freeze`).
-`CTRL_DISABLE_WATCHDOG` (debug knob) leaves it off. The bootloader refreshes it
-in case the app started it before handing over.
+`CTRL_DISABLE_WATCHDOG` (debug knob) leaves it off.
 
 ## Breadcrumb
 

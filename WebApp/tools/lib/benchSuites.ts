@@ -1,10 +1,10 @@
 /*
  * Scripted bench suites: the firmware's "Done when" checks (CONTROL guide
- * §5.1–5.4, §5.7; SYSTEM_ARCHITECTURE §7.4) as runnable steps. Against
+ * §5.1–5.4; SYSTEM_ARCHITECTURE §7.4) as runnable steps. Against
  * hardware they print operator steps ("unplug lane 3"); with --sim the
  * simulator performs them, so every suite runs in `npm test` today.
  *
- *   usb        HELLO, PING, NODE_LIST, STATUS, unknown id, bad length, EVT_BOOT replay
+ *   usb        HELLO, PING, NODE_LIST, STATUS, unknown id, bad length, no bootloader, EVT_BOOT replay
  *   lanes      enumeration in chain order, NODE_LIST lanes, config round trip,
  *              LANE_STATUS, LANE_SCAN, broken ribbon + rejoin, power off
  *   crossings  sampling, a pass on every lane, laneSeq, plausible tEntryUs, raw stream
@@ -12,24 +12,21 @@
  *   start      start sequence: SEQ_STARTED, LIGHTS_OUT in range and never early,
  *              ERR_SEQ_RUNNING, LED refused, abort
  *   binding    USB HELLO of a web app binds, BIND_ALLOW/LIST/REMOVE; BLE part sim only
- *   update     bootloader entry, wrong board refused, image written, new app
  */
 
 import { DeviceApi, laneMask, ALL_LANES } from '../../src/device/deviceApi.ts';
 import { DeviceError, DeviceSession } from '../../src/device/deviceSession.ts';
-import { makeSimImage } from '../../src/device/simDevice.ts';
 import {
   BindChange, BindState, BoardType, ClientKind, LaneEventType, LaneState, LedMode, MsgId, NodeClass, PROTO,
   SamplingMode, SeqAbortReason, Status, Transport as HpTransport, HELLO_REQ,
 } from '../../src/protocol/generated.ts';
 import { encodeStruct } from '../../src/protocol/wire.ts';
-import { updateFirmware } from '../../src/update/firmwareUpdater.ts';
 import type { Bench } from './bench.ts';
 
 export interface Check { name: string; ok: boolean; detail: string }
 export interface SuiteResult { suite: string; checks: Check[]; error: string | null }
 export type Suite = (b: Bench, c: Checker, opts: SuiteOptions) => Promise<void>;
-export interface SuiteOptions { image?: Uint8Array; lanes?: number }
+export interface SuiteOptions { lanes?: number }
 
 export class Checker {
   readonly checks: Check[] = [];
@@ -85,6 +82,9 @@ export const SUITES: Record<string, Suite> = {
     c.ok('STATUS: log window matches HELLO', st.logNextSeq >= h.logNextSeq && st.logOldestSeq <= st.logNextSeq);
     c.ok('unknown request → ERR_UNSUPPORTED', (await b.session.requestRaw(0x0f, new Uint8Array(0))).status === Status.ERR_UNSUPPORTED);
     c.ok('wrong length → ERR_BAD_LENGTH', (await b.session.requestRaw(MsgId.PING, new Uint8Array(3))).status === Status.ERR_BAD_LENGTH);
+    c.ok('REBOOT{BOOTLOADER} → ERR_UNSUPPORTED (no bootloader in v1)',
+      (await b.session.requestRaw(MsgId.REBOOT, new Uint8Array([1]))).status === Status.ERR_UNSUPPORTED);
+    c.ok('old update id 0xA0 → ERR_UNSUPPORTED', (await b.session.requestRaw(0xa0, new Uint8Array(0))).status === Status.ERR_UNSUPPORTED);
     if (h.logOldestSeq === 0) {
       await b.until(() => b.events.length > 0, 1000, 'replay').catch(() => undefined);
       c.ok('history replays from EVT_BOOT at evSeq 0', b.events[0]?.name === 'EVT_BOOT' && b.events[0].evSeq === 0);
@@ -242,24 +242,6 @@ export const SUITES: Record<string, Suite> = {
     await b.api.bindRemove(new Uint8Array(16).fill(0xb2));
   },
 
-  async update(b, c, o) {
-    const image = o.image ?? (b.sim ? makeSimImage({ major: 9, minor: 9, patch: 9, gitRev: 0x9999999 }, 6000) : null);
-    if (!image) { b.log('  SKIP  update needs --image <file.bin> on hardware'); return; }
-    await b.close();
-    let lastPhase = '';
-    try {
-      const r = await updateFirmware(image, {
-        scheduler: b.clock,
-        connect: async () => { await b.reconnect(3000); return { api: b.api, boardType: b.session.boardType, close: () => b.session.close('updater') }; },
-        onProgress: (p) => { if (p.phase !== lastPhase) { lastPhase = p.phase; b.log(`  … ${p.phase}`); } },
-      });
-      c.ok('update: new app runs, imageCrc matches', r.ctrl.boardType === BoardType.CONTROL && (r.ctrl.imageCrc === 0 || r.ctrl.imageCrc === r.crc32),
-        `fw ${r.ctrl.fwMajor}.${r.ctrl.fwMinor}.${r.ctrl.fwPatch}, ${r.recoveries} recoveries`);
-    } catch (e) {
-      c.ok('update', false, e instanceof Error ? e.message : String(e));
-    }
-    if (b.session?.state !== 'open') await b.reconnect();
-  },
 };
 
 export async function runSuites(b: Bench, names: string[], opts: SuiteOptions = {}): Promise<SuiteResult[]> {

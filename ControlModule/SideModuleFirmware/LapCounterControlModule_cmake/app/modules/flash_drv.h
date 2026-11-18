@@ -1,6 +1,6 @@
 /*
  * Flash driver: page erase and quad-word programming of the main flash, for
- * settings_store and the bootloader's update writer.
+ * settings_store. Its write fence admits the two settings pages only.
  *
  * Why LL and not the HAL flash driver: the generated stm32c5xx_hal_conf.h has
  * USE_HAL_FLASH_PROGRAM_BY_ADDR / ERASE_PAGE at 0, so the HAL's program and
@@ -13,8 +13,16 @@
  * banks are read-while-write: erasing a page of bank 2 does not stall code
  * running from bank 1, which is why the settings live at the end of bank 2.
  *
+ * Flash map (v1 flashes the image over SWD; no bootloader, no field update):
+ *
+ *   0x0800_0000  app        240 KB  (30 pages) linker script stm32c542xc_flash.ld
+ *   0x0803_C000  settings    16 KB  (2 pages)  bank 2, pages 14 and 15
+ *
+ * The bootloader layout that put ctrl_boot first is at git tag
+ * archive/bootloader-update.
+ *
  * Owns: the FLASH control registers (unlock, program, erase). Never touches
- * the option bytes.
+ * the option bytes, never erases or programs outside the settings pages.
  * Context: main loop only. Programming masks interrupts for the 4-word store
  * (as the HAL does); erase can be started and polled without blocking.
  */
@@ -26,7 +34,12 @@
 
 #include "ctrl_status.h"
 
-#define FLASH_DRV_QW_BYTES  16U
+#define FLASH_DRV_QW_BYTES        16U
+#define FLASH_DRV_SETTINGS_BASE   0x0803C000U   /* the last two 8 KB pages */
+#define FLASH_DRV_SETTINGS_SIZE   0x4000U
+
+/* Everything below targets the settings pages only; any other address is
+ * CTRL_ERR_INVALID_ARG. */
 
 /* Starts erasing the page that holds addr (main flash). Poll flashDrvBusy(). */
 ctrlStatus_e flashDrvEraseStart(uint32_t addr);

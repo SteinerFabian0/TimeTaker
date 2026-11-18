@@ -1,25 +1,21 @@
 /*
- * A typed method for every protocol 0.2 request, on top of any Requester
+ * A typed method for every protocol 0.4 request, on top of any Requester
  * (DeviceSession, or a fake in tests).
  *
  * - Lanes are numbers 1..6; masks are built with laneMask([1, 3]).
  * - Idempotent requests are retried on a timeout (a lost frame on BLE);
- *   START_SEQUENCE, REBOOT and BOOT_APP are not, because a retry could act
- *   twice. UPDATE_CHUNK is retry-safe by protocol design (a repeated chunk is
- *   acknowledged again), so it is retried too.
+ *   START_SEQUENCE and REBOOT are not, because a retry could act twice.
  * - Errors: DeviceError (status name), TimeoutError, LinkClosedError.
  */
 
 import {
   ABORT_SEQUENCE_REQ, ABORT_SEQUENCE_RSP, BIND_ALLOW_REQ, BIND_ALLOW_RSP, BIND_LIST_REQ, BIND_LIST_RSP,
-  BIND_REMOVE_REQ, BIND_REMOVE_RSP, BOOT_APP_REQ, BOOT_APP_RSP, LANE_CALIBRATE_REQ, LANE_CALIBRATE_RSP,
+  BIND_REMOVE_REQ, BIND_REMOVE_RSP, LANE_CALIBRATE_REQ, LANE_CALIBRATE_RSP,
   LANE_CONFIG_GET_REQ, LANE_CONFIG_GET_RSP, LANE_CONFIG_SET_REQ, LANE_CONFIG_SET_RSP, LANE_LED_REQ, LANE_LED_RSP,
   LANE_POWER_REQ, LANE_POWER_RSP, LANE_RAW_STREAM_REQ, LANE_RAW_STREAM_RSP, LANE_SAMPLING_REQ, LANE_SAMPLING_RSP,
   LANE_SCAN_REQ, LANE_SCAN_RSP, LANE_STATUS_REQ, LANE_STATUS_RSP, LedMode, MsgId, NODE_LIST_REQ, NODE_LIST_RSP,
   PING_REQ, PING_RSP, REBOOT_REQ, REBOOT_RSP, RebootTarget, SETTINGS_GET_REQ, SETTINGS_GET_RSP, SETTINGS_SET_REQ,
-  SETTINGS_SET_RSP, START_SEQUENCE_REQ, START_SEQUENCE_RSP, STATUS_REQ, STATUS_RSP, UPDATE_ABORT_REQ,
-  UPDATE_ABORT_RSP, UPDATE_BEGIN_REQ, UPDATE_BEGIN_RSP, UPDATE_CHUNK_REQ, UPDATE_CHUNK_RSP, UPDATE_END_REQ,
-  UPDATE_END_RSP,
+  SETTINGS_SET_RSP, START_SEQUENCE_REQ, START_SEQUENCE_RSP, STATUS_REQ, STATUS_RSP,
 } from '../protocol/generated.ts';
 import type {
   BindEntry, DeviceSettings, LaneConfig, LaneStatusRsp, NodeInfo, PingRsp, StatusRsp,
@@ -74,8 +70,6 @@ export interface BindListResult {
 export interface DeviceApiOptions {
   /** Retries after a timeout for idempotent requests. */
   readonly retries?: number;
-  /** UPDATE_BEGIN erases the app region: give it time. */
-  readonly eraseTimeoutMs?: number;
   /** Waits before a retry after ERR_BUSY (a deferred answer, e.g. LANE_STATUS, is still owed). */
   readonly sleep?: (ms: number) => Promise<void>;
   readonly busyRetryMs?: number;
@@ -84,14 +78,12 @@ export interface DeviceApiOptions {
 export class DeviceApi {
   #req: Requester;
   #retries: number;
-  #eraseTimeoutMs: number;
   #sleep: ((ms: number) => Promise<void>) | undefined;
   #busyRetryMs: number;
 
   constructor(requester: Requester, opts: DeviceApiOptions = {}) {
     this.#req = requester;
     this.#retries = opts.retries ?? 2;
-    this.#eraseTimeoutMs = opts.eraseTimeoutMs ?? 15000;
     this.#sleep = opts.sleep;
     this.#busyRetryMs = opts.busyRetryMs ?? 100;
   }
@@ -137,10 +129,10 @@ export class DeviceApi {
     }, MsgId.SETTINGS_SET, SETTINGS_SET_RSP);
   }
 
-  /** The response goes out before the reset; the link then drops. Not retried. */
-  async reboot(target: 'app' | 'bootloader' = 'app'): Promise<void> {
-    await this.#call(REBOOT_REQ, { target: target === 'app' ? RebootTarget.APP : RebootTarget.BOOTLOADER },
-      MsgId.REBOOT, REBOOT_RSP, { retry: false });
+  /** The response goes out before the reset; the link then drops. Not retried.
+   *  (REBOOT{BOOTLOADER} is reserved: v1 has no bootloader.) */
+  async reboot(): Promise<void> {
+    await this.#call(REBOOT_REQ, { target: RebootTarget.APP }, MsgId.REBOOT, REBOOT_RSP, { retry: false });
   }
 
   // ---- binding ---------------------------------------------------------------
@@ -230,30 +222,5 @@ export class DeviceApi {
 
   async abortSequence(): Promise<void> {
     await this.#call(ABORT_SEQUENCE_REQ, {}, MsgId.ABORT_SEQUENCE, ABORT_SEQUENCE_RSP, { retry: false });
-  }
-
-  // ---- update (bootloader) -------------------------------------------------------
-
-  async updateBegin(boardType: number, size: number, crc32: number): Promise<number> {
-    const rsp = await this.#call<{ chunkMax: number }>(UPDATE_BEGIN_REQ, {
-      boardType, reserved: new Uint8Array(3), size, crc32,
-    }, MsgId.UPDATE_BEGIN, UPDATE_BEGIN_RSP, { timeoutMs: this.#eraseTimeoutMs, retry: false });
-    return rsp.chunkMax;
-  }
-
-  async updateChunk(offset: number, data: Uint8Array): Promise<number> {
-    return (await this.#call<{ nextOffset: number }>(UPDATE_CHUNK_REQ, { offset, data }, MsgId.UPDATE_CHUNK, UPDATE_CHUNK_RSP)).nextOffset;
-  }
-
-  async updateEnd(): Promise<void> {
-    await this.#call(UPDATE_END_REQ, {}, MsgId.UPDATE_END, UPDATE_END_RSP, { timeoutMs: this.#eraseTimeoutMs, retry: false });
-  }
-
-  async updateAbort(): Promise<void> {
-    await this.#call(UPDATE_ABORT_REQ, {}, MsgId.UPDATE_ABORT, UPDATE_ABORT_RSP);
-  }
-
-  async bootApp(): Promise<void> {
-    await this.#call(BOOT_APP_REQ, {}, MsgId.BOOT_APP, BOOT_APP_RSP, { retry: false });
   }
 }

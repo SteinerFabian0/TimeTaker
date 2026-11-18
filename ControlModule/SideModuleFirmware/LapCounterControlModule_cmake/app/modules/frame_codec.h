@@ -14,7 +14,7 @@
  * that one frame.
  *
  * Pure logic: no HAL, no globals, no allocation. The same file is meant to
- * build in the control app, the control bootloader and the nRF bridge. Host
+ * build in the control app and the nRF bridge. Host
  * tests: test/host_frame_codec (unit), test/host_protocol (golden bytes shared
  * with gen_protocol.py and the web app's codec.ts). The three encoders must
  * stay byte-identical: a 0xFF COBS block is always followed by a new block,

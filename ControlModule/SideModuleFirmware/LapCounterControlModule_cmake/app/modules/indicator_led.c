@@ -30,6 +30,7 @@ typedef struct {
     uint16_t   level;           /* kept so a level set while dark applies on enable */
     bool       channelOn;
     bool       counterOn;
+    bool       settle;          /* a finished blink's dark switch failed: retry */
     ledBlink_t blink;
 } indicatorLedState_t;
 
@@ -142,6 +143,7 @@ ctrlStatus_e indicatorLedSet(indicatorLed_e led, bool on)
 
     uint32_t guard = irqGuardEnter();
     ledBlinkStop(&indicatorLedState[led].blink);
+    indicatorLedState[led].settle = false;
     ctrlStatus_e status = indicatorLedOutput(led, on);
     irqGuardExit(guard);
     return status;
@@ -159,6 +161,7 @@ ctrlStatus_e indicatorLedBlink(indicatorLed_e led, uint32_t periodMs, uint16_t o
     ledBlink_t  *blink  = &indicatorLedState[led].blink;
     ctrlStatus_e status = ledBlinkStart(blink, nowMs, periodMs, onPermille, count);
     if (status == CTRL_OK) {
+        indicatorLedState[led].settle = false;
         status = indicatorLedOutput(led, ledBlinkIsOn(blink, nowMs));
     }
     irqGuardExit(guard);
@@ -172,10 +175,13 @@ ctrlStatus_e indicatorLedRun(uint32_t nowMs)
     for (int i = 0; i < (int)INDICATOR_LED_COUNT; i++) {
         indicatorLed_e led   = (indicatorLed_e)i;
         uint32_t       guard = irqGuardEnter();
-        ledBlink_t    *blink = &indicatorLedState[led].blink;
-        if (blink->active) {
-            /* A finite blink deactivates itself here and reports dark. */
-            ctrlStatus_e status = indicatorLedOutput(led, ledBlinkIsOn(blink, nowMs));
+        indicatorLedState_t *st = &indicatorLedState[led];
+        if (st->blink.active || st->settle) {
+            /* A finite blink deactivates itself here and reports dark. If
+             * that last switch fails, `settle` keeps retrying it: no blink is
+             * left to do so, and the LED would stay lit. */
+            ctrlStatus_e status = indicatorLedOutput(led, ledBlinkIsOn(&st->blink, nowMs));
+            st->settle = (status != CTRL_OK) && !st->blink.active;
             if (status != CTRL_OK) {
                 result = status;
             }

@@ -15,7 +15,15 @@
  *   - full: keep the oldest, drop the new one, count it (droppedEvents
  *     saturates at 0xFFFF) and latch the overflow flag;
  *   - a read offers a header and up to LANE_FIFO_READ_MAX records; the lane
- *     pops exactly the records whose bytes were all clocked out.
+ *     pops exactly the records whose bytes were all clocked out;
+ *   - the FIFO is deeper than a u8 can count: the header's `remaining` and
+ *     STATUS.fifoCount saturate at LANE_FIFO_COUNT_MAX (lane_protocol.h).
+ *
+ * Depth: the lane buffers events so nothing is lost while the bus or the
+ * control module is slow. EVENT_FIFO_DEPTH fills the RAM the lane does not
+ * use and leaves about 16 KB free (LANE_FIRMWARE_GUIDE §3.6 has the RAM
+ * map); 2480 events of 16 B are 38.75 KB. The raw FIFO stays small: raw
+ * samples are a best-effort diagnostic stream and drop first anyway.
  *
  * Raw FIFO: samples are grouped in chunks of up to LANE_RAW_READ_MAX, each
  * with the time of its first sample and the period; sample i was taken at
@@ -34,15 +42,17 @@
 #include "lane_status.h"
 #include "lane_protocol.h"
 
-#define EVENT_FIFO_DEPTH      32U   /* >= 32, guide §3.6 */
+#define EVENT_FIFO_DEPTH      2480U   /* >= 32, guide §3.6; about 16 KB RAM left free */
 #define RAW_FIFO_CHUNKS       8U
 
-_Static_assert(EVENT_FIFO_DEPTH <= 255U, "fifoCount is a u8 on the wire");
+/* The controller tells a duplicate or a gap from a wrap of the u16 seq by
+ * half the seq space; a full FIFO must stay far inside it. */
+_Static_assert(EVENT_FIFO_DEPTH >= 32U && EVENT_FIFO_DEPTH < 0x8000U, "EVENT_FIFO_DEPTH");
 
 typedef struct {
     laneEvent_t ring[EVENT_FIFO_DEPTH];
-    uint8_t     head;
-    uint8_t     count;
+    uint16_t    head;
+    uint16_t    count;
     uint16_t    nextSeq;
     uint16_t    dropped;      /* saturating                                  */
     bool        overflowed;   /* latched until eventFifoClearCounters()      */
@@ -56,7 +66,7 @@ void eventFifoInit(eventFifo_t *f);
  */
 laneStatus_e eventFifoPush(eventFifo_t *f, laneEvent_t *ev);
 
-uint8_t  eventFifoCount(const eventFifo_t *f);
+uint16_t eventFifoCount(const eventFifo_t *f);   /* exact; the wire saturates */
 uint16_t eventFifoNextSeq(const eventFifo_t *f);
 uint16_t eventFifoDropped(const eventFifo_t *f);
 bool     eventFifoOverflowed(const eventFifo_t *f);

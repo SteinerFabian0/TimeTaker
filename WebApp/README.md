@@ -48,35 +48,34 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
 
 | Path | What |
 |---|---|
-| `src/protocol/generated.ts` | **Generated** from `../protocol/host_protocol.toml` (protocol 0.2). Never edit it. |
+| `src/protocol/generated.ts` | **Generated** from `../protocol/host_protocol.toml` (protocol 0.4). Never edit it. |
 | `src/protocol/wire.ts`, `codec.ts`, `packet.ts` | Struct encoding, COBS + CRC-16 framing, frame ↔ header + payload |
-| `src/util/` | `clock.ts` (Scheduler: real, or `VirtualClock` for tests), `rng.ts`, `bytes.ts` (hex, CRC-32) |
+| `src/util/` | `clock.ts` (Scheduler: real, or `VirtualClock` for tests), `rng.ts`, `bytes.ts` (hex) |
 | `src/transport/` | `Transport` interface; `serialTransport.ts` (Web Serial), `bleTransport.ts` (Web Bluetooth NUS, 20 B writes, `getDevices()` reconnect), `simTransport.ts` |
 | `src/device/deviceSession.ts` | One connection: HELLO, bind wait (UNBOUND → poll HELLO), requests with timeouts, ERR_NO_SESSION / ERR_NOT_BOUND recovery, events exactly once in evSeq order (gap → RESUME), PING clock, stale detection |
-| `src/device/deviceApi.ts` | A typed method per 0.2 request; retries idempotent ones on timeout |
+| `src/device/deviceApi.ts` | A typed method per 0.4 request; retries idempotent ones on timeout |
 | `src/device/deviceManager.ts` | Transport preference USB > BLE, reconnects, switching without loss, node model |
 | `src/device/nodeModel.ts` | Pure node model from NODE_LIST + EVT_LANE_STATE / EVT_BLE_LINK / EVT_SEQ_* |
 | `src/device/clientId.ts` | clientId in an injectable storage (localStorage / memory) |
-| `src/device/simDevice.ts`, `sim/simCars.ts` | **The simulator**: protocol 0.2 and the device behaviour of CONTROL_FIRMWARE_GUIDE §5. Its header lists every rule and assumption [A1–A18]: the reference the firmware is compared against |
+| `src/device/simDevice.ts`, `sim/simCars.ts` | **The simulator**: protocol 0.4 and the device behaviour of CONTROL_FIRMWARE_GUIDE §5. Its header lists every rule and assumption [A1–A18]: the reference the firmware is compared against |
 | `src/store/eventStore.ts` | Append-only (bootId, evSeq) device log + host actions + races, behind `EventStorage` (`MemoryStorage`; `indexedDbStorage.ts` in the browser) |
 | `src/store/raceFile.ts` | Race export/import format `timetaker-race` v1 (documented in the file) |
 | `src/race/raceEngine.ts` | **Pure** `fold(config, deviceEvents, hostActions) → RaceState` |
 | `src/race/rules/` | `config`, `timeline`, `start`, `laps`, `finish`, `actions`, `standings`: each file documents its rule |
 | `src/director/raceDirector.ts` | UI intents → device requests + host actions; adaptive holdoff |
 | `src/sync/raceSync.ts` | BroadcastChannel publisher/subscriber (TV window = pure view), `FakeChannelHub` |
-| `src/update/firmwareUpdater.ts` | REBOOT{BOOTLOADER} → UPDATE_BEGIN/CHUNK/END → BOOT_APP, resumable and retry-safe |
 | `debug/` | The debug console (plain DOM) |
 | `tools/` | `tt.ts` bench CLI + suites, fixture generator, mutation check, dev server: see `tools/README.md` |
 | `test/` | `node:test`; `fixtures/races/*.json` are recorded races (regression tests) |
 
 ## Tests
 
-`npm test`: 182 tests, about 2 s. Simulated time runs on `VirtualClock`, so a
+`npm test`: 189 tests, about 2 s. Simulated time runs on `VirtualClock`, so a
 60 s bind timeout or a 20-lap race takes milliseconds.
 
 - protocol (golden bytes), session, simulator behaviour, device layer
   (manager: USB → BLE → USB without loss), race rules, recorded races,
-  director + sync, updater, BLE transport (fake `navigator.bluetooth`), CLI
+  director + sync, BLE transport (fake `navigator.bluetooth`), CLI
   (every bench suite against `--sim`, and the real tty path through a socat
   pty pair).
 - **Recorded races**: `tools/genFixtures.ts` drives the whole stack against
@@ -121,11 +120,13 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
 
 ## Contract change requests
 
-Done in protocol 0.3: HELLO_RSP reports `boardType` (the updater tells the
-bootloader from the app by it; NODE_LIST stays the fallback for 0.2 firmware),
-`[usb]` has the bootloader's `pid_boot` (port filter and CLI accept both PIDs),
-and UPDATE_CHUNK documents the resume rule (re-sent matching bytes are
-acknowledged with the real `nextOffset`).
+Done in protocol 0.3: HELLO_RSP reports `boardType`.
+
+Done in protocol 0.4 (2026-11-18): **no field firmware update in v1.** Every
+board is flashed over SWD / Tag-Connect, so the updater (`src/update/`), the
+simulator's bootloader, the CLI `update` command and suite and the second USB
+PID are gone. The update ids 0xA0–0xAF are reserved; REBOOT{BOOTLOADER}
+answers ERR_UNSUPPORTED. The old code is at git tag `archive/bootloader-update`.
 
 Open:
 

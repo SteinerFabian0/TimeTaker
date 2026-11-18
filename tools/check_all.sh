@@ -19,7 +19,7 @@ step "control host tests"        "$CTRL/test/run_all.sh"
 step "lane host tests"           "$LANE/test/run_all.sh"
 step "BLE host tests"            "$ROOT/ControlModule/BleFirmware/test/run_all.sh"
 step "web app tests"             sh -c "cd '$ROOT/WebApp' && npm test"
-for p in debug_GCC_main release_GCC_main debug_GCC_boot; do step "control build $p" build "$CTRL" $p; done
+for p in debug_GCC_main release_GCC_main; do step "control build $p" build "$CTRL" $p; done
 LP=$(grep -o '"name": *"debug[^"]*"' "$LANE/CMakePresets.json" | head -1 | sed 's/.*"\(debug[^"]*\)"/\1/')
 step "lane build $LP" build "$LANE" "$LP"
 echo; [ $fail -eq 0 ] && echo "ALL CHECKS PASSED" || echo "$fail CHECK(S) FAILED"

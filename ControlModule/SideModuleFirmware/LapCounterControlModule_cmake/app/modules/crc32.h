@@ -3,18 +3,15 @@
  * init 0xFFFFFFFF, reflected in and out, xorout 0xFFFFFFFF. Check value of
  * "123456789" = 0xCBF43926.
  *
- * The one CRC-32 of the system: the settings records (settings_record), the
- * firmware image header and the UPDATE_BEGIN crc32 (image_header,
- * update_writer) and the web app's updater all use this exact variant, so a
- * `zlib.crc32()` on the laptop matches.
+ * The one CRC-32 of the system: the settings records (settings_record) use
+ * this exact variant, so a `zlib.crc32()` on the laptop matches.
  *
- * Bitwise, no table: 1 KB of flash saved, about 10 ms for a 100 KB image at
- * 144 MHz, which only the bootloader ever does. The C5 CRC unit could do it in
+ * Bitwise, no table: 1 KB of flash saved; a settings record is a few hundred
+ * bytes, so speed does not matter. The C5 CRC unit could do it in
  * hardware (CONTROL_FIRMWARE_NOTES "CRC"), but then the host tests would test
  * something else than the target runs.
  *
- * Pure logic: no HAL, no state. Host-tested (test/host_settings_record,
- * test/host_update).
+ * Pure logic: no HAL, no state. Host-tested (test/host_settings_record).
  */
 
 #pragma once

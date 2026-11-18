@@ -26,7 +26,6 @@ every change to `protocol/host_protocol.toml`.
 | `host_settings_record` | CRC-32 check value, record encode/check (magic, version, length, CRC, half-programmed page), two-page selection incl. sequence wrap and corrupt-vs-new board | §5.5 |
 | `host_nrf_link` | link frame parsing (DATA 1..244, CTRL short/long/unknown, channels), encoders, credits (reset, take, return, clamp), byte ring, stream budget and the BLE rate | BLE_FIRMWARE_GUIDE §5 |
 | `host_lane_logic` | join index + LEFT/release masks, EVENT_FIFO / RAW_FIFO early read ends, EVT_CROSSING mapping, seq gaps, health transitions, "configured", config checks, LANE_STATUS / NODE_LIST mapping | §5.1 |
-| `host_update` | image header checks, image CRC with the header skipped, vector plausibility; UPDATE_BEGIN/CHUNK/END/ABORT against a fake flash that enforces erased-only quad-word programs: repeats, overlaps, gaps, header written last, resume, wrong CRC/board, flash failure | §5.7 |
 
 Still to come: `led_pattern` (the lane tree tests it today; port its suite).
 
@@ -67,8 +66,7 @@ Rules the suites follow (same as the hub's and the lane's):
   (2), corrupt never reported (2); CTRL short-body rule dropped (2), credit
   clamp dropped (2), empty DATA accepted (2); join index miscounted (3),
   partial FIFO record taken (2), FAULT not re-raised on a new error (2);
-  header quad-words programmed early (5), resume re-initialises (3), Thumb
-  bit not checked (2); UNBOUND gate dropped (4), events pumped while UNBOUND
+  UNBOUND gate dropped (4), events pumped while UNBOUND
   (3), second deferral accepted (3).
 
 - Only pure logic lives here. Drivers and timing are bench work.

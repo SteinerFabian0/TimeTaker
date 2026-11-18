@@ -48,11 +48,14 @@ reports the facts it needs.
 
 ---
 
-## 2. Where it stands (2026-11-18, after C1–C7 without a board)
+## 2. Where it stands (2026-11-18, after C1–C6 without a board)
 
-Task cards C1–C7 are written as far as they go without hardware: everything
-builds (debug, release, bootloader-layout presets and `ctrl_boot`, 0
-warnings, `-Werror` on `app/`) and all host suites pass (mutation-checked).
+Task cards C1–C6 are written as far as they go without hardware: everything
+builds (debug and release presets, 0 warnings, `-Werror` on `app/`) and all
+host suites pass (mutation-checked). **C7 was removed the same day: no field
+firmware update in v1.** Every board is flashed over SWD / Tag-Connect; the
+bootloader and the update path are at git tag `archive/bootloader-update`
+(§5.7).
 **Nothing has been flashed:** the PCBs are still in production, so the bench
 half of every card is open. `BENCH_TESTS.md` (next to this guide) has the
 numbered procedures for when boards arrive; run them in order.
@@ -66,7 +69,7 @@ numbered procedures for when boards arrive; run them in order.
 | C4 `settings_store` (two 8 KB pages, bank 2), `rng` (bootId) | Written; `settings_record`, `crc32` host-tested |
 | C5 `nrf_link`, BLE session, bind gating in `host_session`, `bind_list`, bind policy, BIND_*, EVT_BIND_CHANGED / EVT_BLE_LINK, echo knob | Written; `nrf_link_proto`, `byte_ring`, `bind_list`, gating host-tested |
 | C6 `fault_guard`, IWDG, `sys_power` (WFI), fault inputs, STATUS, SETTINGS_*, `tools/optprog.py`, `docs/` | Written |
-| C7 `ctrl_boot` (32 KB, second CMake target), image header + stamp, UPDATE_*, entry conditions, second PID | Written; `image_header`, `update_writer` host-tested. Standalone app stays the default preset |
+| C7 bootloader + update path | **Removed 2026-11-18** (no field update in v1). App at 0x0800_0000 is the only layout; the freed RAM went to the event log (1600 events, 8.6 KB RAM left free) |
 
 **Build, flash and test** commands are in `CONTROL_FIRMWARE_NOTES.md`
 ("Build"). Flash with the ST-LINK V3 over J201.
@@ -100,7 +103,7 @@ app/modules/
   i3c_ctrl                   ○ I3C1 controller: transfer queue, RSTDAA/ENTDAA, hot-join, IBI, recovery
   usb_cdc                    ✓ TinyUSB CDC "TimeTaker"
   nrf_link                   ○ USART1 + link framing (DATA/CTRL), credits, BLE_IRQ
-  frame_codec                ✓ COBS + CRC16, pure (also compiled into the BLE firmware and the bootloader)
+  frame_codec                ✓ COBS + CRC16, pure (also compiled into the BLE firmware)
   event_log                  ✓ pure
   host_session               ✓ pure; ○ per-session bind gating (§5.4)
   bind_list                  ○ pure: client IDs, LRU, serialise (host-tested)
@@ -382,7 +385,8 @@ over a dropout.
 - **The event log slot is 20 B of body** (`EVENT_LOG_MAX_BODY`, sized by
   `EVT_CROSSING`). Every new event must fit: **at most 24 B of payload
   including `evSeq`.** If an event needs more, split it or grow the slot
-  deliberately (1024 slots × each extra byte = 1 KB of RAM).
+  deliberately (1600 slots × each extra byte = 1.6 KB of RAM, and the RAM
+  has only about 8 KB left: CONTROL_FIRMWARE_NOTES "RAM map").
 - **RESUME by unplugging** is the required test: crossings during a
   disconnect arrive after reconnect, in order, exactly once
   (SYSTEM_ARCHITECTURE §7.4).
@@ -532,9 +536,9 @@ power cycles).
   `{magic, version, length, sequence, payload, CRC32}`. On boot take the
   valid record with the highest sequence; none valid → compiled defaults and
   `ERR_SETTINGS_CORRUPT` once in the log.
-- **The C5 erase-page size is an open question** (SYSTEM_ARCHITECTURE §15).
-  Settle it from RM0522 before choosing the addresses. The bootloader layout
-  (§5.7) uses the same answer.
+- **The C5 erase page is 8 KB** (§10 Q4): the settings are the last two
+  pages, 0x0803_C000 and 0x0803_E000 (bank 2). `flash_drv` erases and
+  programs these two pages and nothing else.
 - **Never write flash during a race.** Writes are deferred: `settings_store`
   marks dirty and writes when no start sequence runs and at most once every
   10 s. A page erase stalls flash reads on the same bank for milliseconds;
@@ -562,37 +566,20 @@ Port from the hub, in this order:
 4. **Option bytes:** a script like the hub's `tools/optprog.py`, written for
    this board. `BOOT_SEL` so the BOOT0 pin is honoured (this board has a
    real pull-down, R201: **do not copy the C542 hub's BOOT_SEL setting**),
-   IWDG frozen in Standby. Write-protect the bootloader pages once it exists.
+   IWDG frozen in Standby. (No bootloader pages to write-protect in v1.)
 5. **`docs/ERROR_HANDLING.md`** and **`docs/RELEASING.md`** in the hub's
    style, including the CubeMX regeneration steps (§6).
 
-### 5.7 Bootloader and updates (build step 7)
+### 5.7 Bootloader and updates: removed
 
-The design is SYSTEM_ARCHITECTURE §10.1. Practical shape:
-
-- **A second executable target in this CMake tree** (`ctrl_boot`), with its
-  own `boot_main.c` and linker script at `0x0800_0000`, size ~24 KB. It
-  links the generated HAL and calls only the inits it needs: clocks, USB,
-  USART1, CRC, flash. It reuses `frame_codec`, `host_session` (with a tiny
-  event log and its own `onRequest`), `usb_cdc` (second PID,
-  iProduct "TimeTaker (update)"), and `nrf_link`.
-- **Built 2026-11-18 at 32 KB, app at `0x0800_8000`** (24 KB did not fit
-  TinyUSB + the USART HAL + nrf_link; `app/modules/image_header.h`). The
-  lines below keep the original plan for the record.
-- **The app moves to `0x0800_6000`:** one linker-script change plus
-  `SCB->VTOR` at startup, and an image header at the start of the app
-  region: `{magic, boardType, version, gitRev, size, CRC32}`. A post-build
-  CMake step fills size and CRC.
-- **Entry:** magic word in `.noinit` from `REBOOT{BOOTLOADER}`; invalid
-  header or CRC; **BOOT_REQ (PB4) low at reset**; BTN1 held at power-up.
-- **Update messages** (0xA0–0xAF): `UPDATE_BEGIN{boardType, size, crc}`,
-  `UPDATE_CHUNK{offset, bytes}`, `UPDATE_END`, `UPDATE_ABORT`, `BOOT_APP`.
-  Offset-addressed, acknowledged, resumable. The header is written last.
-- **Same schema, same session layer:** the web app's updater talks to the
-  bootloader exactly as to the app. HELLO from the bootloader reports
-  `boardType = CONTROL_BOOT`.
-- Lane updates through the control module (SYSTEM_ARCHITECTURE §10.2) come
-  later and do not shape this step.
+**No field firmware update in v1** (decided 2026-11-18). The control STM32,
+the lane STM32s and the nRF52805 are all flashed over SWD / Tag-Connect. The
+bootloader (`ctrl_boot`), the image header, the update writer, UPDATE_* and
+BOOT_APP, the second USB PID and the web app updater were built and
+host-tested, then removed; they are at git tag `archive/bootloader-update`.
+What stays: the app at 0x0800_0000 (the only layout), the settings pages at
+the end of flash, `REBOOT{BOOTLOADER}` answered with `ERR_UNSUPPORTED`, and
+the reserved protocol values (ids 0xA0–0xAF, `CONTROL_BOOT`, `LANE_BOOT`).
 
 ---
 
@@ -680,8 +667,8 @@ list below is kept as the record:
 
 1. **I3C1 init "generated only"**, so SCL is never driven before
    `lane_chain` parks it (today it can sit high for a few ms at boot).
-2. **PB4 (BOOT_REQ): pull-up** instead of pull-down, so app and bootloader
-   agree.
+2. **PB4 (BOOT_REQ): pull-up** instead of pull-down, so an nRF in reset
+   reads as "no request" (BOOT_REQ is unused since the bootloader went).
 3. **PB7 (USART1 RX): pull-up.** Today it has no pull, so an nRF in reset
    (its pins float) feeds noise into USART1.
 4. **RNG** enabled (generated only), for `rng`.
@@ -708,7 +695,7 @@ run in parallel.
 | **C4** | `settings_store` + `rng` | C0 | settings survive a power cycle; a corrupt page falls back to defaults |
 | **C5** | `nrf_link`, BLE session, bind gating, `bind_list`, bind policy | C4; BLE tasks B1–B3 | §5.4 "Done when" |
 | **C6** | `fault_guard`, IWDG, `sys_power` idle, option-bytes script, ERROR_HANDLING.md, RELEASING.md | C0 | a forced HardFault reboots with `RESET_FAULT` in EVT_BOOT; a hung loop is caught by the IWDG |
-| **C7** | Bootloader target, app relink, image header, UPDATE_* messages | C4, C6 | the web app updates the control module over USB and over BLE, and an interrupted update recovers |
+| ~~C7~~ | Removed 2026-11-18: no field firmware update in v1 (§5.7) | | |
 
 Each session updates `CONTROL_FIRMWARE_NOTES.md` "Firmware status" at the
 end, and this guide's §2 table.

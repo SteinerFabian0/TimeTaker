@@ -10,10 +10,9 @@ and ships a NUCLEO-C542 board port. Do not edit the files here. Configuration
 lives in the app's `tusb_config.h`, and the glue (descriptors, the USB IRQ
 handler, clocks) lives in `usb_cdc.c`.
 
-**Users:**
-- the control app (`../LapCounterControlModule_cmake`);
-- later, the control bootloader. That is why it sits beside the projects, not
-  inside one.
+**Users:** the control app (`../LapCounterControlModule_cmake`). It sits
+beside the project, not inside it, because the control bootloader used it
+too; that bootloader was dropped for v1 (git tag `archive/bootloader-update`).
 
 **To upgrade:**
 1. Replace `src/` with the new release, again keeping only

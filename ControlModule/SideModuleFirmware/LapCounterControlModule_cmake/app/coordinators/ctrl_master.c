@@ -12,8 +12,6 @@
 
 #include "stm32_hal.h"
 #include "host_protocol.h"
-#include "image_header.h"
-#include "boot_shared.h"
 #include "fault_guard.h"
 #include "sys_power.h"
 #include "exti_latch.h"
@@ -42,21 +40,6 @@
  * drop it. */
 __attribute__((used)) static const char ctrlFwVersion[] = CTRL_FW_VERSION_STRING;
 static const char *volatile ctrlFwVersionRef;
-
-/* The image header at +0x400 (image_header.h). size and imageCrc are filled
- * after the link by tools/image_stamp.py; the bootloader checks them. */
-__attribute__((section(".image_header"), used))
-const imageHeader_t ctrlImageHeader = {
-    .magic         = IMAGE_HEADER_MAGIC,
-    .boardType     = (uint8_t)HP_BOARD_CONTROL,
-    .fwMajor       = (uint8_t)CTRL_FW_VERSION_MAJOR,
-    .fwMinor       = (uint8_t)CTRL_FW_VERSION_MINOR,
-    .fwPatch       = (uint8_t)CTRL_FW_VERSION_PATCH,
-    .gitRev        = (uint32_t)CTRL_FW_GIT_REV,
-    .size          = 0U,
-    .imageCrc      = 0U,
-    .headerVersion = IMAGE_HEADER_VERSION,
-};
 
 /* Production values of ctrl_behavior.h. Warnings, so a release image still
  * builds for the bench. Add a check per new switch. */
@@ -158,13 +141,6 @@ uint32_t ctrlMasterGetUsbFaults(void)
     return ctrlUsbFaults;
 }
 
-uint32_t ctrlMasterImageCrc(void)
-{
-    /* Read through volatile: the C initialiser says 0, the stamped flash does not. */
-    const volatile imageHeader_t *h = &ctrlImageHeader;
-    return (h->magic == IMAGE_HEADER_MAGIC && h->size != 0U) ? h->imageCrc : 0U;
-}
-
 /* USB_FAULT: the TPD4S201 cut VBUS; if we still run, it has cleared.
  * EXT_PWR_FAULT: nothing is connected to J302 yet; reported all the same so a
  * floating line shows up on the bench (SYSTEM_ARCHITECTURE §12.2 makes it the
@@ -249,12 +225,7 @@ void ctrlInit(void)
 
     if (faultGuardIsParked()) {
         ctrlErrorHandler(CTRL_ERR_INVALID_STATE);
-#ifdef CTRL_APP_WITH_BOOTLOADER
-        /* Too many fault reboots in a row: let the bootloader wait for an update. */
-        bootShared.request = BOOT_SHARED_ENTER_BOOT;
-        NVIC_SystemReset();
-#endif
-        /* Standalone: run on without the watchdog, reachable over USB. */
+        /* Run on without the watchdog, reachable over USB; reflash over SWD. */
     } else {
 #if !CTRL_DISABLE_WATCHDOG
         ctrlErrorHandler(faultGuardStartWatchdog());

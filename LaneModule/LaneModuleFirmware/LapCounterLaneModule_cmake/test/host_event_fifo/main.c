@@ -147,6 +147,59 @@ static void testOverflow(void)
     check("flush: empty, seq continues", eventFifoCount(&ef) == 0U && eventFifoNextSeq(&ef) != 0U);
 }
 
+/* The FIFO is deeper than the u8 counts on the wire: `remaining` saturates,
+ * and the ring index runs past 255 without losing order. */
+static void testDeepFifo(void)
+{
+    uint8_t offered = 0U;
+    laneFifoHeader_t h;
+    eventFifoInit(&ef);
+    for (uint32_t i = 0U; i < 300U; i++) {
+        laneEvent_t e = mkEvent(i);
+        (void)eventFifoPush(&ef, &e);
+    }
+    (void)eventFifoBuildRead(&ef, buf, sizeof(buf), &offered);
+    memcpy(&h, buf, sizeof(h));
+    check("deep: 300 queued, remaining saturates at 255",
+          eventFifoCount(&ef) == 300U && h.count == LANE_FIFO_READ_MAX && h.remaining == LANE_FIFO_COUNT_MAX);
+
+    eventFifoInit(&ef);
+    for (uint32_t i = 0U; i < LANE_FIFO_COUNT_MAX - 1U + LANE_FIFO_READ_MAX; i++) {
+        laneEvent_t e = mkEvent(i);
+        (void)eventFifoPush(&ef, &e);
+    }
+    (void)eventFifoBuildRead(&ef, buf, sizeof(buf), &offered);
+    memcpy(&h, buf, sizeof(h));
+    check("deep: below the cap remaining is exact", h.remaining == LANE_FIFO_COUNT_MAX - 1U);
+
+    /* Fill, read half, refill: the tail wraps round the whole ring. */
+    eventFifoInit(&ef);
+    for (uint32_t i = 0U; i < EVENT_FIFO_DEPTH; i++) {
+        laneEvent_t e = mkEvent(i);
+        (void)eventFifoPush(&ef, &e);
+    }
+    for (uint32_t i = 0U; i < EVENT_FIFO_DEPTH / 2U; i += LANE_FIFO_READ_MAX) {
+        (void)eventFifoBuildRead(&ef, buf, sizeof(buf), &offered);
+        (void)eventFifoCompleteRead(&ef, offered, LANE_FIFO_READ_BYTES);
+    }
+    for (uint32_t i = 0U; i < EVENT_FIFO_DEPTH / 2U; i++) {
+        laneEvent_t e = mkEvent(EVENT_FIFO_DEPTH + i);
+        (void)eventFifoPush(&ef, &e);
+    }
+    bool inOrder = eventFifoCount(&ef) == EVENT_FIFO_DEPTH && eventFifoDropped(&ef) == 0U;
+    uint32_t expect = EVENT_FIFO_DEPTH / 2U;
+    while (inOrder && eventFifoCount(&ef) > 0U) {
+        (void)eventFifoBuildRead(&ef, buf, sizeof(buf), &offered);
+        for (uint32_t k = 0U; k < offered; k++) {
+            inOrder = inOrder && recordAt(k).seq == (uint16_t)expect && recordAt(k).tEntryUs == expect;
+            expect++;
+        }
+        (void)eventFifoCompleteRead(&ef, offered, LANE_FIFO_READ_BYTES);
+    }
+    check("deep: a full ring wrapped round reads back in order",
+          inOrder && expect == EVENT_FIFO_DEPTH + EVENT_FIFO_DEPTH / 2U);
+}
+
 static void testSeqWrap(void)
 {
     eventFifoInit(&ef);
@@ -275,6 +328,7 @@ int main(void)
     testPushAndRead();
     testPartialReads();
     testOverflow();
+    testDeepFifo();
     testSeqWrap();
     testSmallBuffer();
     testRawChunks();

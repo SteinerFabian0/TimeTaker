@@ -1,6 +1,6 @@
 /*
  * SimDevice: a simulated TimeTaker control module (+ lanes, nRF bridge, cars)
- * that speaks host protocol 0.2 byte for byte.
+ * that speaks host protocol 0.4 byte for byte.
  *
  * It is how the web app is built and tested before the PCBs exist, and it is
  * the REFERENCE THE FIRMWARE IS COMPARED AGAINST: every behaviour below is
@@ -129,7 +129,7 @@
  *     {reason, atUs}.
  *
  * System
- *   - REBOOT{APP|BOOTLOADER}: response first, reset 100 ms later. USB links
+ *   - REBOOT{APP}: response first, reset 100 ms later. USB links
  *     close and the port is gone for 400 ms (re-enumeration). A BLE link
  *     survives an STM reset (the nRF is not reset): its session is gone, so
  *     the next request gets ERR_NO_SESSION until a new HELLO; the new log
@@ -144,34 +144,10 @@
  *   - BLE button presses are published as EVT_BUTTON{BLE_BIND}. BTN2 LONG on
  *     the panel aborts a running sequence (reason BUTTON).
  *
- * Bootloader (SYSTEM_ARCHITECTURE §10.1, CONTROL guide §5.7)
- *   - Serves HELLO, PING, RESUME, NODE_LIST, UPDATE_*, BOOT_APP; anything
- *     else ERR_UNSUPPORTED. HELLO reports boardType CONTROL_BOOT (the app
- *     CONTROL), and NODE_LIST lists CTRL with boardType CONTROL_BOOT. [A17]
- *     USB TRUSTED; BLE BOUND only for a client on the stored bind list (read
- *     only: no bind window, no new entries), else UNBOUND. [A18]
- *     Same rules as boot/boot_main.c + update_writer.c:
- *   - The app answers UPDATE_* and BOOT_APP with ERR_INVALID_STATE.
- *   - UPDATE_BEGIN: boardType ≠ CONTROL → ERR_IMAGE_BOARD; size > 208 KB →
- *     ERR_IMAGE_TOO_BIG; size 0 → ERR_INVALID_ARG (any other size too small
- *     for the header fails at END). The same size and crc32 as the update in progress
- *     resumes it (nothing erased, position kept). Else erases (20 ms per
- *     8 KB page before the answer), invalidates the app, chunkMax 224.
- *   - UPDATE_CHUNK: no update → ERR_UPDATE_SEQUENCE; > chunkMax →
- *     ERR_BAD_LENGTH; offset > next → ERR_UPDATE_SEQUENCE; running past
- *     the size → ERR_IMAGE_TOO_BIG; bytes below next are compared (differ →
- *     ERR_UPDATE_SEQUENCE), the rest written; the answer is the real
- *     nextOffset (a host re-sending from earlier is fast-forwarded).
- *   - UPDATE_END: incomplete → ERR_UPDATE_SEQUENCE; CRC-32 mismatch, or the
- *     image header check (imageHeader.ts checkImage: magic, board, size,
- *     loadAddr, imageCrc, vectors) fails → that error and the update is
- *     dropped; OK makes the app valid. A repeated END after success answers
- *     OK again.
- *   - UPDATE_ABORT: always OK. BOOT_APP or REBOOT{APP} without a valid app:
- *     ERR_INVALID_STATE. REBOOT{BOOTLOADER} restarts the bootloader. A power
- *     cycle with no valid app boots the bootloader.
- *   - Images carry the real header (imageHeader.ts); NODE_LIST then shows
- *     its version and imageCrc = CRC-32 of the whole image.
+ * No bootloader (protocol 0.4, SYSTEM_ARCHITECTURE §10): v1 flashes the
+ *   control module over SWD. REBOOT{BOOTLOADER} → ERR_UNSUPPORTED; the old
+ *   update ids (0xA0–0xAF) are unknown requests → ERR_UNSUPPORTED. NODE_LIST
+ *   reports the CTRL imageCrc as 0 (unknown), like the firmware. [A17]
  *
  * Test hooks: unplug/replug USB, BLE out of range, unplug/replug/reset a
  * lane, SYNC loss, lane fault, lost lane events, dropped event frames,
@@ -180,11 +156,10 @@
  */
 
 import { FrameDecoder, frameEncode } from '../protocol/codec.ts';
-import { checkImage, IMAGE_APP_SLOT_SIZE, makeImage, parseImageHeader } from '../update/imageHeader.ts';
 import { decodePacket, encodePacket } from '../protocol/packet.ts';
 import {
   ABORT_SEQUENCE_RSP, BIND_ALLOW_REQ, BIND_ALLOW_RSP, BIND_LIST_REQ, BIND_LIST_RSP, BIND_REMOVE_REQ, BIND_REMOVE_RSP,
-  BindChange, BindState, BleLinkState, BOOT_APP_RSP, BoardType, ButtonId, ClientKind, DBG_LOG, EVT_BIND_CHANGED,
+  BindChange, BindState, BleLinkState, BoardType, ButtonId, ClientKind, DBG_LOG, EVT_BIND_CHANGED,
   EVT_BLE_LINK, EVT_BOOT, EVT_BUTTON, EVT_CROSSING, EVT_FAULT, EVT_LANE_STATE, EVT_LIGHTS_OUT, EVT_SEQ_ABORTED,
   EVT_SEQ_STARTED, FaultSource, HELLO_REQ, HELLO_RSP, HeaderFlag, LANE_CALIBRATE_REQ, LANE_CALIBRATE_RSP,
   LANE_CONFIG_GET_REQ, LANE_CONFIG_GET_RSP, LANE_CONFIG_SET_REQ, LANE_CONFIG_SET_RSP, LANE_LED_REQ, LANE_LED_RSP,
@@ -193,8 +168,7 @@ import {
   LogLevel, MESSAGES, MsgId, NODE_LIST_RSP, NodeClass, NodeState, PING_REQ, PING_RSP, PressKind, PROTO, REBOOT_REQ,
   REBOOT_RSP, RebootTarget, ResetCause, RESUME_REQ, RESUME_RSP, SamplingMode, SeqAbortReason, SETTINGS_GET_RSP,
   SETTINGS_SET_REQ, SETTINGS_SET_RSP, START_SEQUENCE_REQ, START_SEQUENCE_RSP, Status, STATUS_RSP, STR_RAW_SAMPLES,
-  Transport as HpTransport, UPDATE_ABORT_RSP, UPDATE_BEGIN_REQ, UPDATE_BEGIN_RSP, UPDATE_CHUNK_REQ, UPDATE_CHUNK_RSP,
-  UPDATE_END_RSP,
+  Transport as HpTransport,
 } from '../protocol/generated.ts';
 import type { BindEntry, LaneConfig, NodeInfo } from '../protocol/generated.ts';
 import { decodeStruct, encodeStruct } from '../protocol/wire.ts';
@@ -204,7 +178,7 @@ import type { SimLinkHost } from '../transport/simTransport.ts';
 import type { Transport, TransportHandlers } from '../transport/transport.ts';
 import { realScheduler } from '../util/clock.ts';
 import type { Scheduler, TimerHandle } from '../util/clock.ts';
-import { bytesEqual, crc32, isZero } from '../util/bytes.ts';
+import { bytesEqual, isZero } from '../util/bytes.ts';
 import { makeRng, subSeed } from '../util/rng.ts';
 import type { Rng } from '../util/rng.ts';
 import { DEFAULT_CAR, SimCar } from './sim/simCars.ts';
@@ -219,7 +193,7 @@ export interface SimOptions {
   readonly bleLatencyMs?: number;
   /** USB device → host chunk size. */
   readonly chunkBytes?: number;
-  /** Event log size (the firmware has 1024). */
+  /** Event log size (the firmware has 1600, HOST_MANAGER_EVENT_LOG_CAPACITY). */
   readonly logCapacity?: number;
   /** Lanes on the chain (0..6). */
   readonly lanes?: number;
@@ -303,8 +277,6 @@ interface Flash {
   settings: { deviceName: string; bleEnabled: number };
   binds: BindRec[];
   laneTable: LaneConfig[];
-  app: { valid: boolean; crc: number; fw: Firmware };
-  image: Uint8Array | null;
 }
 
 interface Sequence {
@@ -312,14 +284,6 @@ interface Sequence {
   toutUs: number;
   lanes: number[];
   timers: TimerHandle[];
-}
-
-interface UpdateState {
-  phase: 'writing' | 'done';
-  size: number;
-  crc: number;
-  data: Uint8Array;
-  next: number;
 }
 
 const LANE_SETTLE_MS = 30;
@@ -339,16 +303,12 @@ const SETTINGS_MIN_INTERVAL_MS = 10000;
 const RAW_CHUNK_MS = 50;
 const RAW_MAX_SAMPLES = 112;
 const BLE_STREAM_BYTES_PER_S = 2000;
-const CHUNK_MAX = 224;
-const ERASE_MS_PER_PAGE = 20;
-const PAGE_BYTES = 8192;
 const HCI_REMOTE_USER = 0x13;
 const HCI_LOCAL_HOST = 0x16;
 const HCI_SUPERVISION_TIMEOUT = 0x08;
 const MAX_LANES = 6;
 
 export const SIM_APP_FW: Firmware = { major: 0, minor: 2, patch: 0, gitRev: 0x51d0052 };
-const SIM_BOOT_FW: Firmware = { major: 0, minor: 1, patch: 0, gitRev: 0xb007000 };
 const SIM_LANE_FW: Firmware = { major: 0, minor: 1, patch: 0, gitRev: 0x1a9e000 };
 const SIM_BLE_FW: Firmware = { major: 0, minor: 1, patch: 0, gitRev: 0xb1e0000 };
 
@@ -360,11 +320,6 @@ export function defaultLaneConfig(lane: number): LaneConfig {
   };
 }
 
-/** A stamped firmware image (the real header at +0x400, imageHeader.ts) + filler. */
-export function makeSimImage(fw: Firmware, size = 4096, boardType: number = BoardType.CONTROL, fill = 0x5a): Uint8Array {
-  return makeImage(fw, size, boardType, fill);
-}
-
 const BODY_ID = new Map<StructDesc, number>();
 for (const m of MESSAGES) if (m.body) BODY_ID.set(m.body, m.id);
 
@@ -374,7 +329,6 @@ export class SimDevice implements SimLinkHost<Link> {
   readonly scheduler: Scheduler;
   readonly #opts: Required<Omit<SimOptions, 'scheduler' | 'cars'>>;
   #rng: Rng;
-  #mode: 'app' | 'boot' = 'app';
   #bootId = 0;
   #bootMs = 0;
   #log: ({ msgId: number; body: Uint8Array } | undefined)[] = [];
@@ -408,14 +362,13 @@ export class SimDevice implements SimLinkHost<Link> {
   #lastSettingsWriteMs = -Infinity;
   #settingsTimer: TimerHandle | null = null;
   #dropEvents = 0;
-  #update: UpdateState | null = null;
   #timers = new Set<TimerHandle>();
   #disposed = false;
 
   constructor(opts: SimOptions = {}) {
     this.scheduler = opts.scheduler ?? realScheduler;
     this.#opts = {
-      latencyMs: 1, bleLatencyMs: 15, chunkBytes: 64, logCapacity: 1024, simulateCars: false, lanes: 6,
+      latencyMs: 1, bleLatencyMs: 15, chunkBytes: 64, logCapacity: 1600, simulateCars: false, lanes: 6,
       seed: Math.floor(Math.random() * 0xffffffff), bleModule: true, unboundKickMs: 60000,
       ...Object.fromEntries(Object.entries(opts).filter(([k, v]) => v !== undefined && k !== 'scheduler' && k !== 'cars')),
     } as Required<Omit<SimOptions, 'scheduler' | 'cars'>>;
@@ -425,8 +378,6 @@ export class SimDevice implements SimLinkHost<Link> {
       settings: { deviceName: 'TimeTaker', bleEnabled: 1 },
       binds: [],
       laneTable: Array.from({ length: MAX_LANES + 1 }, (_, i) => defaultLaneConfig(Math.max(1, i))),
-      app: { valid: true, crc: 0, fw: { ...SIM_APP_FW } },
-      image: null,
     };
     const host = { scheduler: this.scheduler, onCross: (l: number, at: number, k: CrossingKind, d: CrossingDetail) => this.#onCross(l, at, k, d) };
     for (let lane = 1; lane <= MAX_LANES; lane++) {
@@ -434,14 +385,13 @@ export class SimDevice implements SimLinkHost<Link> {
       const pace: CarProfile = { ...DEFAULT_CAR, lapMs: Math.round(carRng.range(4800, 6800)), lapSdMs: Math.round(carRng.range(60, 180)) };
       this.#cars[lane] = new SimCar(lane, carRng, host, { ...pace, ...(opts.cars?.[lane] ?? {}) });
     }
-    this.#boot('app', ResetCause.POWER_ON);
+    this.#boot(ResetCause.POWER_ON);
     if (this.#opts.simulateCars) this.carsPractice();
   }
 
   // ---- observation ------------------------------------------------------------------
 
   get bootId(): number { return this.#bootId; }
-  get mode(): 'app' | 'bootloader' { return this.#mode === 'app' ? 'app' : 'bootloader'; }
   get logNextSeq(): number { return this.#next; }
   get logOldestSeq(): number { return this.#oldest(); }
   get lanesPowered(): boolean { return this.#rail === 'on'; }
@@ -451,9 +401,6 @@ export class SimDevice implements SimLinkHost<Link> {
   get settingsWrites(): number { return this.#settingsWrites; }
   get bindList(): readonly { clientId: Uint8Array; clientName: string; lastUsed: number }[] { return this.#flash.binds.map((b) => ({ ...b })); }
   get pairingWindowOpen(): boolean { return this.#window !== null; }
-  get appFirmware(): Firmware { return { ...this.#flash.app.fw }; }
-  get appValid(): boolean { return this.#flash.app.valid; }
-  get flashedImage(): Uint8Array | null { return this.#flash.image; }
   get cars(): boolean { return this.#cars.slice(1).some((c) => c.state !== 'off'); }
   laneLed(lane: number): Readonly<LedState> { return { ...(this.#lanes[lane]?.led ?? LED_OFF) }; }
   laneSamplingMode(lane: number): number { return this.#effectiveMode(lane); }
@@ -487,14 +434,13 @@ export class SimDevice implements SimLinkHost<Link> {
   // ---- test hooks ---------------------------------------------------------------------
 
   pressButton(button: number, press: number): void {
-    if (this.#mode !== 'app') return;
     this.#publish(EVT_BUTTON, { button, press, reserved: 0, sysUs: this.#sysUsBig() });
     if (button === ButtonId.BTN2 && press === PressKind.LONG && this.#seq) this.#abortSequence(SeqAbortReason.BUTTON);
   }
 
   /** SW501 on the nRF (classified by the nRF, decided here). */
   pressBleButton(press: number): void {
-    if (!this.#opts.bleModule || this.#mode !== 'app') return;
+    if (!this.#opts.bleModule) return;
     this.#publish(EVT_BUTTON, { button: ButtonId.BLE_BIND, press, reserved: 0, sysUs: this.#sysUsBig() });
     if (press === PressKind.LONG) this.#openWindow(BIND_WINDOW_S);
     else if (press === PressKind.VERY_LONG) this.#clearBinds(true);
@@ -533,7 +479,7 @@ export class SimDevice implements SimLinkHost<Link> {
 
   /** Power loss: every link drops (BLE too), new boot, empty log. */
   powerCycle(): void {
-    this.#boot(this.#flash.app.valid ? 'app' : 'boot', ResetCause.POWER_ON, true);
+    this.#boot(ResetCause.POWER_ON, true);
   }
 
   unplugUsb(): void {
@@ -675,7 +621,7 @@ export class SimDevice implements SimLinkHost<Link> {
 
   // ---- boot, log, pump -------------------------------------------------------------------
 
-  #boot(mode: 'app' | 'boot', cause: number, powerLoss = false): void {
+  #boot(cause: number, powerLoss = false): void {
     // Everything volatile goes; flash stays.
     this.#enumGen++;
     this.scheduler.clearTimeout(this.#railTimer);
@@ -686,7 +632,6 @@ export class SimDevice implements SimLinkHost<Link> {
     this.#raw = null;
     if (this.#window) this.scheduler.clearTimeout(this.#window.timer);
     this.#window = null;
-    this.#update = null;
     this.#failSchedule.clear();
     this.#laneTable = this.#flash.laneTable.map((c) => ({ ...c }));
     this.#sampling = new Array<number>(MAX_LANES + 1).fill(SamplingMode.ON);
@@ -698,7 +643,6 @@ export class SimDevice implements SimLinkHost<Link> {
     }
     if (this.#bootId !== 0) this.#usbReadyAtMs = this.scheduler.now() + USB_REENUM_MS;   // not at construction
 
-    this.#mode = mode === 'app' && this.#flash.app.valid ? 'app' : 'boot';
     this.#bootId = (Math.floor(this.#rng.next() * 0xfffffffe) + 1) >>> 0;
     this.#bootMs = this.scheduler.now();
     this.#log = new Array(this.#opts.logCapacity);
@@ -867,7 +811,6 @@ export class SimDevice implements SimLinkHost<Link> {
       return;
     }
 
-    if (this.#mode === 'boot') { this.#bootRequest(h.msgId, parse, empty, reply); return; }
     this.#appRequest(link, h.msgId, parse, empty, reply);
   }
 
@@ -883,9 +826,7 @@ export class SimDevice implements SimLinkHost<Link> {
     let bindState: number;
     if (link.kind === 'usb') {
       bindState = BindState.TRUSTED;
-      if (this.#mode === 'app' && clientKind === ClientKind.WEBAPP && !isZero(clientId)) this.#bindAddOrTouch(clientId, clientName);
-    } else if (this.#mode === 'boot') {
-      bindState = this.#bindIndex(clientId) >= 0 ? BindState.BOUND : BindState.UNBOUND;   // list read-only
+      if (clientKind === ClientKind.WEBAPP && !isZero(clientId)) this.#bindAddOrTouch(clientId, clientName);
     } else if (this.#bindIndex(clientId) >= 0) {
       bindState = BindState.BOUND;
       this.#bindAddOrTouch(clientId, clientName);
@@ -903,7 +844,7 @@ export class SimDevice implements SimLinkHost<Link> {
     reply(Status.OK, HELLO_RSP, {
       protoMajor: PROTO.major, protoMinor: PROTO.minor, transport: link.kind === 'usb' ? HpTransport.USB : HpTransport.BLE,
       bindState, bootId: this.#bootId, sysUs: this.#sysUsBig(), logOldestSeq: this.#oldest(), logNextSeq: this.#next,
-      otherSessions: others, boardType: this.#mode === 'boot' ? BoardType.CONTROL_BOOT : BoardType.CONTROL,
+      otherSessions: others, boardType: BoardType.CONTROL,
       reserved: new Uint8Array(2),
     });
     this.#kick();
@@ -944,9 +885,10 @@ export class SimDevice implements SimLinkHost<Link> {
         const req = parse(REBOOT_REQ);
         if (!req) return;
         const target = req['target'] as number;
-        if (target !== RebootTarget.APP && target !== RebootTarget.BOOTLOADER) { reply(Status.ERR_INVALID_ARG); return; }
+        if (target === RebootTarget.BOOTLOADER) { reply(Status.ERR_UNSUPPORTED); return; }   // no bootloader in v1
+        if (target !== RebootTarget.APP) { reply(Status.ERR_INVALID_ARG); return; }
         reply(Status.OK, REBOOT_RSP, {});
-        this.#later(REBOOT_DELAY_MS, () => this.#boot(target === RebootTarget.APP ? 'app' : 'boot', ResetCause.SOFTWARE));
+        this.#later(REBOOT_DELAY_MS, () => this.#boot(ResetCause.SOFTWARE));
         return;
       }
       case MsgId.STATUS: {
@@ -1107,94 +1049,6 @@ export class SimDevice implements SimLinkHost<Link> {
         if (!this.#seq) { reply(Status.ERR_INVALID_STATE); return; }
         this.#abortSequence(SeqAbortReason.HOST);
         reply(Status.OK, ABORT_SEQUENCE_RSP, {});
-        return;
-      }
-      case MsgId.UPDATE_BEGIN: case MsgId.UPDATE_CHUNK: case MsgId.UPDATE_END: case MsgId.UPDATE_ABORT:
-      case MsgId.BOOT_APP:
-        reply(Status.ERR_INVALID_STATE);
-        return;
-      default:
-        reply(Status.ERR_UNSUPPORTED);
-    }
-  }
-
-  // ---- bootloader --------------------------------------------------------------------------
-
-  #bootRequest(msgId: number, parse: (d: StructDesc) => Record<string, unknown> | null, empty: () => boolean,
-               reply: (st: number, d?: StructDesc, b?: object) => void): void {
-    switch (msgId) {
-      case MsgId.UPDATE_BEGIN: {
-        const req = parse(UPDATE_BEGIN_REQ);
-        if (!req) return;
-        const size = req['size'] as number;
-        const crc = req['crc32'] as number;
-        if (req['boardType'] !== BoardType.CONTROL) { reply(Status.ERR_IMAGE_BOARD); return; }
-        if (size > IMAGE_APP_SLOT_SIZE) { reply(Status.ERR_IMAGE_TOO_BIG); return; }
-        if (size === 0) { reply(Status.ERR_INVALID_ARG); return; }   // too small for a header: END refuses it
-        const cur = this.#update;
-        if (cur?.phase === 'writing' && cur.size === size && cur.crc === crc) {   // resume: keep what is written
-          reply(Status.OK, UPDATE_BEGIN_RSP, { chunkMax: CHUNK_MAX, reserved: 0 });
-          return;
-        }
-        this.#flash.app.valid = false;
-        this.#flash.image = null;
-        this.#update = { phase: 'writing', size, crc, data: new Uint8Array(size).fill(0xff), next: 0 };
-        const eraseMs = Math.ceil(size / PAGE_BYTES) * ERASE_MS_PER_PAGE;
-        this.#later(eraseMs, () => reply(Status.OK, UPDATE_BEGIN_RSP, { chunkMax: CHUNK_MAX, reserved: 0 }));
-        return;
-      }
-      case MsgId.UPDATE_CHUNK: {
-        const req = parse(UPDATE_CHUNK_REQ);
-        if (!req) return;
-        const u = this.#update;
-        const offset = req['offset'] as number;
-        const data = req['data'] as Uint8Array;
-        if (data.length > CHUNK_MAX) { reply(Status.ERR_BAD_LENGTH); return; }
-        if (!u || u.phase !== 'writing') { reply(Status.ERR_UPDATE_SEQUENCE); return; }
-        if (offset > u.next) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
-        if (data.length > u.size - offset) { reply(Status.ERR_IMAGE_TOO_BIG); return; }
-        const old = Math.min(data.length, u.next - offset);           // already written: must match
-        for (let i = 0; i < old; i++) if (u.data[offset + i] !== data[i]) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
-        u.data.set(data.subarray(old), offset + old);
-        u.next = Math.max(u.next, offset + data.length);
-        reply(Status.OK, UPDATE_CHUNK_RSP, { nextOffset: u.next });
-        return;
-      }
-      case MsgId.UPDATE_END: {
-        if (!empty()) return;
-        const u = this.#update;
-        if (u?.phase === 'done') { reply(Status.OK, UPDATE_END_RSP, {}); return; }
-        if (!u || u.next !== u.size) { reply(Status.ERR_UPDATE_SEQUENCE); return; }
-        const crc = crc32(u.data);
-        const verdict = crc !== u.crc ? Status.ERR_IMAGE_CRC : checkImage(u.data, BoardType.CONTROL);
-        if (verdict !== Status.OK) { this.#update = null; reply(verdict); return; }
-        const h = parseImageHeader(u.data)!;
-        u.phase = 'done';
-        this.#flash.image = u.data;
-        this.#flash.app = { valid: true, crc, fw: { major: h.fwMajor, minor: h.fwMinor, patch: h.fwPatch, gitRev: h.gitRev } };
-        reply(Status.OK, UPDATE_END_RSP, {});
-        return;
-      }
-      case MsgId.UPDATE_ABORT: {
-        if (!empty()) return;
-        if (this.#update?.phase === 'writing') this.#update = null;
-        reply(Status.OK, UPDATE_ABORT_RSP, {});
-        return;
-      }
-      case MsgId.BOOT_APP: {
-        if (!empty()) return;
-        if (!this.#flash.app.valid) { reply(Status.ERR_INVALID_STATE); return; }
-        reply(Status.OK, BOOT_APP_RSP, {});
-        this.#later(REBOOT_DELAY_MS, () => this.#boot('app', ResetCause.SOFTWARE));
-        return;
-      }
-      case MsgId.REBOOT: {
-        const req = parse(REBOOT_REQ);
-        if (!req) return;
-        const toBoot = req['target'] === RebootTarget.BOOTLOADER;
-        if (!toBoot && !this.#flash.app.valid) { reply(Status.ERR_INVALID_STATE); return; }
-        reply(Status.OK, REBOOT_RSP, {});
-        this.#later(REBOOT_DELAY_MS, () => this.#boot(toBoot ? 'boot' : 'app', ResetCause.SOFTWARE));
         return;
       }
       default:
@@ -1431,7 +1285,7 @@ export class SimDevice implements SimLinkHost<Link> {
   #onCross(lane: number, atMs: number, kind: CrossingKind, d: CrossingDetail): void {
     const s = this.#lanes[lane]!;
     const tUs = Math.round((atMs - this.#bootMs) * 1000);
-    const detected = this.#mode === 'app' && this.#rail === 'on' && s.present && s.configured
+    const detected = this.#rail === 'on' && s.present && s.configured
       && this.#effectiveMode(lane) !== SamplingMode.OFF;
     this.#truth.push({ lane, bootId: this.#bootId, tEntryUs: tUs, kind, detected });
     if (!detected) return;
@@ -1574,11 +1428,11 @@ export class SimDevice implements SimLinkHost<Link> {
   // ---- nodes -------------------------------------------------------------------------------------
 
   #nodes(): NodeInfo[] {
-    const fw = this.#mode === 'app' ? this.#flash.app.fw : SIM_BOOT_FW;
+    const fw = SIM_APP_FW;
     const nodes: NodeInfo[] = [{
-      nodeClass: NodeClass.CTRL, index: 0, boardType: this.#mode === 'app' ? BoardType.CONTROL : BoardType.CONTROL_BOOT,
+      nodeClass: NodeClass.CTRL, index: 0, boardType: BoardType.CONTROL,
       state: NodeState.OK, fwMajor: fw.major, fwMinor: fw.minor, fwPatch: fw.patch, protoMinor: PROTO.minor,
-      fwGitRev: fw.gitRev, imageCrc: this.#mode === 'app' ? this.#flash.app.crc : 0,
+      fwGitRev: fw.gitRev, imageCrc: 0,   // no image header since 0.4: unknown
     }];
     if (this.#opts.bleModule) {
       nodes.push({
@@ -1587,7 +1441,6 @@ export class SimDevice implements SimLinkHost<Link> {
         fwGitRev: SIM_BLE_FW.gitRev, imageCrc: 0,
       });
     }
-    if (this.#mode !== 'app') return nodes;
     for (let lane = 1; lane <= MAX_LANES; lane++) {
       const s = this.#lanes[lane]!;
       if (!s.present) continue;

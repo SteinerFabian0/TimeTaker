@@ -9,12 +9,14 @@
  * are the weak defaults); they become the Stop1 wake sources once sys_power
  * is ported.
  *
- * A press is classified once:
- *   SHORT      released before BUTTON_LONG_MS
- *   LONG       still held at BUTTON_LONG_MS (reported then, not on release)
- *   VERY_LONG  still held at BUTTON_VERY_LONG_MS (after its LONG)
- * Each classification is latched until buttonHandlerTakePress() reads it, so a
- * slow loop never loses one. A newer press overwrites an unread older one.
+ * One press = one classification, reported when the release is confirmed, by
+ * how long it was held:
+ *   SHORT      < BUTTON_LONG_MS
+ *   LONG       BUTTON_LONG_MS .. < BUTTON_VERY_LONG_MS
+ *   VERY_LONG  >= BUTTON_VERY_LONG_MS
+ * A button held across boot is ignored until released. Finished presses queue
+ * (a few per button) until buttonHandlerTakePress() reads them, so a slow loop
+ * never loses one. Logic: button_logic.c (host-tested).
  *
  * The values of buttonId_e and buttonPress_e equal hpButtonId_e and
  * hpPressKind_e in host_protocol.h, so they go into EVT_BUTTON unchanged.

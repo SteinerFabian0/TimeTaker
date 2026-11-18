@@ -24,8 +24,8 @@
  * nRF instead of into the session (BLE bench test).
  *
  * Owns: USART1 (PB6/PB7) through the generated handle and the HAL UART weak
- * callbacks, and the BLE_IRQ pin (read only). PB4 BOOT_REQ is the
- * bootloader's alone.
+ * callbacks, and the BLE_IRQ pin (read only). PB4 BOOT_REQ is unused
+ * in v1 (no bootloader).
  * Context: API main loop only; the UART callbacks run at ISR prio 5 and only
  * move bytes.
  */

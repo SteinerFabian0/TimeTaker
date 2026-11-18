@@ -44,5 +44,3 @@ uint32_t ctrlMasterGetLoopMaxMs(void);
 /* USB_FAULT trips since boot (STATUS.usbFaults). */
 uint32_t ctrlMasterGetUsbFaults(void);
 
-/* imageCrc from this image's header (image_header.h), 0 if not stamped. */
-uint32_t ctrlMasterImageCrc(void);

@@ -319,7 +319,14 @@ can then be tuned at the venue without streaming everything.
 ### 3.6 Events to the mainboard
 
 - **Event FIFO:** a ring buffer of events, ≥ 32 deep. On overflow, keep the
-  oldest, count the drops and report the count in STATUS.
+  oldest, count the drops and report the count in STATUS. **v1: 2480 deep
+  (2026-11-18)**, 38.75 KB: the lane buffers events so nothing is lost while
+  the bus or the control module is slow, and the depth fills the RAM the lane
+  does not otherwise use, leaving about 16 KB free (debug: 47.9 KB used of
+  64 KB incl. the 4 KB stack, 16.1 KB free; release 46.9 KB, 17.1 KB free).
+  STATUS.fifoCount and the read header's `remaining` are u8 and saturate at
+  `LANE_FIFO_COUNT_MAX` (255). The raw FIFO stays at 8 chunks (256 samples):
+  raw samples are a best-effort diagnostic stream.
 - **Notification:** an **I3C In-Band Interrupt** with a 1-byte payload (event
   type / pending count) is implemented but **off** (`LANE_BUS_IBI_ENABLE 0`):
   the controller NACKs IBIs from targets it has no slot for, so v1 polls.
@@ -714,8 +721,9 @@ bench-tested: no board exists yet.** The bench procedures for every step are
 in `BENCH_TESTS.md` (14 numbered tests, power-on to six lanes and lights out).
 
 Build: debug and release presets, 0 warnings, `-Werror` on `app/`.
-Flash/RAM (text+data / bss incl. 4 KB stack): debug 36.2 KB / 9.8 KB,
-release 32.4 KB / 8.7 KB, of 256 KB / 64 KB. Host tests: `test/run_all.sh`,
+Flash/RAM (text+data / bss incl. 4 KB stack): debug 35.7 KB / 47.9 KB,
+release 32.2 KB / 46.9 KB, of 256 KB / 64 KB (the event FIFO, 2480 deep,
+takes 38.75 KB of that on purpose: §3.6). Host tests: `test/run_all.sh`,
 7 suites, 358 checks, all passing, plus the `lane_protocol.h` copy check;
 `test/mutate.py`: 87 mutations, all killed.
 

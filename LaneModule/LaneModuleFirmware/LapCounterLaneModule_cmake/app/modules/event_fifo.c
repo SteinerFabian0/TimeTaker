@@ -37,7 +37,7 @@ laneStatus_e eventFifoPush(eventFifo_t *f, laneEvent_t *ev)
     return LANE_OK;
 }
 
-uint8_t eventFifoCount(const eventFifo_t *f)
+uint16_t eventFifoCount(const eventFifo_t *f)
 {
     return f->count;
 }
@@ -71,7 +71,8 @@ void eventFifoFlush(eventFifo_t *f)
 
 uint32_t eventFifoBuildRead(const eventFifo_t *f, uint8_t *buf, uint32_t cap, uint8_t *offered)
 {
-    uint8_t n = (f->count < LANE_FIFO_READ_MAX) ? f->count : (uint8_t)LANE_FIFO_READ_MAX;
+    const uint8_t  n    = (f->count < LANE_FIFO_READ_MAX) ? (uint8_t)f->count : (uint8_t)LANE_FIFO_READ_MAX;
+    const uint16_t left = (uint16_t)(f->count - n);
 
     if (cap < LANE_FIFO_READ_BYTES) {
         *offered = 0U;
@@ -80,7 +81,7 @@ uint32_t eventFifoBuildRead(const eventFifo_t *f, uint8_t *buf, uint32_t cap, ui
 
     laneFifoHeader_t hdr = {
         .count     = n,
-        .remaining = (uint8_t)(f->count - n),
+        .remaining = (left > LANE_FIFO_COUNT_MAX) ? (uint8_t)LANE_FIFO_COUNT_MAX : (uint8_t)left,
         .reserved  = 0U,
     };
     memcpy(buf, &hdr, sizeof(hdr));
@@ -109,8 +110,8 @@ uint32_t eventFifoCompleteRead(eventFifo_t *f, uint8_t offered, uint32_t clocked
         n = f->count;
     }
 
-    f->head   = (uint8_t)((f->head + n) % EVENT_FIFO_DEPTH);
-    f->count -= (uint8_t)n;
+    f->head   = (uint16_t)((f->head + n) % EVENT_FIFO_DEPTH);
+    f->count -= (uint16_t)n;
     return n;
 }
 

@@ -41,10 +41,9 @@ export function listPorts(): PortInfo[] {
   });
 }
 
-/** TimeTaker ports: our VID and the app's or the bootloader's PID. */
+/** TimeTaker ports: our VID and PID. */
 export function findTimeTaker(): PortInfo[] {
-  return listPorts().filter((p) => p.vendorId === USB_ID.vendorId
-    && (p.productId === USB_ID.productId || p.productId === USB_ID.productIdBoot));
+  return listPorts().filter((p) => p.vendorId === USB_ID.vendorId && p.productId === USB_ID.productId);
 }
 
 /** Writes all of bytes through a write(2)-like function that may take only part of them. */

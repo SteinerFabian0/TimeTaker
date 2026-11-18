@@ -132,7 +132,7 @@ describe('DeviceManager', () => {
       m.start();
       await t.until(() => m.state === 'connected');
       const first = dev.bootId;
-      await m.api.reboot('app');
+      await m.api.reboot();
       await t.until(() => dev.bootId !== first);
       await t.until(() => events.some((e) => e.bootId === dev.bootId && e.name === 'EVT_BOOT'), 5000);
       boots.push(...new Set(events.map((e) => e.bootId)));
@@ -161,8 +161,9 @@ describe('DeviceApi retry policy', () => {
     assert.equal(calls.length, 3);
   });
 
-  test('UPDATE_END, START_SEQUENCE and REBOOT are never repeated after a timeout', async () => {
-    for (const run of [(a: DeviceApi) => a.updateEnd(), (a: DeviceApi) => a.abortSequence(), (a: DeviceApi) => a.reboot()]) {
+  test('START_SEQUENCE, ABORT_SEQUENCE and REBOOT are never repeated after a timeout', async () => {
+    const start = (a: DeviceApi) => a.startSequence({ lights: 5, stepMs: 1000, holdMinMs: 500, holdMaxMs: 2500 });
+    for (const run of [start, (a: DeviceApi) => a.abortSequence(), (a: DeviceApi) => a.reboot()]) {
       const { calls, api } = fake(() => new TimeoutError('X', 1));
       await assert.rejects(run(api), TimeoutError);
       assert.equal(calls.length, 1);

@@ -27,8 +27,7 @@ node tools/tt.ts lane raw 1 4 --seconds 2      # raw samples, decimation 4
 node tools/tt.ts lane scan | lane calibrate all
 node tools/tt.ts start 6 1000 200 3000         # lights stepMs holdMin holdMax; abort
 node tools/tt.ts bind list | bind allow 60 | bind remove <32 hex> | bind clear
-node tools/tt.ts reboot bootloader
-node tools/tt.ts update build/ctrl_app.bin
+node tools/tt.ts reboot                        # REBOOT{APP}; firmware goes on over SWD (no field update in v1)
 node tools/tt.ts suite all                     # or: suite usb,lanes
 ```
 
@@ -46,13 +45,12 @@ are printed and the tool waits for Enter; with `--sim` the simulator does them.
 
 | Suite | Checks | Matches |
 |---|---|---|
-| `usb` | HELLO (major, USB, TRUSTED, bootId), PING echo/RTT, NODE_LIST CTRL, STATUS log window, unknown id → ERR_UNSUPPORTED, wrong length → ERR_BAD_LENGTH, replay from EVT_BOOT | C0 bench step 3 |
+| `usb` | HELLO (major, USB, TRUSTED, bootId), PING echo/RTT, NODE_LIST CTRL, STATUS log window, unknown id → ERR_UNSUPPORTED, wrong length → ERR_BAD_LENGTH, REBOOT{BOOTLOADER} and the reserved update id 0xA0 → ERR_UNSUPPORTED, replay from EVT_BOOT | C0 bench step 3 |
 | `lanes` | JOINED→CONFIGURED in chain order, NODE_LIST lanes + versions, config round trip, LANE_STATUS per lane, absent lane → ERR_LANE_ABSENT, LANE_SCAN, *unplug ribbon 2→3* → 3..n LEFT, replug → re-join in order, power off → LEFT all | CONTROL guide §5.1 Done when |
 | `crossings` | *a hand through every lane twice*: consecutive laneSeq, plausible tEntryUs and dwell; raw stream chunkSeq | §5.2 |
 | `resume` | *crossings running, pull USB, plug back*: every evSeq once, in order; crossings from the outage arrive | §5.2 / SYSTEM_ARCHITECTURE §7.4 required test |
 | `start` | 3 sequences: T0 lead ≥ 150 ms, ERR_SEQ_RUNNING, LED refused, no early LIGHTS_OUT, hold in range; abort idle → ERR_INVALID_STATE; abort → SEQ_ABORTED{HOST} | §5.3 (the scope part stays manual) |
 | `binding` | a web app's USB HELLO binds it, BIND_ALLOW/0, BIND_LIST window, BIND_REMOVE, the EVT_BIND_CHANGED sequence; BLE UNBOUND → ERR_NOT_BOUND → bound live (sim only: Node has no Web Bluetooth) | §5.4 |
-| `update` | REBOOT{BOOTLOADER}, image written (resumable), BOOT_APP, CTRL back with the image CRC. Hardware needs `--image FILE` | §5.7 / C7 |
 
 ## Fixtures and mutation check
 

@@ -1,7 +1,7 @@
 /*
  * Time sources for everything that waits: the device session (request
- * timeouts, PING), the simulator (lane joins, cars, start lights), the
- * updater and the bench suites.
+ * timeouts, PING), the simulator (lane joins, cars, start lights) and the
+ * bench suites.
  *
  * Two implementations of one small interface:
  *

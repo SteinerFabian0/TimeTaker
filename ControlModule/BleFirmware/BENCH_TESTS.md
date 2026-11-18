@@ -24,7 +24,7 @@ nets are named from the STM's side: **UART1_TX = nRF RX (P0.16)**, **UART1_RX
 | T9 | Throughput | T5 tool or T8 |
 | T10 | Watchdog | no |
 | T11 | Binding with the web app | control C5 + web app |
-| T12 | STM reset lines (B5 groundwork) | no (scope only) |
+| T12 | STM reset lines (idle states) | no (scope only) |
 
 ---
 
@@ -495,10 +495,11 @@ request times out → T8 (the bridge) first.
 
 ---
 
-## T12. STM reset lines (B5 groundwork)
+## T12. STM reset lines (idle states)
 
-Nothing in v1 triggers these (task B5). This test only checks the idle
-states, which matter from day one.
+Nothing in v1 drives these: NRST stays released, BOOT_REQ stays high (no
+STM bootloader). This test checks those idle states, which matter from day
+one.
 
 **Setup:** scope on STM NRST, BOOT_REQ (P0.04 / PB4), BOOT0 (P0.12).
 

@@ -12,10 +12,10 @@
 import { decodeStruct, encodeStruct } from './wire.ts';
 import type { StructDesc } from './wire.ts';
 
-export const PROTO = { major: 0, minor: 3, maxPayload: 240, headerBytes: 4 } as const;
+export const PROTO = { major: 0, minor: 4, maxPayload: 240, headerBytes: 4 } as const;
 
-/** USB identity of the control module (app) and its bootloader: the Web Serial port filter. */
-export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker', productIdBoot: 0x0002, productBoot: 'TimeTaker (update)' } as const;
+/** USB identity of the control module: the Web Serial port filter. */
+export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker' } as const;
 
 export const HeaderFlag = {
   RESPONSE: 0x01,
@@ -435,11 +435,6 @@ export const MsgId = {
   LANE_CALIBRATE: 0x28,
   START_SEQUENCE: 0x40,
   ABORT_SEQUENCE: 0x41,
-  UPDATE_BEGIN: 0xa0,
-  UPDATE_CHUNK: 0xa1,
-  UPDATE_END: 0xa2,
-  UPDATE_ABORT: 0xa3,
-  BOOT_APP: 0xa4,
   EVT_BOOT: 0xc0,
   EVT_CROSSING: 0xc1,
   EVT_LANE_STATE: 0xc2,
@@ -521,7 +516,7 @@ export type HelloRsp = {
   logNextSeq: number;
   /** Number of other live sessions (USB + BLE at once) */
   otherSessions: number;
-  /** enum BoardType. What answers: CONTROL (the app) or CONTROL_BOOT (the bootloader). Since 0.3; 0 from older firmware */
+  /** enum BoardType. What answers: CONTROL (CONTROL_BOOT is reserved, no bootloader in v1). Since 0.3; 0 from older firmware */
   boardType: number;
   reserved: Uint8Array;
 };
@@ -730,7 +725,7 @@ export type BindAllowRsp = {
 export const encodeBindAllowRsp = (v: BindAllowRsp): Uint8Array => encodeStruct(BIND_ALLOW_RSP, v);
 export const decodeBindAllowRsp = (b: Uint8Array): BindAllowRsp => decodeStruct(BIND_ALLOW_RSP, b) as BindAllowRsp;
 
-// 0x11 REBOOT (request): Reboots the control module, into the app or into its bootloader. The response goes out before the reset.
+// 0x11 REBOOT (request): Reboots the control module. The response goes out before the reset. target BOOTLOADER is reserved (no bootloader in v1) and answers ERR_UNSUPPORTED.
 /** REBOOT request */
 export const REBOOT_REQ: StructDesc = {
   name: 'RebootReq',
@@ -1302,162 +1297,6 @@ export type AbortSequenceRsp = {
 export const encodeAbortSequenceRsp = (v: AbortSequenceRsp): Uint8Array => encodeStruct(ABORT_SEQUENCE_RSP, v);
 export const decodeAbortSequenceRsp = (b: Uint8Array): AbortSequenceRsp => decodeStruct(ABORT_SEQUENCE_RSP, b) as AbortSequenceRsp;
 
-// 0xa0 UPDATE_BEGIN (request): Starts an update: erases the app region. The image must be for this board type.
-/** UPDATE_BEGIN request */
-export const UPDATE_BEGIN_REQ: StructDesc = {
-  name: 'UpdateBeginReq',
-  size: 12,
-  fields: [
-    { name: 'boardType', kind: 'scalar', type: 'u8' },
-    { name: 'reserved', kind: 'bytes', size: 3 },
-    { name: 'size', kind: 'scalar', type: 'u32' },
-    { name: 'crc32', kind: 'scalar', type: 'u32' },
-  ],
-};
-export type UpdateBeginReq = {
-  /** enum BoardType */
-  boardType: number;
-  reserved: Uint8Array;
-  /** Image bytes */
-  size: number;
-  /** CRC-32 (IEEE) of the whole image */
-  crc32: number;
-};
-export const encodeUpdateBeginReq = (v: UpdateBeginReq): Uint8Array => encodeStruct(UPDATE_BEGIN_REQ, v);
-export const decodeUpdateBeginReq = (b: Uint8Array): UpdateBeginReq => decodeStruct(UPDATE_BEGIN_REQ, b) as UpdateBeginReq;
-
-/** UPDATE_BEGIN response */
-export const UPDATE_BEGIN_RSP: StructDesc = {
-  name: 'UpdateBeginRsp',
-  size: 6,
-  fields: [
-    { name: 'status', kind: 'scalar', type: 'i16' },
-    { name: 'chunkMax', kind: 'scalar', type: 'u16' },
-    { name: 'reserved', kind: 'scalar', type: 'u16' },
-  ],
-};
-export type UpdateBeginRsp = {
-  /** ctrlStatus_e. On error the payload is this field only. */
-  status: number;
-  /** Largest data tail UPDATE_CHUNK accepts */
-  chunkMax: number;
-  reserved: number;
-};
-export const encodeUpdateBeginRsp = (v: UpdateBeginRsp): Uint8Array => encodeStruct(UPDATE_BEGIN_RSP, v);
-export const decodeUpdateBeginRsp = (b: Uint8Array): UpdateBeginRsp => decodeStruct(UPDATE_BEGIN_RSP, b) as UpdateBeginRsp;
-
-// 0xa1 UPDATE_CHUNK (request): Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe. Resume rule: re-sent bytes (offset below nextOffset) that match what is already written are acknowledged without rewriting, and the response always carries the real nextOffset, so a host that restarts from an earlier offset is fast-forwarded to where the bootloader stands.
-/** UPDATE_CHUNK request */
-export const UPDATE_CHUNK_REQ: StructDesc = {
-  name: 'UpdateChunkReq',
-  size: 4,
-  fields: [
-    { name: 'offset', kind: 'scalar', type: 'u32' },
-    { name: 'data', kind: 'tail', item: { kind: 'bytes' } },
-  ],
-};
-export type UpdateChunkReq = {
-  offset: number;
-  data: Uint8Array;
-};
-export const encodeUpdateChunkReq = (v: UpdateChunkReq): Uint8Array => encodeStruct(UPDATE_CHUNK_REQ, v);
-export const decodeUpdateChunkReq = (b: Uint8Array): UpdateChunkReq => decodeStruct(UPDATE_CHUNK_REQ, b) as UpdateChunkReq;
-
-/** UPDATE_CHUNK response */
-export const UPDATE_CHUNK_RSP: StructDesc = {
-  name: 'UpdateChunkRsp',
-  size: 6,
-  fields: [
-    { name: 'status', kind: 'scalar', type: 'i16' },
-    { name: 'nextOffset', kind: 'scalar', type: 'u32' },
-  ],
-};
-export type UpdateChunkRsp = {
-  /** ctrlStatus_e. On error the payload is this field only. */
-  status: number;
-  nextOffset: number;
-};
-export const encodeUpdateChunkRsp = (v: UpdateChunkRsp): Uint8Array => encodeStruct(UPDATE_CHUNK_RSP, v);
-export const decodeUpdateChunkRsp = (b: Uint8Array): UpdateChunkRsp => decodeStruct(UPDATE_CHUNK_RSP, b) as UpdateChunkRsp;
-
-// 0xa2 UPDATE_END (request): Verifies the CRC over the written image and writes the image header last. ERR_IMAGE_CRC if it does not match.
-/** UPDATE_END request */
-export const UPDATE_END_REQ: StructDesc = {
-  name: 'UpdateEndReq',
-  size: 0,
-  fields: [],
-};
-export type UpdateEndReq = Record<string, never>;
-export const encodeUpdateEndReq = (v: UpdateEndReq): Uint8Array => encodeStruct(UPDATE_END_REQ, v);
-export const decodeUpdateEndReq = (b: Uint8Array): UpdateEndReq => decodeStruct(UPDATE_END_REQ, b) as UpdateEndReq;
-
-/** UPDATE_END response */
-export const UPDATE_END_RSP: StructDesc = {
-  name: 'UpdateEndRsp',
-  size: 2,
-  fields: [
-    { name: 'status', kind: 'scalar', type: 'i16' },
-  ],
-};
-export type UpdateEndRsp = {
-  /** ctrlStatus_e. On error the payload is this field only. */
-  status: number;
-};
-export const encodeUpdateEndRsp = (v: UpdateEndRsp): Uint8Array => encodeStruct(UPDATE_END_RSP, v);
-export const decodeUpdateEndRsp = (b: Uint8Array): UpdateEndRsp => decodeStruct(UPDATE_END_RSP, b) as UpdateEndRsp;
-
-// 0xa3 UPDATE_ABORT (request): Abandons the update. The bootloader stays (no valid app).
-/** UPDATE_ABORT request */
-export const UPDATE_ABORT_REQ: StructDesc = {
-  name: 'UpdateAbortReq',
-  size: 0,
-  fields: [],
-};
-export type UpdateAbortReq = Record<string, never>;
-export const encodeUpdateAbortReq = (v: UpdateAbortReq): Uint8Array => encodeStruct(UPDATE_ABORT_REQ, v);
-export const decodeUpdateAbortReq = (b: Uint8Array): UpdateAbortReq => decodeStruct(UPDATE_ABORT_REQ, b) as UpdateAbortReq;
-
-/** UPDATE_ABORT response */
-export const UPDATE_ABORT_RSP: StructDesc = {
-  name: 'UpdateAbortRsp',
-  size: 2,
-  fields: [
-    { name: 'status', kind: 'scalar', type: 'i16' },
-  ],
-};
-export type UpdateAbortRsp = {
-  /** ctrlStatus_e. On error the payload is this field only. */
-  status: number;
-};
-export const encodeUpdateAbortRsp = (v: UpdateAbortRsp): Uint8Array => encodeStruct(UPDATE_ABORT_RSP, v);
-export const decodeUpdateAbortRsp = (b: Uint8Array): UpdateAbortRsp => decodeStruct(UPDATE_ABORT_RSP, b) as UpdateAbortRsp;
-
-// 0xa4 BOOT_APP (request): Leaves the bootloader and starts the app, if its header and CRC are valid. The response goes out first.
-/** BOOT_APP request */
-export const BOOT_APP_REQ: StructDesc = {
-  name: 'BootAppReq',
-  size: 0,
-  fields: [],
-};
-export type BootAppReq = Record<string, never>;
-export const encodeBootAppReq = (v: BootAppReq): Uint8Array => encodeStruct(BOOT_APP_REQ, v);
-export const decodeBootAppReq = (b: Uint8Array): BootAppReq => decodeStruct(BOOT_APP_REQ, b) as BootAppReq;
-
-/** BOOT_APP response */
-export const BOOT_APP_RSP: StructDesc = {
-  name: 'BootAppRsp',
-  size: 2,
-  fields: [
-    { name: 'status', kind: 'scalar', type: 'i16' },
-  ],
-};
-export type BootAppRsp = {
-  /** ctrlStatus_e. On error the payload is this field only. */
-  status: number;
-};
-export const encodeBootAppRsp = (v: BootAppRsp): Uint8Array => encodeStruct(BOOT_APP_RSP, v);
-export const decodeBootAppRsp = (b: Uint8Array): BootAppRsp => decodeStruct(BOOT_APP_RSP, b) as BootAppRsp;
-
 // 0xc0 EVT_BOOT (event): Always evSeq 0 of a boot: marks the start of a log.
 /** EVT_BOOT */
 export const EVT_BOOT: StructDesc = {
@@ -1817,11 +1656,6 @@ export const MESSAGES: readonly MsgDesc[] = [
   { id: 0x28, name: 'LANE_CALIBRATE', kind: 'request', req: LANE_CALIBRATE_REQ, rsp: LANE_CALIBRATE_RSP },
   { id: 0x40, name: 'START_SEQUENCE', kind: 'request', req: START_SEQUENCE_REQ, rsp: START_SEQUENCE_RSP },
   { id: 0x41, name: 'ABORT_SEQUENCE', kind: 'request', req: ABORT_SEQUENCE_REQ, rsp: ABORT_SEQUENCE_RSP },
-  { id: 0xa0, name: 'UPDATE_BEGIN', kind: 'request', req: UPDATE_BEGIN_REQ, rsp: UPDATE_BEGIN_RSP },
-  { id: 0xa1, name: 'UPDATE_CHUNK', kind: 'request', req: UPDATE_CHUNK_REQ, rsp: UPDATE_CHUNK_RSP },
-  { id: 0xa2, name: 'UPDATE_END', kind: 'request', req: UPDATE_END_REQ, rsp: UPDATE_END_RSP },
-  { id: 0xa3, name: 'UPDATE_ABORT', kind: 'request', req: UPDATE_ABORT_REQ, rsp: UPDATE_ABORT_RSP },
-  { id: 0xa4, name: 'BOOT_APP', kind: 'request', req: BOOT_APP_REQ, rsp: BOOT_APP_RSP },
   { id: 0xc0, name: 'EVT_BOOT', kind: 'event', body: EVT_BOOT },
   { id: 0xc1, name: 'EVT_CROSSING', kind: 'event', body: EVT_CROSSING },
   { id: 0xc2, name: 'EVT_LANE_STATE', kind: 'event', body: EVT_LANE_STATE },
@@ -1889,16 +1723,6 @@ export const STRUCTS: Readonly<Record<string, StructDesc>> = {
   StartSequenceRsp: START_SEQUENCE_RSP,
   AbortSequenceReq: ABORT_SEQUENCE_REQ,
   AbortSequenceRsp: ABORT_SEQUENCE_RSP,
-  UpdateBeginReq: UPDATE_BEGIN_REQ,
-  UpdateBeginRsp: UPDATE_BEGIN_RSP,
-  UpdateChunkReq: UPDATE_CHUNK_REQ,
-  UpdateChunkRsp: UPDATE_CHUNK_RSP,
-  UpdateEndReq: UPDATE_END_REQ,
-  UpdateEndRsp: UPDATE_END_RSP,
-  UpdateAbortReq: UPDATE_ABORT_REQ,
-  UpdateAbortRsp: UPDATE_ABORT_RSP,
-  BootAppReq: BOOT_APP_REQ,
-  BootAppRsp: BOOT_APP_RSP,
   EvtBoot: EVT_BOOT,
   EvtCrossing: EVT_CROSSING,
   EvtLaneState: EVT_LANE_STATE,

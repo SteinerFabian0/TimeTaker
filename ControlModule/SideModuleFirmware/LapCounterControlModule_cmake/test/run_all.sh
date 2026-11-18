@@ -13,7 +13,7 @@ OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
 CFLAGS="-std=gnu11 -O1 -Wall -Wextra -Werror -DRELEASE"
-INC="-I$CTRL/app/config -I$CTRL/app/modules"
+INC="-I$TEST/shim -I$CTRL/app/config -I$CTRL/app/modules"
 
 failed=0
 
@@ -67,7 +67,8 @@ suite host_settings_record "$CTRL/app/modules/settings_record.c" "$CTRL/app/modu
 suite host_nrf_link    "$CTRL/app/modules/nrf_link_proto.c" "$CTRL/app/modules/frame_codec.c" \
                        "$CTRL/app/modules/byte_ring.c" "$CTRL/app/modules/stream_budget.c"
 suite host_lane_logic  "$CTRL/app/modules/lane_logic.c"
-suite host_update      "$CTRL/app/modules/image_header.c" "$CTRL/app/modules/update_writer.c" "$CTRL/app/modules/crc32.c"
+suite host_button     "$CTRL/app/modules/button_logic.c"
+suite host_led        "$CTRL/app/modules/led_pattern.c" "$CTRL/app/modules/indicator_led.c"
 
 if [ "$failed" -eq 0 ]; then
     echo "ALL SUITES PASSED"

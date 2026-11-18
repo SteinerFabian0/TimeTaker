@@ -50,7 +50,7 @@
 		compatible = "timetaker,stm-lines";
 		/* P0.05 -> PB5: high while a central is connected. */
 		ble-irq-gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
-		/* P0.04 -> PB4: BOOT_REQ, active low (PB4 pull-up = no request). */
+		/* P0.04 -> PB4: BOOT_REQ, active low; unused in v1, held high. */
 		boot-req-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
 		/* P0.14 -> NRST: open drain ONLY, active low. Never push-pull. */
 		nrst-gpios = <&gpio0 14 (GPIO_ACTIVE_LOW | GPIO_OPEN_DRAIN)>;

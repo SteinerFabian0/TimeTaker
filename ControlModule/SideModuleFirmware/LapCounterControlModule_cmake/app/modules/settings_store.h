@@ -7,7 +7,7 @@
  * remembers and writes.
  *
  * Where: the last two 8 KB pages of the flash, 0x0803_C000 and 0x0803_E000
- * (bank 2, pages 14 and 15; image_header.h has the whole map). Bank 2 is
+ * (bank 2, pages 14 and 15; flash_drv.h has the whole map). Bank 2 is
  * read-while-write against bank 1 where the code runs, so an erase there does
  * not stall the loop, USB or the SYNC timer. One record per page, used in
  * turn (settings_record.h): the new record goes into the erased page, then
@@ -38,6 +38,8 @@
 #define SETTINGS_STORE_PAGE0            0x0803C000U
 #define SETTINGS_STORE_PAGE1            0x0803E000U
 #define SETTINGS_STORE_PAGE_BYTES       0x2000U
+_Static_assert(SETTINGS_STORE_PAGE0 == 0x0803C000U && SETTINGS_STORE_PAGE1 + SETTINGS_STORE_PAGE_BYTES == 0x08040000U,
+               "settings pages: keep in step with FLASH_DRV_SETTINGS_BASE (flash_drv.h) and the linker script");
 #define SETTINGS_STORE_MIN_INTERVAL_MS  10000U
 
 typedef struct __attribute__((packed)) {

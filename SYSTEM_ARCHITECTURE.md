@@ -38,8 +38,8 @@ brief for the sessions that write it:
 | USB identity | USB CDC-ACM device with the product string **"TimeTaker"**. The web app uses Web Serial and filters by VID/PID. |
 | BLE | The nRF52805 is a **dumb bridge**: Nordic UART Service ↔ USART1. It advertises as **"TimeTaker"**. It never parses the host protocol. |
 | BLE binding | Hold the button 2 s to open a 60 s pairing window (fast-blinking LED). The STM stores the list of bound web app client IDs. Over USB you are always trusted, and you can bind from there too (§9.5). |
-| Control STM firmware update over BLE or USB | **Our own small bootloader** that speaks the same host protocol on both transports. The ROM bootloader cannot be used over BLE, because its USART1 sits on PA9/PA10 (HARDWARE_REFERENCE §6). Recovery: BOOT + NRST → ROM USB DFU. |
-| Lane firmware update | v1: SWD. Later: an I3C lane bootloader, fed through the control module. The ROM has no I3C, so it cannot do this. Hooks are reserved now (§10.2). |
+| Firmware updates (control STM, lanes, nRF) | **v1: no field update.** Every board is flashed over SWD / Tag-Connect. No bootloader on any board; the freed RAM buffers events. A field update is deferred; the control bootloader that was built is at git tag `archive/bootloader-update` (§10). Recovery: SWD, or BOOT + NRST → ROM USB DFU. |
+| Lane firmware update later | An I3C lane bootloader fed through the control module (the ROM has no I3C). The cheap hooks stay reserved (§10). |
 | One protocol for USB and BLE | Yes. Same frames and same messages. A session can drop on one transport and **resume on the other without losing a crossing** (§7.4). |
 | Future power electronics (FCY, crash detection) | A new node class behind the control module. It follows the same rule: classify at the edge, decide in the host, act at the edge on the system clock. Safety reflexes run on the control module (§12). |
 
@@ -85,8 +85,8 @@ brief for the sessions that write it:
 | Layer | Owns | Never does |
 |---|---|---|
 | **Lane module** | Sampling schedule, sensor driver, detection, timestamping (mapped to system time), event FIFO, sensor health, LED execution (including scheduled actions) | Lap logic, race state, anything about other lanes, persistence |
-| **Control module STM** | System clock + SYNC, lane chain lifecycle (power, enumeration, config push), **event log**, host sessions on USB and BLE, start sequence and scheduled actions, host-armed reflexes, device config persistence, bind list, its own bootloader | Lap counting, penalties, standings, any rule that can be decided later |
-| **BLE module nRF** | Radio, advertising, the GATT bridge, bind button + LED, STM reset / bootloader strap | Parsing host frames, storing anything about hosts, deciding anything |
+| **Control module STM** | System clock + SYNC, lane chain lifecycle (power, enumeration, config push), **event log**, host sessions on USB and BLE, start sequence and scheduled actions, host-armed reflexes, device config persistence, bind list | Lap counting, penalties, standings, any rule that can be decided later |
+| **BLE module nRF** | Radio, advertising, the GATT bridge, bind button + LED, STM reset line (released) | Parsing host frames, storing anything about hosts, deciding anything |
 | **Web app** | Race engine (laps, lap times, positions, gaps, false starts, reaction times, penalties, race end), race config, persistence, all views, all policy | Timestamping. It only ever does arithmetic on device timestamps. |
 
 ### 2.1 Why the lanes detect
@@ -299,7 +299,7 @@ LapCounterControlModule_cmake/
       lane_chain             LANE_PWR_EN, CHAIN_OUT, BUS_INT; parks bus pins when lanes are off
       usb_cdc                TinyUSB glue: "TimeTaker" descriptors, CDC rx/tx rings, USB_FAULT
       nrf_link               USART1 (DMA) + nRF link framing (DATA/CTRL channels), BLE_IRQ, BLE_GPIO1/2
-      frame_codec            COBS + CRC16, pure, host-tested (shared with the bootloader)
+      frame_codec            COBS + CRC16, pure, host-tested (shared with the nRF bridge)
       event_log              sequenced ring of host events, pure, host-tested
       host_session           session layer per transport: HELLO/PING/RESUME, dispatch, event pump with
                              backpressure; pure (transport and clock as function pointers), host-tested
@@ -407,7 +407,7 @@ in the web app by comparing crossings with `Tout`.
 - Maximum payload is 240 B. All values are little-endian. Structs are packed
   and fixed-size, with no varints. Only the last field may be a variable
   "tail".
-- Implemented in `frame_codec.c/h` (C, shared later by the bootloader and the
+- Implemented in `frame_codec.c/h` (C, shared with the
   nRF) and `WebApp/src/protocol/codec.ts`. Both are held byte for byte to the
   reference encoder in `protocol/gen_protocol.py`.
 
@@ -415,7 +415,7 @@ in the web app by comparing crossings with `Tout`.
 
 | Class | Direction | Delivery | Examples |
 |---|---|---|---|
-| **Request / response** | host → device → host | Reliable by retry. Every request gets exactly one response with a `ctrlStatus_e`. Requests are idempotent where possible. | HELLO, LANE_CONFIG_SET, START_SEQUENCE, UPDATE_CHUNK |
+| **Request / response** | host → device → host | Reliable by retry. Every request gets exactly one response with a `ctrlStatus_e`. Requests are idempotent where possible. | HELLO, LANE_CONFIG_SET, START_SEQUENCE |
 | **Events** | device → host | **Sequenced (`evSeq` u32), logged, replayable.** Never dropped. A session that falls behind just lags. | CROSSING, SEQ_STARTED, LIGHTS_OUT, LANE_JOINED/LEFT/FAULT, BUTTON, POWER_FAULT |
 | **Streams** | device → host | Best effort, rate-limited per transport, **dropped first** under backpressure, never logged | Raw lane samples, telemetry, debug log |
 
@@ -481,12 +481,12 @@ Message ID ranges (draft, grouped like the status codes, with gaps):
 | 0x50–0x5F | Stream subscriptions and telemetry rates |
 | 0x60–0x7F | **Reserved: power** |
 | 0x80–0x8F | **Reserved: display / aux** |
-| 0xA0–0xAF | Update: UPDATE_BEGIN/CHUNK/END/ABORT, ENTER_BOOTLOADER, BOOT_APP |
+| 0xA0–0xAF | **Reserved** (held the update messages until 0.4; never reuse) |
 | 0xC0–0xDF | Events (device → host) |
 | 0xE0–0xEF | Streams (device → host) |
 | 0xF0–0xFF | Debug streams |
 
-Protocol 0.3 (2026-11-18) defines these messages:
+Protocol 0.4 (2026-11-18) defines these messages:
 
 - **Session:** HELLO, PING, RESUME, NODE_LIST, BIND_LIST, BIND_REMOVE,
   BIND_ALLOW
@@ -494,19 +494,21 @@ Protocol 0.3 (2026-11-18) defines these messages:
 - **Lanes:** LANE_SCAN, LANE_POWER, LANE_CONFIG_GET/SET, LANE_SAMPLING,
   LANE_LED, LANE_STATUS, LANE_RAW_STREAM, LANE_CALIBRATE
 - **Sequences:** START_SEQUENCE, ABORT_SEQUENCE
-- **Update (bootloader):** UPDATE_BEGIN/CHUNK/END/ABORT, BOOT_APP
 - **Events:** EVT_BOOT, EVT_CROSSING, EVT_LANE_STATE, EVT_BUTTON,
   EVT_SEQ_STARTED, EVT_LIGHTS_OUT, EVT_SEQ_ABORTED, EVT_BIND_CHANGED,
   EVT_BLE_LINK, EVT_FAULT (every event ≤ 24 B, the event-log slot; the
   generator enforces it)
 - **Streams:** STR_RAW_SAMPLES, DBG_LOG
 
-New in 0.3 (no new messages): HELLO's response reports `boardType`
-(CONTROL from the app, CONTROL_BOOT from the bootloader); `[usb]` names the
-bootloader's own PID (`pid_boot` 0x0002, "TimeTaker (update)"); UPDATE_CHUNK
-documents the resume rule (re-sent matching bytes are acknowledged with the
-real `nextOffset`); `faultSource` gains SETTINGS (EVT_FAULT once at boot
-when stored settings failed their CRC and defaults were loaded).
+New in 0.3 (no new messages): HELLO's response reports `boardType`;
+`faultSource` gains SETTINGS (EVT_FAULT once at boot when stored settings
+failed their CRC and defaults were loaded).
+
+New in 0.4: **no field update in v1.** UPDATE_BEGIN/CHUNK/END/ABORT and
+BOOT_APP are gone (0xA0–0xAF reserved, the generator refuses them), as is
+`[usb] pid_boot`. `CONTROL_BOOT`, `LANE_BOOT`, `REBOOT_BOOTLOADER` and the
+ERR_IMAGE_*/ERR_UPDATE_SEQUENCE codes keep their values, marked reserved;
+REBOOT{BOOTLOADER} answers ERR_UNSUPPORTED.
 
 The rest of the table is reserved. `protocol/host_protocol.toml` is the
 authority. The lane bus contract is `lane_protocol.h` and the nRF link
@@ -560,7 +562,7 @@ protocol/
 |---|---|
 | Class | **CDC-ACM** (virtual COM port). Works out of the box on Windows 10+, macOS and Linux. The web app uses **Web Serial** (Chrome/Edge). Plain tools (`screen`, Python) work for debugging. |
 | Strings | iManufacturer "TimeTaker", **iProduct "TimeTaker"**, iSerialNumber = MCU 96-bit UID in hex. Chrome's port picker shows "TimeTaker (COM5)" or "TimeTaker (ttyACM0)". |
-| VID/PID | The web app filters `requestPort({filters:[{usbVendorId, usbProductId}]})`. Pick a proper pair before the design is published: pid.codes (VID 0x1209) for open hardware, or a PID from ST. Any unused pair works on the bench. The bootloader uses a second PID. |
+| VID/PID | The web app filters `requestPort({filters:[{usbVendorId, usbProductId}]})`. Pick a proper pair before the design is published: pid.codes (VID 0x1209) for open hardware, or a PID from ST. Any unused pair works on the bench. One PID (no bootloader in v1). |
 | Stack | **TinyUSB.** Light, no RTOS, CDC + WebUSB + MS OS 2.0 descriptors. Its `stm32_fsdev` driver covers this USB_DRD_FS IP (H5/G0/U0/C0). Check upstream for C5 support; the family glue should be small. The CubeMX project has only the PCD driver, as intended. |
 | Linux permissions | `/dev/ttyACM*` needs the user in the `dialout` group, or a udev rule with `TAG+="uaccess"` for the VID/PID. Ship the rule with the app. |
 | Session start | Never gate TX on DTR. A session starts only with HELLO. |
@@ -579,7 +581,7 @@ protocol/
   - advertises as "TimeTaker";
   - bridges the Nordic UART Service to USART1;
   - runs the bind button and LED;
-  - can reset the STM, or strap it into our bootloader.
+  - holds the STM's NRST released and BOOT_REQ high (both unused in v1).
 - **What it never does:** it never parses host frames.
 
 ### 9.2 Structure (NCS v3.4.2, Zephyr)
@@ -589,11 +591,11 @@ ControlModule/BleFirmware/
   boards/              custom board def: MDBT42T, LFRC (no 32k crystal), no DCDC
   prj.conf             based on peripheral_uart minimal; RAM-trimmed buffers
   src/
-    main.c             bridge master: init order, state machine (idle/advertising/connected/pairing/stm-boot)
+    main.c             bridge master: init order, state machine (idle/advertising/connected/pairing)
     ble_link.c/h       advertising, NUS service, 2M PHY, DLE/MTU (as RAM allows), conn params 7.5–30 ms
     stm_link.c/h       UARTE async DMA @460800, link framing (DATA/CTRL), rx/tx rings
     bind_ui.c/h        button (P0.00) press classification, LED (P0.20) patterns (GPIO: the nRF52805 has no PWM)
-    stm_ctrl.c/h       NRST pulse (open-drain only), BOOT_REQ strap, BOOT0 (recovery only)
+    stm_ctrl.c/h       NRST (open drain, released), BOOT_REQ (held high, unused in v1), BOOT0 (undriven)
 ```
 
 ### 9.3 nRF ↔ STM link
@@ -623,7 +625,7 @@ therefore never splits a host frame.
 | Line | Direction | Role |
 |---|---|---|
 | BLE_IRQ (P0.05 → PB5) | nRF → STM | High while a central is connected. The STM knows the link state without parsing anything. |
-| BLE_GPIO1 (P0.04 → PB4) | nRF → STM | **BOOT_REQ, active low.** The STM bootloader samples it at reset. PB4 has the NJTRST pull-up, so an nRF in reset reads as "no request". |
+| BLE_GPIO1 (P0.04 → PB4) | nRF → STM | **BOOT_REQ, active low. Unused in v1** (no STM bootloader): the nRF drives it high. PB4 has the NJTRST pull-up, so an nRF in reset reads as "no request". |
 | BLE_GPIO2 (P0.01 ↔ PA15) | — | Spare. Candidate: STM → nRF "STM alive". |
 | NRST (P0.14) | nRF → STM | Open-drain pulse only: "reset the STM" |
 | BOOT0 (P0.12) | nRF → STM | Recovery only: enters the ROM bootloader (USB DFU needs a cable anyway) |
@@ -693,51 +695,30 @@ binding stays as it is.
 
 ## 10. Firmware updates
 
-### 10.1 Control module STM: our own bootloader
+**v1 has no field firmware update** (decided 2026-11-18). Every board is
+flashed over SWD / Tag-Connect at home: the control STM32 (J201), the six
+lane STM32s (Tag-Connect) and the nRF52805 (J501). There is no bootloader on
+any board.
 
-**Why not the ROM bootloader.** Its USART1 is PA9/PA10 (lane bus), not
-PB6/PB7 (nRF). So BLE cannot reach it. Its USB DFU needs a WinUSB driver on
-Windows, which a browser cannot install. A small bootloader of our own solves
-both: it speaks our protocol over our transports, and it can later relay lane
-images.
-
-```
-Flash (256 KB), sizes to confirm against the C5 erase-page size:
-0x0800_0000  ctrl_boot   ~24 KB   write-protected (WRP option bytes); never updated in the field
-0x0800_6000  app         ~224 KB  image header first: magic, board type, version, size, CRC32
-end − 2 pages settings   bind list, lane config table, device name (wear-levelled, CRC)
-```
-
-| Aspect | Design |
-|---|---|
-| Bootloader contents | `frame_codec`, TinyUSB CDC (iProduct "TimeTaker (update)", second PID), `nrf_link` DATA channel, flash writer. It implements only HELLO, PING and UPDATE_*, BOOT_APP from the **same schema**, so the app's updater talks to it exactly like to the app. |
-| Entry | Any one of: (a) the app gets `ENTER_BOOTLOADER` → magic word in `.noinit` → reset; (b) app header or CRC invalid; (c) **BOOT_REQ low at reset**, which the nRF can force even when the app is wedged: hold BOOT_REQ, pulse NRST; (d) BTN1 held at power-up (offline recovery). |
-| Update | Single slot: erase → write chunks (acknowledged, offset-addressed, resumable) → verify CRC32 → write header last → BOOT_APP. If it is interrupted, the bootloader stays and waits; the device cannot brick. A/B slots add nothing here. |
-| Image check | Board type in the header, so a lane image can never land on the control module. No signing: no threat model needs it. Add it to the schema later if one appears. |
-| Last resort | SW604 BOOT + SW605 NRST → ROM USB DFU → STM32CubeProgrammer. Or SWD. |
-| Option bytes | BOOT_SEL so the BOOT0 pin is honoured, IWDG_STDBY frozen, WRP on the bootloader pages. Use one script like the hub's `tools/optprog.py`, written for this board. |
-| Linking | The app links at 0x0800_6000 (one linker change). Until the bootloader exists, the app may link at 0x0800_0000; moving it later is only that relink. |
-
-### 10.2 Lane modules
-
-- **v1: SWD over Tag-Connect.** All six are flashed at home. The ID register
-  reports board type, firmware version and image CRC. The app warns on a
-  mismatch.
-- **Later:** a `lane_boot` I3C-target bootloader. The C5 ROM has no I²C or
-  I3C, so it must be our own. It must keep **CHAIN behaviour** (hot-join with
-  CHAIN_IN, then CHAIN_OUT high), or every lane downstream drops off the bus
-  during an update. The host sends `UPDATE_*` with `node = LANE n`, and the
-  control module relays chunks over I3C.
-- **Hooks reserved now (they cost nothing):**
-  - lane COMMAND `ENTER_BOOTLOADER`;
-  - an ID register that can say "BOOT";
-  - board type in the image header.
-
-### 10.3 BLE module
-
-SWD only (J501). Keep the feature set so small that it rarely needs a change.
-A mismatch between the nRF and STM link versions shows in HELLO; the STM
-refuses DATA and keeps CTRL working.
+- **Control STM:** the app links at 0x0800_0000 (240 KB); the last two 8 KB
+  pages (0x0803_C000) hold the settings (bind list, lane config table,
+  device name), and `flash_drv` writes nothing else. REBOOT{BOOTLOADER}
+  answers ERR_UNSUPPORTED. The RAM the bootloader hand-over and the update
+  path used goes to the event log (1600 events, about 8 KB RAM left free).
+- **Lanes:** the event FIFO fills the RAM the lane does not use (2480
+  events, about 16 KB left free), so nothing is lost while the bus or the
+  control module is slow.
+- **Recovery:** SWD; or SW604 BOOT + SW605 NRST → ROM USB DFU →
+  STM32CubeProgrammer.
+- **Mismatches still show:** NODE_LIST reports every node's version and git
+  revision, so the app can warn "lane 4 runs 1.2.0, others 1.3.0".
+- **Deferred, not designed away:** the control bootloader, the image header,
+  the update messages and the web app updater were built and host-tested,
+  then removed. They are at git tag `archive/bootloader-update`. The
+  protocol keeps ids 0xA0–0xAF and the `*_BOOT` values reserved; the lane
+  keeps COMMAND `ENTER_BOOTLOADER` and the "BOOT" image kind reserved. A
+  later field update (an I3C lane bootloader that keeps CHAIN behaviour,
+  relayed by the control module) starts from that tag.
 
 ---
 
@@ -765,7 +746,7 @@ WebApp/src/
                                   penalties, finish; later FCY, stop-and-go
   director/    raceDirector.ts    UI intents → device commands (start/abort/calibrate) + host actions (penalty, ±lap)
   views/       control/ (laptop) · tv/ (fullscreen second window) · diagnostics/ (raw signal, thresholds,
-               calibration, lane health, LED test) · setup/ (drivers, lanes, binding, firmware update)
+               calibration, lane health, LED test) · setup/ (drivers, lanes, binding)
   sync/        BroadcastChannel: the TV window is a pure view of raceState
 ```
 
@@ -840,6 +821,33 @@ message IDs.
 ---
 
 ## 13. Changes to existing documents
+
+### No field firmware update in v1 (2026-11-18)
+
+- **Decision:** every board is flashed over SWD / Tag-Connect; no
+  bootloader anywhere. The code is archived at git tag
+  `archive/bootloader-update`.
+- **Host protocol 0.3 → 0.4:** UPDATE_BEGIN/CHUNK/END/ABORT and BOOT_APP
+  removed, 0xA0–0xAF reserved (the generator refuses ids there), `[usb]`
+  `pid_boot`/`product_boot` removed; `CONTROL_BOOT`, `LANE_BOOT`,
+  `REBOOT_BOOTLOADER` and the update status codes stay as reserved values.
+- **Control firmware:** `ctrl_boot`, `boot/`, the `_boot` presets, the
+  bootloader app layout, `image_header`, `update_writer`,
+  `tools/image_stamp.py`, `test/host_update`, `boot_shared.h` removed;
+  REBOOT{BOOTLOADER} → ERR_UNSUPPORTED; `flash_drv` writes the settings
+  pages only; NODE_LIST CTRL `imageCrc` is 0. Event log 1024 → 1600 events.
+- **Lane firmware:** event FIFO 32 → 2480. **`lane_protocol.h`** (no wire
+  change, no version bump): STATUS `fifoCount` and the EVENT_FIFO header's
+  `remaining` saturate at `LANE_FIFO_COUNT_MAX` (255); the controller then
+  takes the first record it reads as the seq start.
+- **BLE firmware:** `stmCtrlResetIntoBootloader()` and task B5 removed;
+  BOOT_REQ stays driven high, NRST stays released.
+- **Web app:** `src/update/`, the simulator's bootloader, the CLI `update`
+  command and suite removed; race fixtures re-recorded (protocol "0.4").
+- **Docs:** this file §0, §7.5, §9, §10, §14; CONTROL_FIRMWARE_GUIDE §2,
+  §5.5, §5.7, C7; CONTROL_FIRMWARE_NOTES; control BENCH_TESTS C7;
+  HARDWARE_REFERENCE PB4; BLE_FIRMWARE_GUIDE §7.3, B5; LANE_FIRMWARE_GUIDE
+  §3.6; WebApp README; `tools/check_all.sh`.
 
 ### Contract 0.3 (2026-11-18)
 
@@ -926,8 +934,8 @@ Each step ends in something you can observe:
    config push. This runs in parallel with lane guide steps 4–7.
 
    From here on, the task cards in the guides break each step into one
-   session's work: CONTROL_FIRMWARE_GUIDE §9 (C0–C7) and BLE_FIRMWARE_GUIDE
-   §11.3 (B1–B5).
+   session's work: CONTROL_FIRMWARE_GUIDE §9 (C0–C6) and BLE_FIRMWARE_GUIDE
+   §11.3 (B1–B4; B5 dropped with the bootloader).
 4. **Event pipeline end to end:**
    - lane crossing → `event_log` → web app;
    - diagnostics view with the raw stream;
@@ -939,7 +947,9 @@ Each step ends in something you can observe:
    - nRF bridge + binding;
    - `bleTransport`;
    - **pull USB mid-race, finish on BLE**, with identical results.
-7. **Control bootloader + the web app updater.**
+7. ~~Control bootloader + the web app updater.~~ **Dropped 2026-11-18:**
+   no field update in v1; everything is flashed over SWD / Tag-Connect
+   (§10). The built code is at git tag `archive/bootloader-update`.
 8. **Later:**
    - holdoff tuning, event snapshots;
    - lane bootloader;
@@ -949,10 +959,8 @@ Each step ends in something you can observe:
 
 ## 15. Open questions
 
-- **AN2606 C5 table:** confirm USART1 = PA9/PA10. This only strengthens the
-  case for our own bootloader; it is not a blocker.
-- **C5 flash erase-page size:** it fixes the bootloader and settings
-  boundaries.
+- **AN2606 C5 table:** confirm USART1 = PA9/PA10. Only matters if a field
+  update comes back (§10); not a blocker.
 - **TinyUSB C5 support upstream**, or the size of the port.
 - **nRF52805 RAM** after link framing and the button/LED logic. Can DLE/MTU
   247 and 2M PHY still fit, and is there headroom for LESC later?
