@@ -73,26 +73,26 @@ muts = [
 # --- register map: every validation rule, one at a time
 cfg_rules = [
 
- 'c->samplePeriodUs <= LANE_REGS_SAMPLE_PERIOD_MAX_US\n              && ',
+ 'c->samplePeriodUs <= LANE_CFG_SAMPLE_PERIOD_US_MAX\n              && ',
  '&& c->samplePhaseUs < c->samplePeriodUs',
- '&& c->mergeGapUs <= LANE_REGS_MERGE_GAP_MAX_US',
+ '&& c->mergeGapUs <= LANE_CFG_MERGE_GAP_US_MAX',
  '&& c->blockTimeoutUs > c->mergeGapUs',
- '&& c->blockTimeoutUs <= LANE_REGS_BLOCK_TIMEOUT_MAX_US',
- '&& c->holdoffUs <= LANE_REGS_HOLDOFF_MAX_US',
+ '&& c->blockTimeoutUs <= LANE_CFG_BLOCK_TIMEOUT_US_MAX',
+ '&& c->holdoffUs <= LANE_CFG_HOLDOFF_US_MAX',
  '(c->holdoffSamplePeriodUs >= c->samplePeriodUs\n                      && ',
- '\n                      && c->holdoffSamplePeriodUs <= LANE_REGS_SAMPLE_PERIOD_MAX_US',
+ '\n                      && c->holdoffSamplePeriodUs <= LANE_CFG_HOLDOFF_SAMPLE_PERIOD_US_MAX',
 
- '&& c->thrDropPermille <= 999U',
+ '&& c->thrDropPermille <= LANE_CFG_THR_DROP_PERMILLE_MAX',
  '&& c->hystPermille < c->thrDropPermille',
  '&& (uint32_t)c->minDwell10us * 10U < c->blockTimeoutUs',
- '&& c->rawDecimation >= 1U && ',
- '&& c->rawDecimation <= LANE_REGS_RAW_DECIMATION_MAX',
- '&& c->irCurrent <= LANE_REGS_IR_CURRENT_MAX',
- '&& c->psIntegration <= LANE_REGS_PS_IT_MAX',
- '&& c->psMultiPulse <= LANE_REGS_PS_MPS_MAX',
+ '&& c->rawDecimation >= LANE_CFG_RAW_DECIMATION_MIN && ',
+ '&& c->rawDecimation <= LANE_CFG_RAW_DECIMATION_MAX',
+ '&& c->irCurrent <= LANE_CFG_IR_CURRENT_MAX',
+ '&& c->psIntegration <= LANE_CFG_PS_INTEGRATION_MAX',
+ '&& c->psMultiPulse <= LANE_CFG_PS_MULTI_PULSE_MAX',
 ]
 for r in cfg_rules:
-    new = '&& ' if r.startswith('&& c->rawDecimation >= 1U') else ('(' if r.startswith('(c->holdoff') else '')
+    new = '&& ' if r.startswith('&& c->rawDecimation >= LANE_CFG_RAW_DECIMATION_MIN') else ('(' if r.startswith('(c->holdoff') else '')
     muts.append(('host_regs', R, r, new, 'CONFIG rule: ' + r.strip().replace('\n', ' ')[:50]))
 muts += [
  ('host_regs', R, 'if (ok && c->samplePeriodUs < laneRegsMinSamplePeriodUs(c->psIntegration, c->psMultiPulse)) {', 'if (false) {', 'CONFIG period fits the conversion'),

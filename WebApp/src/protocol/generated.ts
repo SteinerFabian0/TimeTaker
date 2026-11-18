@@ -12,10 +12,10 @@
 import { decodeStruct, encodeStruct } from './wire.ts';
 import type { StructDesc } from './wire.ts';
 
-export const PROTO = { major: 0, minor: 2, maxPayload: 240, headerBytes: 4 } as const;
+export const PROTO = { major: 0, minor: 3, maxPayload: 240, headerBytes: 4 } as const;
 
-/** USB identity of the control module: the Web Serial port filter. */
-export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker' } as const;
+/** USB identity of the control module (app) and its bootloader: the Web Serial port filter. */
+export const USB_ID = { vendorId: 0x1209, productId: 0x0001, product: 'TimeTaker', productIdBoot: 0x0002, productBoot: 'TimeTaker (update)' } as const;
 
 export const HeaderFlag = {
   RESPONSE: 0x01,
@@ -245,6 +245,7 @@ export const FaultSource = {
   USB: 1,
   EXT_POWER: 2,
   LANE_POWER: 3,
+  SETTINGS: 4,
 } as const;
 export type FaultSource = (typeof FaultSource)[keyof typeof FaultSource];
 
@@ -497,7 +498,8 @@ export const HELLO_RSP: StructDesc = {
     { name: 'logOldestSeq', kind: 'scalar', type: 'u32' },
     { name: 'logNextSeq', kind: 'scalar', type: 'u32' },
     { name: 'otherSessions', kind: 'scalar', type: 'u8' },
-    { name: 'reserved', kind: 'bytes', size: 3 },
+    { name: 'boardType', kind: 'scalar', type: 'u8' },
+    { name: 'reserved', kind: 'bytes', size: 2 },
   ],
 };
 export type HelloRsp = {
@@ -519,6 +521,8 @@ export type HelloRsp = {
   logNextSeq: number;
   /** Number of other live sessions (USB + BLE at once) */
   otherSessions: number;
+  /** enum BoardType. What answers: CONTROL (the app) or CONTROL_BOOT (the bootloader). Since 0.3; 0 from older firmware */
+  boardType: number;
   reserved: Uint8Array;
 };
 export const encodeHelloRsp = (v: HelloRsp): Uint8Array => encodeStruct(HELLO_RSP, v);
@@ -1342,7 +1346,7 @@ export type UpdateBeginRsp = {
 export const encodeUpdateBeginRsp = (v: UpdateBeginRsp): Uint8Array => encodeStruct(UPDATE_BEGIN_RSP, v);
 export const decodeUpdateBeginRsp = (b: Uint8Array): UpdateBeginRsp => decodeStruct(UPDATE_BEGIN_RSP, b) as UpdateBeginRsp;
 
-// 0xa1 UPDATE_CHUNK (request): Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe.
+// 0xa1 UPDATE_CHUNK (request): Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe. Resume rule: re-sent bytes (offset below nextOffset) that match what is already written are acknowledged without rewriting, and the response always carries the real nextOffset, so a host that restarts from an earlier offset is fast-forwarded to where the bootloader stands.
 /** UPDATE_CHUNK request */
 export const UPDATE_CHUNK_REQ: StructDesc = {
   name: 'UpdateChunkReq',
@@ -1703,7 +1707,7 @@ export type EvtBleLink = {
 export const encodeEvtBleLink = (v: EvtBleLink): Uint8Array => encodeStruct(EVT_BLE_LINK, v);
 export const decodeEvtBleLink = (b: Uint8Array): EvtBleLink => decodeStruct(EVT_BLE_LINK, b) as EvtBleLink;
 
-// 0xc9 EVT_FAULT (event): A hardware fault input tripped.
+// 0xc9 EVT_FAULT (event): A hardware fault input tripped, or (source SETTINGS, status ERR_SETTINGS_CORRUPT) the stored settings were lost: published once at boot when the settings store fell back to defaults.
 /** EVT_FAULT */
 export const EVT_FAULT: StructDesc = {
   name: 'EvtFault',

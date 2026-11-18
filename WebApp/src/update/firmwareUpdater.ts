@@ -2,9 +2,9 @@
  * Control module firmware update (SYSTEM_ARCHITECTURE §10.1, CONTROL guide
  * §5.7), over USB or BLE alike:
  *
- *   1. connect; find out who answers: NODE_LIST CTRL boardType CONTROL (the
- *      app) or CONTROL_BOOT (the bootloader; ERR_UNSUPPORTED also means the
- *      bootloader, which may not serve NODE_LIST);
+ *   1. connect; find out who answers: HELLO boardType CONTROL (the app) or
+ *      CONTROL_BOOT (the bootloader). Firmware older than 0.3 reports 0: then
+ *      NODE_LIST CTRL boardType decides (ERR_UNSUPPORTED means bootloader);
  *   2. app: REBOOT{BOOTLOADER}, drop the link, reconnect until the
  *      bootloader answers (USB re-enumerates; a BLE link survives the reset
  *      but its session does not, so it is reopened too);
@@ -12,15 +12,16 @@
  *   4. UPDATE_CHUNK at contiguous offsets. A timeout is retried with the
  *      same chunk (the bootloader acknowledges a repeated chunk again). A lost
  *      link: reconnect and RESUME by re-sending the last acknowledged chunk,
- *      which answers nextOffset; if the bootloader lost the update (it was
+ *      which answers the bootloader's real nextOffset (it may be further on,
+ *      when a later chunk was written but its answer lost); if the bootloader lost the update (it was
  *      reset: ERR_UPDATE_SEQUENCE), start again with UPDATE_BEGIN;
  *   5. UPDATE_END (CRC check; ERR_IMAGE_CRC fails the update);
  *   6. BOOT_APP, reconnect, and check NODE_LIST: CTRL is CONTROL again and,
  *      when the firmware reports one, imageCrc equals the image's CRC-32.
  *
- * The resume needs no contract change: it relies only on "a repeated chunk
- * is acknowledged again" (host_protocol.toml UPDATE_CHUNK). The contract
- * request to make it explicit is in WebApp/README.md.
+ * The resume relies on the UPDATE_CHUNK resume rule (host_protocol.toml,
+ * protocol 0.3): matching re-sent bytes are acknowledged with the real
+ * nextOffset.
  */
 
 import type { DeviceApi } from '../device/deviceApi.ts';
@@ -34,6 +35,8 @@ import type { Scheduler } from '../util/clock.ts';
 /** One open connection the updater can use. */
 export interface UpdateLink {
   readonly api: DeviceApi;
+  /** HELLO boardType of this connection (DeviceSession.boardType); null/0 = unknown, ask NODE_LIST. */
+  readonly boardType?: number | null;
   close(): Promise<void>;
 }
 
@@ -73,8 +76,13 @@ export class UpdateError extends Error {
 const isLinkLoss = (e: unknown): boolean => e instanceof LinkClosedError || e instanceof TimeoutError
   || (e instanceof Error && /session not open|link closed|not connected/.test(e.message));
 
-/** 'app' | 'boot', from NODE_LIST. */
-export async function detectMode(api: DeviceApi): Promise<{ mode: 'app' | 'boot'; ctrl: NodeInfo | null }> {
+/** 'app' | 'boot', from the HELLO board type; NODE_LIST for firmware that does not report it. */
+export async function detectMode(api: DeviceApi, boardType?: number | null): Promise<{ mode: 'app' | 'boot'; ctrl: NodeInfo | null }> {
+  if (boardType === BoardType.CONTROL_BOOT) return { mode: 'boot', ctrl: null };
+  if (boardType === BoardType.CONTROL) {
+    const ctrl = (await api.nodeList()).find((n) => n.nodeClass === NodeClass.CTRL) ?? null;
+    return { mode: 'app', ctrl };
+  }
   try {
     const ctrl = (await api.nodeList()).find((n) => n.nodeClass === NodeClass.CTRL) ?? null;
     return { mode: ctrl?.boardType === BoardType.CONTROL_BOOT ? 'boot' : 'app', ctrl };
@@ -101,7 +109,7 @@ export async function updateFirmware(image: Uint8Array, o: UpdateOptions): Promi
     for (;;) {
       try {
         const l = await o.connect();
-        const { mode } = await detectMode(l.api);
+        const { mode } = await detectMode(l.api, l.boardType);
         if (want === 'any' || mode === want) return l;
         await l.close();
         lastErr = new UpdateError(`device answers as ${mode}, waiting for ${want}`);
@@ -122,7 +130,7 @@ export async function updateFirmware(image: Uint8Array, o: UpdateOptions): Promi
   try {
     report('connect');
     link = await connect('any');
-    if ((await detectMode(link.api)).mode === 'app') {
+    if ((await detectMode(link.api, link.boardType)).mode === 'app') {
       report('enterBootloader');
       await link.api.reboot('bootloader');
       await sleep(sched, 300);
@@ -147,7 +155,7 @@ export async function updateFirmware(image: Uint8Array, o: UpdateOptions): Promi
       if (!lastAck) { await begin(); return; }
       try {
         const next = await link.api.updateChunk(lastAck.offset, image.subarray(lastAck.offset, lastAck.offset + lastAck.len));
-        if (next !== lastAck.offset + lastAck.len) throw new UpdateError(`resume answered offset ${next}`);
+        if (next < lastAck.offset + lastAck.len || next > image.length) throw new UpdateError(`resume answered offset ${next}`);
         offset = next;
       } catch (e) {
         if (e instanceof DeviceError && e.status === Status.ERR_UPDATE_SEQUENCE) await begin();   // the bootloader lost it
@@ -189,7 +197,7 @@ export async function updateFirmware(image: Uint8Array, o: UpdateOptions): Promi
     await sleep(sched, 300);
     await link!.close();
     link = await connect('app');
-    const { ctrl } = await detectMode(link.api);
+    const { ctrl } = await detectMode(link.api, link.boardType);
     if (!ctrl) throw new UpdateError('the app did not list its CTRL node');
     if (ctrl.imageCrc !== 0 && ctrl.imageCrc !== crc) throw new UpdateError(`running image CRC ${ctrl.imageCrc.toString(16)} ≠ ${crc.toString(16)}`);
     report('done', offset);

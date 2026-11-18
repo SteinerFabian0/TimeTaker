@@ -128,12 +128,26 @@ bool laneLogicNeedsPush(const laneStatus_t *st)
 
 ctrlStatus_e laneLogicCheckConfig(const hpLaneConfig_t *cfg)
 {
-    if (cfg->samplePeriodUs == 0U || cfg->samplePhaseUs >= cfg->samplePeriodUs
-        || cfg->rawDecimation == 0U || cfg->thrDropPermille > 1000U || cfg->hystPermille > 1000U
-        || cfg->reserved != 0U) {
-        return CTRL_ERR_INVALID_ARG;
-    }
-    return CTRL_OK;
+    /* The same rules as the lane's CONFIG write (lane_protocol.h). */
+    const bool ok = cfg->samplePeriodUs <= LANE_CFG_SAMPLE_PERIOD_US_MAX
+                    && cfg->samplePhaseUs < cfg->samplePeriodUs
+                    && cfg->mergeGapUs <= LANE_CFG_MERGE_GAP_US_MAX
+                    && cfg->blockTimeoutUs > cfg->mergeGapUs
+                    && cfg->blockTimeoutUs <= LANE_CFG_BLOCK_TIMEOUT_US_MAX
+                    && cfg->holdoffUs <= LANE_CFG_HOLDOFF_US_MAX
+                    && (cfg->holdoffSamplePeriodUs == 0U
+                        || (cfg->holdoffSamplePeriodUs >= cfg->samplePeriodUs
+                            && cfg->holdoffSamplePeriodUs <= LANE_CFG_HOLDOFF_SAMPLE_PERIOD_US_MAX))
+                    && cfg->thrDropPermille <= LANE_CFG_THR_DROP_PERMILLE_MAX
+                    && cfg->hystPermille < cfg->thrDropPermille
+                    && (uint32_t)cfg->minDwell10us * 10U < cfg->blockTimeoutUs
+                    && cfg->rawDecimation >= LANE_CFG_RAW_DECIMATION_MIN
+                    && cfg->rawDecimation <= LANE_CFG_RAW_DECIMATION_MAX
+                    && cfg->irCurrent <= LANE_CFG_IR_CURRENT_MAX
+                    && cfg->psIntegration <= LANE_CFG_PS_INTEGRATION_MAX
+                    && cfg->psMultiPulse <= LANE_CFG_PS_MULTI_PULSE_MAX
+                    && cfg->reserved == 0U;
+    return ok ? CTRL_OK : CTRL_ERR_INVALID_ARG;
 }
 
 void laneLogicDefaultConfig(uint8_t lane, hpLaneConfig_t *cfg)

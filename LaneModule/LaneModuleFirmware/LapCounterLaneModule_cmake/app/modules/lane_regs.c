@@ -13,7 +13,7 @@
 #include "sync_time.h"
 
 /* PS_IT codes 0..7 = 1, 1.5, 2, 2.5, 3, 3.5, 4, 8 T, in half T. */
-static const uint8_t laneRegsItHalfT[LANE_REGS_PS_IT_MAX + 1U] = { 2, 3, 4, 5, 6, 7, 8, 16 };
+static const uint8_t laneRegsItHalfT[LANE_CFG_PS_INTEGRATION_MAX + 1U] = { 2, 3, 4, 5, 6, 7, 8, 16 };
 
 void laneRegsInit(laneRegs_t *r)
 {
@@ -59,8 +59,8 @@ uint32_t laneRegsWriteSize(uint8_t reg)
 
 uint32_t laneRegsConversionUs(uint8_t psIntegration, uint8_t psMultiPulse)
 {
-    uint32_t it     = (psIntegration <= LANE_REGS_PS_IT_MAX) ? psIntegration : LANE_REGS_PS_IT_MAX;
-    uint32_t pulses = 1UL << ((psMultiPulse <= LANE_REGS_PS_MPS_MAX) ? psMultiPulse : LANE_REGS_PS_MPS_MAX);
+    uint32_t it     = (psIntegration <= LANE_CFG_PS_INTEGRATION_MAX) ? psIntegration : LANE_CFG_PS_INTEGRATION_MAX;
+    uint32_t pulses = 1UL << ((psMultiPulse <= LANE_CFG_PS_MULTI_PULSE_MAX) ? psMultiPulse : LANE_CFG_PS_MULTI_PULSE_MAX);
 
     return LANE_REGS_VCNL_OVERHEAD_US + pulses * laneRegsItHalfT[it] * LANE_REGS_VCNL_T_US / 2U;
 }
@@ -93,22 +93,22 @@ laneStatus_e laneRegsValidateConfig(const laneConfig_t *c)
 {
     /* The period floor is the sensor cycle (checked below), and hyst < drop
      * also makes drop >= 1. */
-    bool ok = c->samplePeriodUs <= LANE_REGS_SAMPLE_PERIOD_MAX_US
+    bool ok = c->samplePeriodUs <= LANE_CFG_SAMPLE_PERIOD_US_MAX
               && c->samplePhaseUs < c->samplePeriodUs
-              && c->mergeGapUs <= LANE_REGS_MERGE_GAP_MAX_US
+              && c->mergeGapUs <= LANE_CFG_MERGE_GAP_US_MAX
               && c->blockTimeoutUs > c->mergeGapUs
-              && c->blockTimeoutUs <= LANE_REGS_BLOCK_TIMEOUT_MAX_US
-              && c->holdoffUs <= LANE_REGS_HOLDOFF_MAX_US
+              && c->blockTimeoutUs <= LANE_CFG_BLOCK_TIMEOUT_US_MAX
+              && c->holdoffUs <= LANE_CFG_HOLDOFF_US_MAX
               && (c->holdoffSamplePeriodUs == 0U
                   || (c->holdoffSamplePeriodUs >= c->samplePeriodUs
-                      && c->holdoffSamplePeriodUs <= LANE_REGS_SAMPLE_PERIOD_MAX_US))
-              && c->thrDropPermille <= 999U
+                      && c->holdoffSamplePeriodUs <= LANE_CFG_HOLDOFF_SAMPLE_PERIOD_US_MAX))
+              && c->thrDropPermille <= LANE_CFG_THR_DROP_PERMILLE_MAX
               && c->hystPermille < c->thrDropPermille
               && (uint32_t)c->minDwell10us * 10U < c->blockTimeoutUs
-              && c->rawDecimation >= 1U && c->rawDecimation <= LANE_REGS_RAW_DECIMATION_MAX
-              && c->irCurrent <= LANE_REGS_IR_CURRENT_MAX
-              && c->psIntegration <= LANE_REGS_PS_IT_MAX
-              && c->psMultiPulse <= LANE_REGS_PS_MPS_MAX;
+              && c->rawDecimation >= LANE_CFG_RAW_DECIMATION_MIN && c->rawDecimation <= LANE_CFG_RAW_DECIMATION_MAX
+              && c->irCurrent <= LANE_CFG_IR_CURRENT_MAX
+              && c->psIntegration <= LANE_CFG_PS_INTEGRATION_MAX
+              && c->psMultiPulse <= LANE_CFG_PS_MULTI_PULSE_MAX;
 
     /* Only once the codes are known valid: the period must fit the sensor. */
     if (ok && c->samplePeriodUs < laneRegsMinSamplePeriodUs(c->psIntegration, c->psMultiPulse)) {

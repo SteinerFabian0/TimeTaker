@@ -140,9 +140,8 @@
  *
  * Bootloader (SYSTEM_ARCHITECTURE §10.1, CONTROL guide §5.7)
  *   - Serves HELLO, PING, RESUME, NODE_LIST, UPDATE_*, BOOT_APP; anything
- *     else ERR_UNSUPPORTED. NODE_LIST reports CTRL with boardType
- *     CONTROL_BOOT: that is how the app tells it from the app (HELLO has no
- *     board type). [A17] No bind gate: USB TRUSTED, BLE BOUND. [A18]
+ *     else ERR_UNSUPPORTED. HELLO reports boardType CONTROL_BOOT (the app
+ *     CONTROL), and NODE_LIST lists CTRL with boardType CONTROL_BOOT. [A17] No bind gate: USB TRUSTED, BLE BOUND. [A18]
  *   - The app answers UPDATE_* and BOOT_APP with ERR_INVALID_STATE.
  *   - UPDATE_BEGIN: boardType ≠ CONTROL → ERR_IMAGE_BOARD; size 0 →
  *     ERR_INVALID_ARG; size > 224 KB → ERR_IMAGE_TOO_BIG. Erases (20 ms per
@@ -900,7 +899,8 @@ export class SimDevice implements SimLinkHost<Link> {
     reply(Status.OK, HELLO_RSP, {
       protoMajor: PROTO.major, protoMinor: PROTO.minor, transport: link.kind === 'usb' ? HpTransport.USB : HpTransport.BLE,
       bindState, bootId: this.#bootId, sysUs: this.#sysUsBig(), logOldestSeq: this.#oldest(), logNextSeq: this.#next,
-      otherSessions: others, reserved: new Uint8Array(3),
+      otherSessions: others, boardType: this.#mode === 'boot' ? BoardType.CONTROL_BOOT : BoardType.CONTROL,
+      reserved: new Uint8Array(2),
     });
     this.#kick();
   }

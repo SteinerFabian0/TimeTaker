@@ -52,7 +52,7 @@
 
 [protocol]
 major = 0
-minor = 2
+minor = 3
 max_payload = 240   # header 4 + payload 240 = 244 raw bytes; the nRF link adds 1 channel byte (245)
 max_event_payload = 24   # events incl. evSeq: the control module's event log slot (event_log.h)
 
@@ -63,6 +63,8 @@ max_event_payload = 24   # events incl. evSeq: the control module's event log sl
 vid = 0x1209
 pid = 0x0001
 product = "TimeTaker"
+pid_boot = 0x0002                  # the control bootloader enumerates with its own PID
+product_boot = "TimeTaker (update)"
 
 [[flag]]
 name = "RESPONSE"
@@ -467,6 +469,7 @@ values = [
   { name = "USB", value = 1, doc = "USB-C port protector (USB_FAULT)" },
   { name = "EXT_POWER", value = 2, doc = "External power board (EXT_PWR_FAULT)" },
   { name = "LANE_POWER", value = 3, doc = "Lane rail did not come up or was cut" },
+  { name = "SETTINGS", value = 4, doc = "Stored settings failed their CRC; defaults loaded" },
 ]
 
 [[enum]]
@@ -563,10 +566,11 @@ response = [
   { name = "logOldestSeq", type = "u32", doc = "Oldest evSeq still in the event log" },
   { name = "logNextSeq", type = "u32", doc = "evSeq the next event will get" },
   { name = "otherSessions", type = "u8", doc = "Number of other live sessions (USB + BLE at once)" },
-  { name = "reserved", type = "u8[3]" },
+  { name = "boardType", type = "u8", enum = "boardType", doc = "What answers: CONTROL (the app) or CONTROL_BOOT (the bootloader). Since 0.3; 0 from older firmware" },
+  { name = "reserved", type = "u8[2]" },
 ]
 example_request = { protoMajor = 0, protoMinor = 1, clientKind = 1, reserved = 0, clientId = "00112233445566778899aabbccddeeff", clientName = "Laptop Großonkel" }
-example_response = { protoMajor = 0, protoMinor = 1, transport = 2, bindState = 1, bootId = 0x5eed1234, sysUs = 1234567890123, logOldestSeq = 0, logNextSeq = 42, otherSessions = 1, reserved = "000000" }
+example_response = { protoMajor = 0, protoMinor = 3, transport = 2, bindState = 1, bootId = 0x5eed1234, sysUs = 1234567890123, logOldestSeq = 0, logNextSeq = 42, otherSessions = 1, boardType = 1, reserved = "0000" }
 
 [[message]]
 id = 0x02
@@ -954,7 +958,7 @@ example_response = { chunkMax = 224, reserved = 0 }
 id = 0xA1
 name = "UPDATE_CHUNK"
 kind = "request"
-doc = "Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe."
+doc = "Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe. Resume rule: re-sent bytes (offset below nextOffset) that match what is already written are acknowledged without rewriting, and the response always carries the real nextOffset, so a host that restarts from an earlier offset is fast-forwarded to where the bootloader stands."
 request = [
   { name = "offset", type = "u32" },
   { name = "data", type = "u8[]" },
@@ -1125,8 +1129,8 @@ fields = [
 id = 0xC9
 name = "EVT_FAULT"
 kind = "event"
-example = { evSeq = 9, source = 1, reserved = 0, status = -61, sysUs = 77000000 }
-doc = "A hardware fault input tripped."
+example = { evSeq = 9, source = 4, reserved = 0, status = -41, sysUs = 1200000 }
+doc = "A hardware fault input tripped, or (source SETTINGS, status ERR_SETTINGS_CORRUPT) the stored settings were lost: published once at boot when the settings store fell back to defaults."
 fields = [
   { name = "source", type = "u8", enum = "faultSource" },
   { name = "reserved", type = "u8" },

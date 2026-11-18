@@ -119,17 +119,15 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
 - Reboot mid-race: a new bootId is a flagged timing gap; the lap spanning it
   counts with no time; race time continues from the old boot's last event.
 
-## Contract change requests (protocol 0.2 is frozen; workarounds in place)
+## Contract change requests
 
-1. **HELLO_RSP: report the board type** (one reserved byte → `boardType`), so
-   the app can tell the bootloader from the app without NODE_LIST.
-   Workaround: NODE_LIST CTRL boardType CONTROL_BOOT (the sim's bootloader
-   serves NODE_LIST), and ERR_UNSUPPORTED to NODE_LIST is read as bootloader.
-2. **`[usb]` needs the bootloader PID** (CONTROL guide §5.7: "second PID,
-   TimeTaker (update)"): Web Serial filters by VID/PID. Workaround: the CLI
-   finds ports by VID + product name prefix; the browser picker needs it.
-3. **UPDATE resume point**: `UPDATE_BEGIN_RSP.nextOffset` (or an
-   UPDATE_STATUS request) would make resuming explicit. Workaround: re-send the
-   last acknowledged chunk (acknowledged again by contract) to learn it.
+Done in protocol 0.3: HELLO_RSP reports `boardType` (the updater tells the
+bootloader from the app by it; NODE_LIST stays the fallback for 0.2 firmware),
+`[usb]` has the bootloader's `pid_boot` (port filter and CLI accept both PIDs),
+and UPDATE_CHUNK documents the resume rule (re-sent matching bytes are
+acknowledged with the real `nextOffset`).
+
+Open:
+
 4. **HELLO_RSP / EVT_BOOT: firmware version of CTRL** would save a NODE_LIST
    round trip (optional).

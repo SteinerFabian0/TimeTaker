@@ -316,6 +316,7 @@ describe('bootloader', () => {
       const s = t.session(dev);
       await s.connect();
       const boot = new DeviceApi(s);
+      assert.equal(s.boardType, BoardType.CONTROL_BOOT);                  // from HELLO
       assert.equal((await boot.nodeList())[0]?.boardType, BoardType.CONTROL_BOOT);
       await assert.rejects(boot.status(), status(Status.ERR_UNSUPPORTED));
       await assert.rejects(boot.updateBegin(BoardType.LANE, 100, 0), status(Status.ERR_IMAGE_BOARD));

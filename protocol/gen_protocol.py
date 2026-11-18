@@ -311,8 +311,8 @@ def load(path: Path) -> dict:
     messages.sort(key=lambda m: m.id)
 
     usb = doc.get("usb")
-    if usb is None or not all(k in usb for k in ("vid", "pid", "product")):
-        raise SchemaError("[usb] needs vid, pid and product")
+    if usb is None or not all(k in usb for k in ("vid", "pid", "product", "pid_boot", "product_boot")):
+        raise SchemaError("[usb] needs vid, pid, product, pid_boot and product_boot")
 
     return {"proto": proto, "usb": usb, "flags": flags, "statuses": statuses, "enums": enums,
             "header": header, "structs": structs, "messages": messages}
@@ -596,6 +596,8 @@ def gen_c_header(model: dict) -> str:
         f"#define HP_USB_VID          0x{model['usb']['vid']:04X}U  /* USB identity: see [usb] in the TOML */",
         f"#define HP_USB_PID          0x{model['usb']['pid']:04X}U",
         f'#define HP_USB_PRODUCT      "{model["usb"]["product"]}"',
+        f"#define HP_USB_PID_BOOT     0x{model['usb']['pid_boot']:04X}U  /* the control bootloader */",
+        f'#define HP_USB_PRODUCT_BOOT "{model["usb"]["product_boot"]}"',
         "",
         "/* Header flags */",
     ]
@@ -897,9 +899,10 @@ def gen_ts(model: dict) -> str:
         f"export const PROTO = {{ major: {p['major']}, minor: {p['minor']}, "
         f"maxPayload: {p['max_payload']}, headerBytes: {HEADER_BYTES} }} as const;",
         "",
-        "/** USB identity of the control module: the Web Serial port filter. */",
+        "/** USB identity of the control module (app) and its bootloader: the Web Serial port filter. */",
         f"export const USB_ID = {{ vendorId: 0x{model['usb']['vid']:04x}, productId: 0x{model['usb']['pid']:04x}, "
-        f"product: {ts_str(model['usb']['product'])} }} as const;",
+        f"product: {ts_str(model['usb']['product'])}, productIdBoot: 0x{model['usb']['pid_boot']:04x}, "
+        f"productBoot: {ts_str(model['usb']['product_boot'])} }} as const;",
         "",
         "export const HeaderFlag = {",
     ]

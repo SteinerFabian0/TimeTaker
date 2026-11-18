@@ -30,7 +30,7 @@ function connector(t: Rig, dev: SimDevice, kind: 'usb' | 'ble' = 'usb', onChunk?
     const api = new DeviceApi(s, { eraseTimeoutMs: 5000 });
     const orig = api.updateChunk.bind(api);
     api.updateChunk = async (offset, data) => { onChunk?.(++chunks); return orig(offset, data); };
-    return { api, close: () => s.close() };
+    return { api, boardType: s.boardType, close: () => s.close() };
   };
 }
 

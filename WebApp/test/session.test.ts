@@ -19,7 +19,7 @@ import { describe, test } from 'node:test';
 import { DeviceError, DeviceSession } from '../src/device/deviceSession.ts';
 import { SimDevice } from '../src/device/simDevice.ts';
 import {
-  BindChange, BindState, ClientKind, LANE_POWER_REQ, LANE_POWER_RSP, LANE_STATUS_REQ, LANE_STATUS_RSP, LaneState,
+  BindChange, BindState, BoardType, ClientKind, LANE_POWER_REQ, LANE_POWER_RSP, LANE_STATUS_REQ, LANE_STATUS_RSP, LaneState,
   MESSAGE_BY_ID, MsgId, NODE_LIST_REQ, NODE_LIST_RSP, PressKind, REBOOT_REQ, REBOOT_RSP, RebootTarget, Status,
 } from '../src/protocol/generated.ts';
 import type { NodeListRsp } from '../src/protocol/generated.ts';
@@ -39,6 +39,7 @@ describe('connect', () => {
       const hello = await s.connect();
       assert.equal(hello.bootId, dev.bootId);
       assert.equal(hello.bindState, BindState.TRUSTED);
+      assert.equal(s.boardType, BoardType.CONTROL);
       assert.equal(s.state, 'open');
       assert.deepEqual(rec.boots, [dev.bootId]);
       await t.until(() => rec.events.length >= 1);

@@ -88,6 +88,7 @@ typedef ctrlStatus_e (*hostRequestFn_t)(hostSession_t *session, uint8_t msgId,
 typedef struct {
     uint8_t         transport;      /* hpTransport_e of this session */
     uint8_t         bindState;      /* hpBindState_e reported in HELLO */
+    uint8_t         boardType;      /* hpBoardType_e reported in HELLO: CONTROL or CONTROL_BOOT */
     uint32_t        bootId;
     eventLog_t     *log;
     uint64_t      (*nowUs)(void);

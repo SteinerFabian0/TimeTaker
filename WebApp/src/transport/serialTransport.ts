@@ -2,9 +2,9 @@
  * USB transport: Web Serial (Chrome/Edge, desktop) to the control module's
  * CDC-ACM port.
  *
- * The port picker only lists devices with the TimeTaker VID/PID (USB_ID,
- * generated from [usb] in host_protocol.toml). The baud rate means nothing to
- * a CDC device but Web Serial requires one. On Linux the user needs access to
+ * The port picker only lists devices with the TimeTaker VID and the app's or
+ * the bootloader's PID (USB_ID, generated from [usb] in host_protocol.toml).
+ * The baud rate means nothing to a CDC device but Web Serial requires one. On Linux the user needs access to
  * /dev/ttyACM* (see WebApp/README.md).
  *
  * Web Serial is not in TypeScript's DOM library yet, so the few members used
@@ -12,6 +12,9 @@
  */
 
 import { USB_ID } from '../protocol/generated.ts';
+
+/** The app's PID and the bootloader's: an update re-enumerates between them. */
+const USB_PIDS: readonly number[] = [USB_ID.productId, USB_ID.productIdBoot];
 import type { Transport, TransportHandlers } from './transport.ts';
 
 interface SerialPortFilter { usbVendorId?: number; usbProductId?: number }
@@ -57,7 +60,7 @@ export class SerialTransport implements Transport {
   static async request(): Promise<SerialTransport> {
     const api = serialApi();
     if (!api) throw new Error('Web Serial is not available: use Chrome or Edge on a desktop OS');
-    const port = await api.requestPort({ filters: [{ usbVendorId: USB_ID.vendorId, usbProductId: USB_ID.productId }] });
+    const port = await api.requestPort({ filters: USB_PIDS.map((pid) => ({ usbVendorId: USB_ID.vendorId, usbProductId: pid })) });
     return new SerialTransport(port);
   }
 
@@ -68,7 +71,7 @@ export class SerialTransport implements Transport {
     const ports = await api.getPorts();
     const port = ports.find((p) => {
       const i = p.getInfo();
-      return i.usbVendorId === USB_ID.vendorId && i.usbProductId === USB_ID.productId;
+      return i.usbVendorId === USB_ID.vendorId && i.usbProductId !== undefined && USB_PIDS.includes(i.usbProductId);
     });
     return port ? new SerialTransport(port) : null;
   }

@@ -486,7 +486,7 @@ Message ID ranges (draft, grouped like the status codes, with gaps):
 | 0xE0–0xEF | Streams (device → host) |
 | 0xF0–0xFF | Debug streams |
 
-Protocol 0.2 (2026-11-17) defines these messages:
+Protocol 0.3 (2026-11-18) defines these messages:
 
 - **Session:** HELLO, PING, RESUME, NODE_LIST, BIND_LIST, BIND_REMOVE,
   BIND_ALLOW
@@ -500,6 +500,13 @@ Protocol 0.2 (2026-11-17) defines these messages:
   EVT_BLE_LINK, EVT_FAULT (every event ≤ 24 B, the event-log slot; the
   generator enforces it)
 - **Streams:** STR_RAW_SAMPLES, DBG_LOG
+
+New in 0.3 (no new messages): HELLO's response reports `boardType`
+(CONTROL from the app, CONTROL_BOOT from the bootloader); `[usb]` names the
+bootloader's own PID (`pid_boot` 0x0002, "TimeTaker (update)"); UPDATE_CHUNK
+documents the resume rule (re-sent matching bytes are acknowledged with the
+real `nextOffset`); `faultSource` gains SETTINGS (EVT_FAULT once at boot
+when stored settings failed their CRC and defaults were loaded).
 
 The rest of the table is reserved. `protocol/host_protocol.toml` is the
 authority. The lane bus contract is `lane_protocol.h` and the nRF link
@@ -833,6 +840,21 @@ message IDs.
 ---
 
 ## 13. Changes to existing documents
+
+### Contract 0.3 (2026-11-18)
+
+- **Host protocol 0.2 → 0.3:** HELLO_RSP `boardType` (was reserved), USB
+  `pid_boot`/`product_boot` (bootloader uses the generated constants; web
+  app and CLI accept both PIDs), UPDATE_CHUNK resume rule written down,
+  `faultSource` SETTINGS. The updater tells app from bootloader by HELLO.
+- **`lane_protocol.h` 0.1 → 0.2:** `LANE_SLEEP_*` levels (NAP, STANDBY
+  reserved), CONFIG ranges as `LANE_CFG_*` (lane and controller check the
+  same; the sensor-cycle floor stays lane-side), documented: CLEARED timing,
+  holdoff start, duplicate records after a cut read (controller drops known
+  seq), re-push of the sampling mode on BUS_IDLE_SAFE, bare reads, ENTDAA
+  gated by CHAIN_IN, RELEASE_CHAIN.
+- **`ble_link_protocol.h`** (comment only): `NRF_HELLO.credits` = credits
+  granted now.
 
 ### Applied 2026-11-17, with the control and BLE firmware guides
 

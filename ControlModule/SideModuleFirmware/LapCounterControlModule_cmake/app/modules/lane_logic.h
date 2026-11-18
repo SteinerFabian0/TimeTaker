@@ -84,8 +84,10 @@ bool laneLogicIsConfigured(const laneStatus_t *st);
 /* The lane lost its config (reset without the bus noticing): push again. */
 bool laneLogicNeedsPush(const laneStatus_t *st);
 
-/* LANE_CONFIG_SET checks: samplePeriodUs > 0, samplePhaseUs < samplePeriodUs,
- * rawDecimation >= 1, thrDropPermille and hystPermille <= 1000, reserved 0. */
+/* LANE_CONFIG_SET checks: the CONFIG ranges of lane_protocol.h (LANE_CFG_*
+ * and the cross-field rules listed there), plus reserved 0. Not checked
+ * here: the lane's sensor-cycle floor of samplePeriodUs (the lane rejects
+ * that one itself). */
 ctrlStatus_e laneLogicCheckConfig(const hpLaneConfig_t *cfg);
 
 /* Compiled defaults for lane n: 1 kHz, phases staggered by period / 6 so the

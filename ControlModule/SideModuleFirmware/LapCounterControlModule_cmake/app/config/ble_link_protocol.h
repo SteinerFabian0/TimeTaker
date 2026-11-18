@@ -34,6 +34,8 @@
  * NRF_HELLO. The STM sends a DATA frame only while it holds a credit; the nRF
  * returns one with CREDIT when the last notification made from that slot has
  * been sent. Every NRF_HELLO resets the STM's credit count to its value.
+ * NRF_HELLO.credits means "credits granted now": the slots free at that
+ * moment. Slots still busy then return theirs later, each with a CREDIT.
  *
  * Compatibility: an unknown CTRL type is ignored (and counted). A CTRL body
  * shorter than its type needs is dropped; a longer one is accepted and the
@@ -116,7 +118,8 @@ typedef struct __attribute__((packed)) {
     uint8_t  fwMajor;
     uint8_t  fwMinor;
     uint8_t  fwPatch;
-    uint8_t  credits;          /* DATA slots this nRF holds                     */
+    uint8_t  credits;          /* credits granted now: DATA slots free at this
+                                * moment (busy ones come back later by CREDIT) */
     uint8_t  resetCause;       /* bleResetCause_e                               */
     uint8_t  reserved;
     uint32_t fwGitRev;

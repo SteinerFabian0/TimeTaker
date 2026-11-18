@@ -232,6 +232,12 @@ void ctrlInit(void)
 
     /* The event log must exist before anything publishes; EVT_BOOT goes first. */
     ctrlErrorHandler(hostManagerInit());
+    if (settings == CTRL_ERR_SETTINGS_CORRUPT) {
+        /* Defaults loaded: tell the host once, in the replayable log. */
+        const hpEvtFault_t evt = { .source = (uint8_t)HP_FAULT_SRC_SETTINGS,
+                                   .status = (int16_t)CTRL_ERR_SETTINGS_CORRUPT, .sysUs = sysTimeNowUs() };
+        ctrlErrorHandler(hostManagerPublishEvent(HP_MSG_EVT_FAULT, &evt, sizeof(evt)));
+    }
     ctrlErrorHandler(settings);
     ctrlErrorHandler(laneManagerInit());
     ctrlErrorHandler(sequenceManagerInit());

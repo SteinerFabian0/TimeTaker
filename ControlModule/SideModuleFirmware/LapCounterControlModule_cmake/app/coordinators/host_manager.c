@@ -783,6 +783,7 @@ ctrlStatus_e hostManagerInit(void)
     const hostSessionConfig_t usbCfg = {
         .transport     = (uint8_t)HP_TRANSPORT_USB,
         .bindState     = (uint8_t)HP_BIND_TRUSTED,   /* a cable is physical access */
+        .boardType     = (uint8_t)HP_BOARD_CONTROL,
         .bootId        = deviceIdBootId(),
         .log           = &hostManagerEventLog,
         .nowUs         = sysTimeNowUs,
@@ -795,6 +796,7 @@ ctrlStatus_e hostManagerInit(void)
     const hostSessionConfig_t bleCfg = {
         .transport     = (uint8_t)HP_TRANSPORT_BLE,
         .bindState     = (uint8_t)HP_BIND_UNBOUND,   /* decided at HELLO by the bind list */
+        .boardType     = (uint8_t)HP_BOARD_CONTROL,
         .bootId        = deviceIdBootId(),
         .log           = &hostManagerEventLog,
         .nowUs         = sysTimeNowUs,

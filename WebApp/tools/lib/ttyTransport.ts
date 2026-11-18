@@ -41,9 +41,10 @@ export function listPorts(): PortInfo[] {
   });
 }
 
-/** TimeTaker ports: our VID and a product name starting "TimeTaker" (the app, and "TimeTaker (update)"). */
+/** TimeTaker ports: our VID and the app's or the bootloader's PID. */
 export function findTimeTaker(): PortInfo[] {
-  return listPorts().filter((p) => p.vendorId === USB_ID.vendorId && (p.product ?? '').startsWith(USB_ID.product));
+  return listPorts().filter((p) => p.vendorId === USB_ID.vendorId
+    && (p.productId === USB_ID.productId || p.productId === USB_ID.productIdBoot));
 }
 
 export class TtyTransport implements Transport {

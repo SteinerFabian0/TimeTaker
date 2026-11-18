@@ -44,10 +44,9 @@
  * private development, NOT for a published design (SYSTEM_ARCHITECTURE §8). */
 #define USB_CDC_VID   HP_USB_VID
 #ifdef CTRL_BOOTLOADER
-/* The bootloader shows up as a second PID ("TimeTaker (update)"). Local
- * choice until the TOML's [usb] gets a pid_boot (contract request). */
-#define USB_CDC_PID   (HP_USB_PID + 1U)
-#define USB_CDC_PRODUCT "TimeTaker (update)"
+/* The bootloader shows up with its own PID and product string ([usb] pid_boot). */
+#define USB_CDC_PID   HP_USB_PID_BOOT
+#define USB_CDC_PRODUCT HP_USB_PRODUCT_BOOT
 #else
 #define USB_CDC_PID   HP_USB_PID
 #define USB_CDC_PRODUCT HP_USB_PRODUCT

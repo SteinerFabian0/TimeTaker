@@ -207,7 +207,7 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
         await bench.close();
         const r = await updateFirmware(image, {
           scheduler: clock,
-          connect: async () => { await bench.reconnect(3000); return { api: bench.api, close: () => bench.session.close('updater') }; },
+          connect: async () => { await bench.reconnect(3000); return { api: bench.api, boardType: bench.session.boardType, close: () => bench.session.close('updater') }; },
           onProgress: (p) => { if (p.phase === 'write' && p.offset % (32 * 224) !== 0) return; out(`${p.phase} ${p.offset}/${p.size}`); },
         });
         out(`done: fw ${r.ctrl.fwMajor}.${r.ctrl.fwMinor}.${r.ctrl.fwPatch}, crc ${hex32(r.crc32)}, ${r.recoveries} recoveries`);

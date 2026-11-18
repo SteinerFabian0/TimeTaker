@@ -72,6 +72,7 @@ export const SUITES: Record<string, Suite> = {
     c.ok('HELLO: protocol major matches', h.protoMajor === PROTO.major, `${h.protoMajor}.${h.protoMinor}`);
     c.ok('HELLO: transport USB, TRUSTED', h.transport === HpTransport.USB && h.bindState === BindState.TRUSTED);
     c.ok('HELLO: bootId set', h.bootId !== 0, `0x${h.bootId.toString(16)}`);
+    c.ok('HELLO: board CONTROL', h.boardType === BoardType.CONTROL, `${h.boardType}`);
     const t0 = b.clock.now();
     const p1 = await b.api.ping(1);
     const p2 = await b.api.ping(2);
@@ -249,7 +250,7 @@ export const SUITES: Record<string, Suite> = {
     try {
       const r = await updateFirmware(image, {
         scheduler: b.clock,
-        connect: async () => { await b.reconnect(3000); return { api: b.api, close: () => b.session.close('updater') }; },
+        connect: async () => { await b.reconnect(3000); return { api: b.api, boardType: b.session.boardType, close: () => b.session.close('updater') }; },
         onProgress: (p) => { if (p.phase !== lastPhase) { lastPhase = p.phase; b.log(`  … ${p.phase}`); } },
       });
       c.ok('update: new app runs, imageCrc matches', r.ctrl.boardType === BoardType.CONTROL && (r.ctrl.imageCrc === 0 || r.ctrl.imageCrc === r.crc32),

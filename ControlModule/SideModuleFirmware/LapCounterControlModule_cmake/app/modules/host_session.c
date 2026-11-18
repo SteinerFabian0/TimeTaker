@@ -83,6 +83,7 @@ static ctrlStatus_e hostSessionHello(hostSession_t *s, const uint8_t *req, uint1
     r->logOldestSeq  = eventLogOldest(s->cfg.log);
     r->logNextSeq    = eventLogNext(s->cfg.log);
     r->otherSessions = (s->cfg.otherSessions != NULL) ? s->cfg.otherSessions(s) : 0U;
+    r->boardType     = s->cfg.boardType;
     *rspLen = HP_HELLO_RSP_BYTES;
     return CTRL_OK;
 }

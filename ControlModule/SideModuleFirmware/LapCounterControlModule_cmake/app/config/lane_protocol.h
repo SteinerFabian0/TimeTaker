@@ -20,6 +20,8 @@
  *   write:  [reg u8] [payload]                  one private write
  *   read:   [reg u8]  Sr  [payload ...]         private write of the register
  *                                               pointer, repeated START, read
+ *   bare read: [payload ...]                    a read with no pointer write
+ *                                               repeats the last register pointer
  *
  * All multi-byte values are little-endian. All structs are packed and
  * fixed-size. A write whose length does not match the register's struct is
@@ -30,6 +32,9 @@
  * Enumeration: CHAIN + hot-join + ENTDAA (LANE_FIRMWARE_GUIDE §3.2). The
  * lanes have no static address. Lane index n (1..6) gets dynamic address
  * LANE_DYN_ADDR(n). After ENTDAA the control module writes LANE_ID = n.
+ * A lane does not answer ENTDAA (nor hot-joins) while its CHAIN_IN is low,
+ * so the lanes are addressed one by one in chain order. COMMAND
+ * RELEASE_CHAIN is honoured: the lane drops its address and CHAIN_OUT.
  *
  * IBI: 1 byte payload, LANE_IBI_* bits. Optional: the control module polls
  * EVENT_FIFO anyway (CONTROL_FIRMWARE_GUIDE §5.1) and never depends on IBIs.
@@ -53,7 +58,7 @@
  * ------------------------------------------------------------------------- */
 
 #define LANE_PROTO_MAJOR             0U
-#define LANE_PROTO_MINOR             1U
+#define LANE_PROTO_MINOR             2U
 
 #define LANE_MAX_LANES               6U
 
@@ -143,6 +148,8 @@ typedef enum {
 #define LANE_STATUS_BLOCKED          0x0080U  /* signal below LOW right now      */
 #define LANE_STATUS_FIFO_OVERFLOW    0x0100U  /* events were dropped (see droppedEvents) */
 #define LANE_STATUS_BUS_IDLE_SAFE    0x0200U  /* bus watchdog put LED/sensor to defaults */
+/* BUS_IDLE_SAFE: the controller re-pushes the sampling mode (COMMAND
+ * SAMPLING) when it sees this flag; that push also clears it. */
 
 typedef enum {
     LANE_LED_OFF   = 0,
@@ -165,11 +172,19 @@ typedef enum {
 
 #define LANE_SCHEDULE_DEPTH          8U   /* lane queue, >= 4 required */
 
+/* COMMAND SLEEP levels (arg). NAP and STANDBY are reserved: an image that
+ * does not support a level rejects the COMMAND and counts it in badWrites.
+ * A level above STANDBY is an invalid value (also rejected). */
+#define LANE_SLEEP_AWAKE             0U
+#define LANE_SLEEP_IDLE              1U   /* sensor shut down, LED off, still addressable */
+#define LANE_SLEEP_NAP               2U   /* reserved: Stop1, not per-lane wakeable        */
+#define LANE_SLEEP_STANDBY           3U   /* reserved: whole-system, re-enumerates         */
+
 typedef enum {
     LANE_CMD_SAMPLING         = 1,    /* arg = laneSamplingMode_e           */
     LANE_CMD_CALIBRATE        = 2,    /* re-learn the baseline (lane free)  */
     LANE_CMD_SINGLE_SAMPLE    = 3,    /* one sample into SIGNAL             */
-    LANE_CMD_SLEEP            = 4,    /* arg = sleep level, 0 = awake       */
+    LANE_CMD_SLEEP            = 4,    /* arg = LANE_SLEEP_*                 */
     LANE_CMD_RELEASE_CHAIN    = 5,    /* drop address and CHAIN_OUT         */
     LANE_CMD_RESET            = 6,    /* software reset                     */
     LANE_CMD_CLEAR_COUNTERS   = 7,    /* droppedEvents, badWrites, ...      */
@@ -221,7 +236,8 @@ typedef struct __attribute__((packed)) {
 
 /* One event (EVENT_FIFO record). */
 typedef struct __attribute__((packed)) {
-    uint16_t seq;              /* per-lane counter, wraps; gaps = lost on the lane */
+    uint16_t seq;              /* per-lane counter, wraps; gaps = lost on the lane;
+                                * a repeat = re-sent after a cut read (see below) */
     uint8_t  type;             /* laneEventType_e                                 */
     uint8_t  flags;            /* LANE_FLAG_*                                     */
     uint64_t tEntryUs;         /* sysUs of the interpolated entry (timing reference) */
@@ -230,10 +246,18 @@ typedef struct __attribute__((packed)) {
 } laneEvent_t;
 
 /*
+ * Event semantics:
+ *   - CLEARED carries the same tEntryUs as its BLOCKED event, and dwell10us
+ *     is the whole blocked time (entry of the BLOCKED dip to exit).
+ *   - The holdoff window (CONFIG holdoffUs) runs from the last CROSSING that
+ *     was not itself flagged IN_HOLDOFF; flagged crossings do not extend it.
+ *
  * EVENT_FIFO read: header, then `count` records. The control module reads
  * LANE_FIFO_READ_BYTES. A lane that can end a read early (I3C T-bit) stops
  * after the last record; otherwise it pads with zeros. The lane pops exactly
- * the records whose bytes were fully clocked out.
+ * the records whose bytes were fully clocked out. A read cut short by a bus
+ * error pops nothing, so the same records come again on the next read: the
+ * controller DROPS RECORDS WHOSE seq IT ALREADY HAS.
  */
 typedef struct __attribute__((packed)) {
     uint8_t  count;            /* records that follow (0..LANE_FIFO_READ_MAX)     */
@@ -255,7 +279,41 @@ typedef struct __attribute__((packed)) {
     uint64_t sampleUs;         /* sysUs of `raw`                                  */
 } laneSignal_t;
 
-/* CONFIG (R/W). Applied as a whole. Out-of-range values reject the write. */
+/*
+ * CONFIG (R/W). Applied as a whole. Out-of-range values reject the write
+ * (badWrites). The controller checks the same ranges before it pushes.
+ *
+ * Ranges (inclusive):
+ *   samplePeriodUs         <= LANE_CFG_SAMPLE_PERIOD_US_MAX, and at least one
+ *                          sensor cycle (I2C trigger + conversion for the
+ *                          chosen psIntegration/psMultiPulse + I2C read +
+ *                          margin). That floor depends on bench-measured sensor
+ *                          timing and is checked by the lane only (lane_regs).
+ *   samplePhaseUs          < samplePeriodUs
+ *   mergeGapUs             <= LANE_CFG_MERGE_GAP_US_MAX
+ *   blockTimeoutUs         > mergeGapUs, <= LANE_CFG_BLOCK_TIMEOUT_US_MAX
+ *   holdoffUs              <= LANE_CFG_HOLDOFF_US_MAX
+ *   holdoffSamplePeriodUs  0, or samplePeriodUs .. LANE_CFG_HOLDOFF_SAMPLE_PERIOD_US_MAX
+ *   thrDropPermille        <= LANE_CFG_THR_DROP_PERMILLE_MAX
+ *   hystPermille           < thrDropPermille
+ *   minDwell10us           minDwell10us * 10 < blockTimeoutUs
+ *   rawDecimation          LANE_CFG_RAW_DECIMATION_MIN .. LANE_CFG_RAW_DECIMATION_MAX
+ *   irCurrent              <= LANE_CFG_IR_CURRENT_MAX
+ *   psIntegration          <= LANE_CFG_PS_INTEGRATION_MAX
+ *   psMultiPulse           <= LANE_CFG_PS_MULTI_PULSE_MAX
+ */
+#define LANE_CFG_SAMPLE_PERIOD_US_MAX           100000U
+#define LANE_CFG_MERGE_GAP_US_MAX               1000000U
+#define LANE_CFG_BLOCK_TIMEOUT_US_MAX           60000000U
+#define LANE_CFG_HOLDOFF_US_MAX                 600000000U   /* 10 min */
+#define LANE_CFG_HOLDOFF_SAMPLE_PERIOD_US_MAX   LANE_CFG_SAMPLE_PERIOD_US_MAX
+#define LANE_CFG_THR_DROP_PERMILLE_MAX          999U
+#define LANE_CFG_RAW_DECIMATION_MIN             1U
+#define LANE_CFG_RAW_DECIMATION_MAX             1000U
+#define LANE_CFG_IR_CURRENT_MAX                 7U           /* LED_I: 50..200 mA      */
+#define LANE_CFG_PS_INTEGRATION_MAX             7U           /* PS_IT: 1T..8T          */
+#define LANE_CFG_PS_MULTI_PULSE_MAX             3U           /* PS_MPS: 1/2/4/8 pulses */
+
 typedef struct __attribute__((packed)) {
     uint32_t samplePeriodUs;        /* sampling period, e.g. 1000 (1 kHz)          */
     uint32_t samplePhaseUs;         /* offset inside the period (stagger IR pulses) */

@@ -194,6 +194,8 @@ export class DeviceSession implements Requester {
   get transport(): Transport { return this.#transport; }
   get hello(): HelloRsp | null { return this.#hello; }
   get bindState(): number | null { return this.#hello?.bindState ?? null; }
+  /** hpBoardType from HELLO: CONTROL (app) or CONTROL_BOOT (bootloader); 0 from 0.2 firmware. */
+  get boardType(): number | null { return this.#hello?.boardType ?? null; }
   get scheduler(): Scheduler { return this.#sched; }
   get stale(): boolean { return this.#stale; }
   /** Where to RESUME from on the next connect (also for a new session after a transport switch). */

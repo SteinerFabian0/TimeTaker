@@ -46,27 +46,10 @@
 #define LANE_REGS_I2C_READ_US            130U   /* 5 bytes + restart at 400 kHz          */
 #define LANE_REGS_SAMPLE_MARGIN_US       100U
 
-/* CONFIG ranges. */
-#define LANE_REGS_SAMPLE_PERIOD_MAX_US   100000U
-#define LANE_REGS_MERGE_GAP_MAX_US       1000000U
-#define LANE_REGS_BLOCK_TIMEOUT_MAX_US   60000000U
-#define LANE_REGS_HOLDOFF_MAX_US         600000000U   /* 10 min */
-#define LANE_REGS_RAW_DECIMATION_MAX     1000U
-#define LANE_REGS_IR_CURRENT_MAX         7U           /* LED_I: 50..200 mA      */
-#define LANE_REGS_PS_IT_MAX              7U           /* PS_IT: 1T..8T          */
-#define LANE_REGS_PS_MPS_MAX             3U           /* PS_MPS: 1/2/4/8 pulses */
-
-/*
- * COMMAND SLEEP levels. NOT IN lane_protocol.h (it says "arg = sleep level,
- * 0 = awake" only): local definition until the contract names them, guide
- * §3.8. Only AWAKE and IDLE are implemented; NAP and STANDBY are rejected.
- */
-typedef enum {
-    LANE_SLEEP_AWAKE   = 0,
-    LANE_SLEEP_IDLE    = 1,   /* sensor shut down, LED off, still addressable */
-    LANE_SLEEP_NAP     = 2,   /* reserved: Stop1, not per-lane wakeable (§9)  */
-    LANE_SLEEP_STANDBY = 3,   /* reserved: whole-system, re-enumerates        */
-} laneSleepLevel_e;
+/* CONFIG ranges: LANE_CFG_* in lane_protocol.h (the controller checks the
+ * same). The sensor-cycle floor of the sample period stays here
+ * (laneRegsMinSamplePeriodUs). COMMAND SLEEP levels: LANE_SLEEP_* there too;
+ * this image implements AWAKE and IDLE and rejects NAP and STANDBY. */
 
 /* One decoded write. payloadLen 0 = pointer only. */
 typedef struct {

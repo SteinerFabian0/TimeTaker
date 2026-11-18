@@ -24,13 +24,15 @@ _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "host protocol structs assume a little-endian target");
 
 #define HP_PROTO_MAJOR      0U
-#define HP_PROTO_MINOR      2U
+#define HP_PROTO_MINOR      3U
 #define HP_MAX_PAYLOAD      240U
 #define HP_MAX_FRAME_RAW    (4U + HP_MAX_PAYLOAD)  /* header + payload, before CRC and COBS */
 
 #define HP_USB_VID          0x1209U  /* USB identity: see [usb] in the TOML */
 #define HP_USB_PID          0x0001U
 #define HP_USB_PRODUCT      "TimeTaker"
+#define HP_USB_PID_BOOT     0x0002U  /* the control bootloader */
+#define HP_USB_PRODUCT_BOOT "TimeTaker (update)"
 
 /* Header flags */
 #define HP_FLAG_RESPONSE   0x01U /* Response to the request with the same msgId and tag */
@@ -236,6 +238,7 @@ typedef enum {
     HP_FAULT_SRC_USB        = 1, /* USB-C port protector (USB_FAULT) */
     HP_FAULT_SRC_EXT_POWER  = 2, /* External power board (EXT_PWR_FAULT) */
     HP_FAULT_SRC_LANE_POWER = 3, /* Lane rail did not come up or was cut */
+    HP_FAULT_SRC_SETTINGS   = 4, /* Stored settings failed their CRC; defaults loaded */
 } hpFaultSource_e;
 
 typedef enum {
@@ -383,7 +386,8 @@ typedef struct __attribute__((packed)) {
     uint32_t logOldestSeq;  /* Oldest evSeq still in the event log */
     uint32_t logNextSeq;    /* evSeq the next event will get */
     uint8_t  otherSessions; /* Number of other live sessions (USB + BLE at once) */
-    uint8_t  reserved[3];
+    uint8_t  boardType;     /* hpBoardType_e; What answers: CONTROL (the app) or CONTROL_BOOT (the bootloader). Since 0.3; 0 from older firmware */
+    uint8_t  reserved[2];
 } hpHelloRsp_t;
 _Static_assert(sizeof(hpHelloRsp_t) == 30U, "hpHelloRsp_t layout");
 #define HP_HELLO_RSP_BYTES 30U
@@ -839,7 +843,7 @@ _Static_assert(sizeof(hpUpdateBeginRsp_t) == 6U, "hpUpdateBeginRsp_t layout");
 #define HP_UPDATE_BEGIN_RSP_BYTES 6U
 
 /* ---- 0xA1 UPDATE_CHUNK (request) ---------------------------------
- * Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe.
+ * Writes data at offset. Offsets must be contiguous; a repeated chunk (same offset as the last) is acknowledged again, so retries are safe. Resume rule: re-sent bytes (offset below nextOffset) that match what is already written are acknowledged without rewriting, and the response always carries the real nextOffset, so a host that restarts from an earlier offset is fast-forwarded to where the bootloader stands.
  */
 
 /* UPDATE_CHUNK request */
@@ -1044,7 +1048,7 @@ _Static_assert(sizeof(hpEvtBleLink_t) == 20U, "hpEvtBleLink_t layout");
 #define HP_EVT_BLE_LINK_BYTES 20U
 
 /* ---- 0xC9 EVT_FAULT (event) --------------------------------------
- * A hardware fault input tripped.
+ * A hardware fault input tripped, or (source SETTINGS, status ERR_SETTINGS_CORRUPT) the stored settings were lost: published once at boot when the settings store fell back to defaults.
  */
 
 /* EVT_FAULT */

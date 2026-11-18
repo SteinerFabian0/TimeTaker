@@ -12,8 +12,9 @@
  *      the nRF) is low, BTN1 (PC15) is held. Else set JUMP_APP and reset, so
  *      the app starts from a clean reset state.
  *
- * Staying: the same host protocol on both transports. USB CDC with the second
- * PID and iProduct "TimeTaker (update)"; BLE through nrf_link, where a client
+ * Staying: the same host protocol on both transports. USB CDC with
+ * HP_USB_PID_BOOT and HP_USB_PRODUCT_BOOT; HELLO reports boardType
+ * CONTROL_BOOT; BLE through nrf_link, where a client
  * must be on the stored bind list (read-only from the settings pages) or the
  * session stays UNBOUND. Served: HELLO/PING/RESUME (host_session), NODE_LIST
  * (CTRL node, boardType CONTROL_BOOT), UPDATE_BEGIN/CHUNK/END/ABORT
@@ -266,7 +267,8 @@ int main(void)
     eventLogInit(&bootLog, bootLogSlots, BOOT_LOG_SLOTS);
 
     hostSessionConfig_t cfg = {
-        .transport = HP_TRANSPORT_USB, .bindState = HP_BIND_TRUSTED, .bootId = deviceIdBootId(),
+        .transport = HP_TRANSPORT_USB, .bindState = HP_BIND_TRUSTED, .boardType = HP_BOARD_CONTROL_BOOT,
+        .bootId = deviceIdBootId(),
         .log = &bootLog, .nowUs = bootNowUs, .onRequest = bootOnRequest,
     };
     hostSessionInit(&bootUsb, &bootUsbIo, &cfg);
