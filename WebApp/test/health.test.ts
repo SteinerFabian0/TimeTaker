@@ -35,7 +35,7 @@ function laneStatus(lane: number, p: Partial<LaneStatusRsp> = {}): LaneStatusRsp
     status: 0, lane, state: LaneBusState.SAMPLING, samplingMode: SamplingMode.ON, fifoCount: 0, flags: GOOD_FLAGS,
     droppedEvents: 0, syncShifts: 0, badWrites: 0, lateActions: 0, lastError: 0, resetCause: ResetCause.POWER_ON, faultId: 0,
     uptimeMs: 5000, raw: 3100, baseline: 3100, thrLow: 2100, thrHigh: 2400, noise: 10, reference: 3100, rawMin: 3080, rawMax: 3120,
-    ...p,
+    savedReference: 3100, ...p,
   };
 }
 
@@ -87,7 +87,7 @@ describe('health: healthy baseline and catalogue', () => {
     assert.deepEqual([r.ble.online, r.ble.connected], [true, true]);
     assert.deepEqual(r.lanes.map((l) => l.online), [true, true, false, false, false, false]);
     for (const c of [...r.control.checks, ...r.ble.checks, ...r.lanes[0]!.checks]) assert.equal(c.level, 'ok', `${c.id}: ${c.message}`);
-    assert.equal(findCheck(r, 'lane.savedReference', 2)!.level, 'unknown');           // no outcome this session
+    assert.match(findCheck(r, 'lane.savedReference', 2)!.message, /saved calibration 3100/);   // from LANE_STATUS, no outcome this session
     for (const c of r.lanes[3]!.checks) assert.equal(c.level, 'unknown');
   });
 
@@ -235,14 +235,27 @@ describe('health: lanes', () => {
     assert.equal(level(p, 'lane.drift'), 'unknown');
     assert.equal(level(p, 'lane.noise'), 'unknown');
   });
-  test('saved reference: SAVED ok, NOT_SAVED warn, FORGOTTEN warn, FAILED fail, timed out fail, none unknown', () => {
+  test('saved reference: a failed / not saved calibration wins; else LANE_STATUS.savedReference; else the session outcome', () => {
     const cal = (result: LaneCalibration['result'], timedOut = false): LaneCalibration => ({ result, reference: 3000, noise: 9, sysUs: 1, bootId: 1, timedOut });
-    assert.equal(level(withCal(1, cal('saved')), 'lane.savedReference'), 'ok');
-    assert.equal(level(withCal(1, cal('notSaved')), 'lane.savedReference'), 'warn');
-    assert.equal(level(withCal(1, cal('forgotten')), 'lane.savedReference'), 'warn');
-    assert.equal(level(withCal(1, cal('failed')), 'lane.savedReference'), 'fail');
-    assert.match(findCheck(evaluate(inputs(withCal(1, cal('failed', true)))), 'lane.savedReference', 1)!.message, /timed out/);
-    assert.equal(level(withCal(1, null), 'lane.savedReference'), 'unknown');
+    const id = 'lane.savedReference';
+    const msg = (p: Partial<HealthInputs>): string => findCheck(evaluate(inputs(p)), id, 1)!.message;
+    // the last calibration of this session failed or did not reach flash
+    assert.equal(level(withCal(1, cal('failed')), id), 'fail');
+    assert.match(msg(withCal(1, cal('failed', true))), /timed out/);
+    assert.equal(level(withCal(1, cal('notSaved')), id), 'warn');
+    // LANE_STATUS decides: running on the saved value ok, nothing saved warn, another value warn
+    assert.equal(level(withCal(1, null), id), 'ok');
+    assert.equal(level(withCal(1, cal('forgotten')), id), 'ok');                 // a later save wins over the outcome
+    assert.equal(level(withLane(1, { savedReference: 0 }), id), 'warn');
+    assert.match(msg(withLane(1, { savedReference: 0 })), /nothing saved/);
+    assert.equal(level(withLane(1, { savedReference: 3500 }), id), 'warn');
+    assert.match(msg(withLane(1, { savedReference: 3500 })), /recalibrate/);
+    // no LANE_STATUS yet: the session outcome, else unknown
+    const noLs = (c: LaneCalibration | null): Partial<HealthInputs> => ({ ...withCal(1, c), laneStatus: [null, null, laneStatus(2)] });
+    const lvl = (p: Partial<HealthInputs>): CheckLevel => findCheck(evaluate(inputs(p)), id, 1)!.level;
+    assert.equal(lvl(noLs(null)), 'unknown');
+    assert.equal(lvl(noLs(cal('saved'))), 'ok');
+    assert.equal(lvl(noLs(cal('forgotten'))), 'warn');
   });
   test('signal level: 1000 ok, 999 warn, 400 warn, 399 fail', () => {
     const at = (b: number): CheckLevel => level(withLane(1, { baseline: b, reference: b, thrLow: Math.round(b * 0.7), rawMax: b + 10 }), 'lane.signal');

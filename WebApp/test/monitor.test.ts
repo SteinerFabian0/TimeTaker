@@ -281,7 +281,9 @@ describe('monitor: calibration against the simulator', () => {
     await t.run(async () => {
       const { dev, mon } = await simMonitor(t);
       const r0 = await mon.runSelfCheck();
-      assert.equal(r0.overall, 'ok', JSON.stringify(r0.lanes.flatMap((l) => l.checks.filter((c) => c.level !== 'ok' && c.level !== 'unknown'))));
+      // A fresh device has nothing saved: only lane.savedReference warns.
+      const notOk = r0.lanes.flatMap((l) => l.checks.filter((c) => c.level !== 'ok' && c.level !== 'unknown'));
+      assert.deepEqual([...new Set(notOk.map((c) => `${c.id}:${c.level}`))], ['lane.savedReference:warn'], JSON.stringify(notOk));
       dev.setLaneDirt(1, 0.6);
       await t.sleep(12_000);                                        // the baseline tracks the dirty level
       const r1 = await mon.runSelfCheck();

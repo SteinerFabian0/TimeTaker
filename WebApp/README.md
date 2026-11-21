@@ -141,7 +141,7 @@ Edges: upper bounds `value >= warn → warn, >= fail → fail`; lower bounds
 | | `lane.sync` | SYNC lost / not locked → fail; not aligned → warn |
 | | `lane.config` | CONFIG_VALID clear → fail (warn while the push runs) |
 | | `lane.calibrated` | CALIBRATED clear (learning) → warn |
-| | `lane.savedReference` | last calibration this session: SAVED ok, NOT_SAVED / FORGOTTEN warn, FAILED / timeout fail, none unknown |
+| | `lane.savedReference` | a FAILED / timed-out calibration this session fail, NOT_SAVED warn; else `LANE_STATUS.savedReference`: reference == savedReference ok (running on the saved calibration), savedReference 0 warn (nothing saved), different warn (recalibrate); no LANE_STATUS yet: the session outcome, else unknown |
 | | `lane.signal` | baseline < 1000 warn, < 400 fail (misaligned / dirty); baseline or rawMax ≥ 60000 warn, ≥ 65000 fail (saturated: lower IR current) |
 | | `lane.drift` | baseline / reference < 0.85 warn, < 0.70 fail (clean the strip, recalibrate); > 1.20 warn |
 | | `lane.noise` | noise / (baseline − thrLow) ≥ 0.20 warn, ≥ 0.33 fail |
@@ -244,8 +244,5 @@ Open:
 
 4. **HELLO_RSP / EVT_BOOT: firmware version of CTRL** would save a NODE_LIST
    round trip (optional).
-5. **Is a saved reference stored for a lane?** LANE_STATUS.reference is the
-   saved OR the boot-learned level, so after a reboot the app cannot tell
-   "saved" from "learned at power-up" (`lane.savedReference` is `unknown`
-   until a calibration this session). A LANE_STATUS flag bit (e.g.
-   "reference from flash") would close it.
+5. ~~Is a saved reference stored for a lane?~~ Closed: LANE_STATUS carries
+   `savedReference` (the value the control module keeps for that lane index).

@@ -348,12 +348,12 @@ static void testMapping(void)
     laneSignal_t sig = { .raw = 1, .baseline = 2, .thrLow = 3, .thrHigh = 4, .noise = 5, .reference = 6,
                          .sampleUs = 1234, .rawMin = 7, .rawMax = 8 };
     hpLaneStatusRsp_t r;
-    laneLogicStatusRsp(4, &st, &sig, &r);
+    laneLogicStatusRsp(4, &st, &sig, 3870, &r);
     check("status: every field mapped", r.lane == 4 && r.state == 3 && r.samplingMode == 2 && r.flags == 0x1234
           && r.fifoCount == 5 && r.droppedEvents == 6 && r.syncShifts == 7 && r.badWrites == 8 && r.lateActions == 9
           && r.lastError == -10 && r.resetCause == 2 && r.faultId == 4 && r.uptimeMs == 99 && r.raw == 1
           && r.baseline == 2 && r.thrLow == 3 && r.thrHigh == 4 && r.noise == 5
-          && r.reference == 6 && r.rawMin == 7 && r.rawMax == 8);
+          && r.reference == 6 && r.rawMin == 7 && r.rawMax == 8 && r.savedReference == 3870);
     laneId_t id = { .boardType = 2, .protoMinor = 1, .fwMajor = 1, .fwMinor = 2, .fwPatch = 3, .fwGitRev = 0xabc, .imageCrc = 0xdead };
     hpNodeInfo_t n;
     laneLogicNodeInfo(5, &id, HP_NODE_STATE_OK, &n);

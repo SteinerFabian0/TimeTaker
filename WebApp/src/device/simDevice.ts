@@ -518,6 +518,8 @@ export class SimDevice implements SimLinkHost<Link> {
   #flashFails = false;
   /** Calibration outcomes waiting for the deferred settings write (SAVED / FORGOTTEN / NOT_SAVED follow it). */
   #pendingFlash = new Map<number, { action: number; reference: number }>();
+  /** lane_manager's laneRef[] in RAM: set when a reference is taken or forgotten, kept after a failed write. */
+  #keptRefs = new Map<number, number>();
 
   constructor(opts: SimOptions = {}) {
     this.scheduler = opts.scheduler ?? realScheduler;
@@ -881,6 +883,7 @@ export class SimDevice implements SimLinkHost<Link> {
     this.#window = null;
     this.#failSchedule.clear();
     this.#pendingFlash.clear();
+    this.#keptRefs.clear();             // RAM: a boot reloads laneRef[] from flash
     this.#settingsDefaults = 0;
     if (this.#corruptAtNextBoot) {
       this.#corruptAtNextBoot = false;
@@ -1298,6 +1301,7 @@ export class SimDevice implements SimLinkHost<Link> {
         for (let l = 1; l <= MAX_LANES; l++) {
           if (!(mask & (1 << (l - 1)))) continue;
           this.#pendingFlash.set(l, { action: CalibrateAction.FORGET, reference: 0 });
+          this.#keptRefs.set(l, 0);
           const s = this.#lanes[l]!;
           if (s.present && s.configured) this.#learn(l, this.#learnBootMs(l), false);
         }
@@ -1676,8 +1680,14 @@ export class SimDevice implements SimLinkHost<Link> {
       if (!report) return;
       s.winFromUs = nowUs + 1;          // the calibration's own SIGNAL read resets rawMin/rawMax
       this.#pendingFlash.set(lane, { action: CalibrateAction.LEARN, reference: ref });
+      this.#keptRefs.set(lane, ref);
       this.#markSettingsDirty();
     });
+  }
+
+  /** LANE_STATUS.savedReference: lane_manager's laneRef[] (the flash value until a calibration changes it). */
+  #keptReference(lane: number): number {
+    return this.#keptRefs.get(lane) ?? this.#flash.references[lane] ?? 0;
   }
 
   #laneNoise(lane: number): number {
@@ -1752,6 +1762,7 @@ export class SimDevice implements SimLinkHost<Link> {
       badWrites: s.badWrites, lateActions: s.lateActions, lastError: s.fault, resetCause: s.resetCause, faultId: 0,
       uptimeMs: Math.floor(this.scheduler.now() - s.bootMs) >>> 0, raw, baseline, thrLow, thrHigh,
       noise: this.#laneNoise(lane), reference: s.reference, rawMin, rawMax,
+      savedReference: this.#keptReference(lane),
     };
   }
 

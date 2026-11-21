@@ -231,9 +231,11 @@ uint8_t laneLogicCalSaveResult(bool forget, bool written);
 void laneLogicCalEvent(uint8_t lane, uint8_t result, uint16_t reference, uint16_t noise, uint64_t sysUs,
                        hpEvtLaneCalibrated_t *out);
 
-/* LANE_STATUS response body from the lane's STATUS and SIGNAL. */
+/* LANE_STATUS response body from the lane's STATUS and SIGNAL, plus the
+ * reference the control module keeps for this lane index (laneRef: saved, or
+ * waiting for the store's retry after NOT_SAVED; 0 = none). */
 void laneLogicStatusRsp(uint8_t lane, const laneStatus_t *st, const laneSignal_t *sig,
-                        hpLaneStatusRsp_t *out);
+                        uint16_t savedReference, hpLaneStatusRsp_t *out);
 
 /* NODE_LIST entry of a lane from its ID register. */
 void laneLogicNodeInfo(uint8_t lane, const laneId_t *id, uint8_t nodeState, hpNodeInfo_t *out);

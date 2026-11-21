@@ -76,7 +76,8 @@ const MUTATIONS: { name: string; file: string; from: string; to: string; tests?:
   { name: 'health: SENSOR_OK ignored', file: H, from: "out.push(has(LaneStatusFlag.SENSOR_OK) ?", to: 'out.push(true ?', tests: HEALTH_TESTS },
   { name: 'health: SYNC lost ignored', file: H, from: 'if (has(LaneStatusFlag.SYNC_LOST) || !node.syncOk)', to: 'if (false)', tests: HEALTH_TESTS },
   { name: 'health: lane fault ignored', file: H, from: "if (node.phase === 'fault') out.push(", to: 'if (false) out.push(', tests: HEALTH_TESTS },
-  { name: 'health: failed calibration not a failure', file: H, from: "default: return mk(id, 'fail',", to: "default: return mk(id, 'ok',", tests: HEALTH_TESTS },
+  { name: 'health: failed calibration not a failure', file: H, from: "if (cal?.result === 'failed') return mk(id, 'fail',", to: "if (cal?.result === 'failed') return mk(id, 'ok',", tests: HEALTH_TESTS },
+  { name: 'health: forgotten (no LANE_STATUS) judged ok', file: H, from: ": mk(id, 'warn', 'no saved reference: the lane learns", to: ": mk(id, 'ok', 'no saved reference: the lane learns", tests: HEALTH_TESTS },
   { name: 'health: expected lane absent not a failure', file: H, from: "mk('lane.present', expected ? 'fail' : 'unknown',", to: "mk('lane.present', 'unknown',", tests: HEALTH_TESTS },
   { name: 'health: BLE bridge absent ok', file: H, from: "if (st.bleBridge === BleBridgeState.ABSENT) out.push(mk('ble.bridge', 'fail'", to: "if (false) out.push(mk('ble.bridge', 'fail'", tests: HEALTH_TESTS },
   { name: 'health: BLE connected ignores the phone link', file: H, from: 'const connected = online && st.bleLink === BleLinkState.UP;', to: 'const connected = online;', tests: HEALTH_TESTS },
@@ -96,6 +97,10 @@ const MUTATIONS: { name: string; file: string; from: string; to: string; tests?:
   { name: 'nodeModel: CONFIGURED does not clear a fault', file: 'src/device/nodeModel.ts', from: "case LaneState.CONFIGURED: next = { ...cur, phase: 'configured', faultStatus: 0,", to: "case LaneState.CONFIGURED: next = { ...cur, phase: cur.phase === 'fault' ? 'fault' : 'configured',", tests: HEALTH_TESTS },
   { name: 'sim: rawMin/rawMax window not reset by a read', file: 'src/device/simDevice.ts', from: '    s.winFromUs = nowUs + 1;\n    let flags = 0;', to: '    let flags = 0;', tests: HEALTH_TESTS },
   { name: 'sim: LANE_CALIBRATE accepted during a sequence', file: 'src/device/simDevice.ts', from: "if (this.#seq) { reply(Status.ERR_SEQ_RUNNING); return; }\n        if (action", to: 'if (action', tests: HEALTH_TESTS },
+  { name: 'health: savedReference 0 judged ok', file: 'src/health/health.ts', from: "if (saved === 0) return mk(id, 'warn'", to: "if (saved === 0) return mk(id, 'ok'", tests: HEALTH_TESTS },
+  { name: 'health: another value than the saved one judged ok', file: 'src/health/health.ts', from: "return mk(id, 'warn', `lane runs on", to: "return mk(id, 'ok', `lane runs on", tests: HEALTH_TESTS },
+  { name: 'health: a failed calibration no longer wins over LANE_STATUS', file: 'src/health/health.ts', from: "if (cal?.result === 'failed') return", to: "if (false) return", tests: HEALTH_TESTS },
+  { name: 'sim: savedReference ignores the kept RAM value', file: 'src/device/simDevice.ts', from: 'return this.#keptRefs.get(lane) ?? this.#flash.references[lane] ?? 0;', to: 'return this.#flash.references[lane] ?? 0;', tests: HEALTH_TESTS },
   { name: 'sim: saved reference not seeded at join', file: 'src/device/simDevice.ts', from: '    if (saved) {\n      s.learning = null;', to: '    if (false) {\n      s.learning = null;', tests: HEALTH_TESTS },
 ];
 

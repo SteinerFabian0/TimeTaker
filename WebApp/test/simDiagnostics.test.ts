@@ -245,12 +245,15 @@ describe('sim fault knobs → health checks', () => {
   test('flash writes failing → NOT_SAVED (lane.savedReference warn); loop time; corrupt settings at boot', async () => {
     const t = rig();
     await t.run(async () => {
-      const { dev, mon } = await setup(t, 1);
+      const { dev, api, mon } = await setup(t, 1);
       dev.failFlashWrites(true);
       const [o] = await mon.calibrate([1]);
       assert.equal(o!.result, 'notSaved');
       assert.ok(o!.reference > 0);
       assert.equal(dev.savedReference(1), 0);
+      // The control module keeps the learned value (and retries the write): LANE_STATUS says so.
+      const ls = await api.laneStatus(1);
+      assert.deepEqual([ls.reference, ls.savedReference], [o!.reference, o!.reference]);
       dev.setLoopMaxMs(12);
       let r = await mon.runSelfCheck();
       assert.deepEqual([lvl(r, 'lane.savedReference', 1), lvl(r, 'ctrl.loopTime')], ['warn', 'fail']);

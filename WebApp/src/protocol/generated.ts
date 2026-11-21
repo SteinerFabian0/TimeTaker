@@ -1146,7 +1146,7 @@ export const decodeLaneStatusReq = (b: Uint8Array): LaneStatusReq => decodeStruc
 /** LANE_STATUS response */
 export const LANE_STATUS_RSP: StructDesc = {
   name: 'LaneStatusRsp',
-  size: 40,
+  size: 42,
   fields: [
     { name: 'status', kind: 'scalar', type: 'i16' },
     { name: 'lane', kind: 'scalar', type: 'u8' },
@@ -1170,6 +1170,7 @@ export const LANE_STATUS_RSP: StructDesc = {
     { name: 'reference', kind: 'scalar', type: 'u16' },
     { name: 'rawMin', kind: 'scalar', type: 'u16' },
     { name: 'rawMax', kind: 'scalar', type: 'u16' },
+    { name: 'savedReference', kind: 'scalar', type: 'u16' },
   ],
 };
 export type LaneStatusRsp = {
@@ -1204,6 +1205,8 @@ export type LaneStatusRsp = {
   rawMin: number;
   /** Highest sample since the previous LANE_STATUS of this lane (0.6+) */
   rawMax: number;
+  /** The reference the control module has saved in flash for this lane index, 0 = none: reference == savedReference means the lane runs on the saved calibration (0.6+) */
+  savedReference: number;
 };
 export const encodeLaneStatusRsp = (v: LaneStatusRsp): Uint8Array => encodeStruct(LANE_STATUS_RSP, v);
 export const decodeLaneStatusRsp = (b: Uint8Array): LaneStatusRsp => decodeStruct(LANE_STATUS_RSP, b) as LaneStatusRsp;

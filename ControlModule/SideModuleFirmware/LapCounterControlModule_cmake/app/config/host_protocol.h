@@ -738,18 +738,18 @@ _Static_assert(sizeof(hpLaneStatusReq_t) == 1U, "hpLaneStatusReq_t layout");
 
 /* LANE_STATUS response */
 typedef struct __attribute__((packed)) {
-    int16_t  status;        /* ctrlStatus_e. On error the payload is this field only. */
+    int16_t  status;         /* ctrlStatus_e. On error the payload is this field only. */
     uint8_t  lane;
-    uint8_t  state;         /* hpLaneBusState_e */
-    uint8_t  samplingMode;  /* hpSamplingMode_e */
+    uint8_t  state;          /* hpLaneBusState_e */
+    uint8_t  samplingMode;   /* hpSamplingMode_e */
     uint8_t  fifoCount;
-    uint16_t flags;         /* lane_protocol.h LANE_STATUS_* bits */
+    uint16_t flags;          /* lane_protocol.h LANE_STATUS_* bits */
     uint16_t droppedEvents;
     uint16_t syncShifts;
     uint16_t badWrites;
     uint16_t lateActions;
-    int16_t  lastError;     /* The lane's own status code */
-    uint8_t  resetCause;    /* hpResetCause_e */
+    int16_t  lastError;      /* The lane's own status code */
+    uint8_t  resetCause;     /* hpResetCause_e */
     uint8_t  faultId;
     uint32_t uptimeMs;
     uint16_t raw;
@@ -757,12 +757,13 @@ typedef struct __attribute__((packed)) {
     uint16_t thrLow;
     uint16_t thrHigh;
     uint16_t noise;
-    uint16_t reference;     /* Saved/learned clean level (lane_protocol.h "Reference"), 0 = none (0.6+, was reserved) */
-    uint16_t rawMin;        /* Lowest sample since the previous LANE_STATUS of this lane (0.6+) */
-    uint16_t rawMax;        /* Highest sample since the previous LANE_STATUS of this lane (0.6+) */
+    uint16_t reference;      /* Saved/learned clean level (lane_protocol.h "Reference"), 0 = none (0.6+, was reserved) */
+    uint16_t rawMin;         /* Lowest sample since the previous LANE_STATUS of this lane (0.6+) */
+    uint16_t rawMax;         /* Highest sample since the previous LANE_STATUS of this lane (0.6+) */
+    uint16_t savedReference; /* The reference the control module has saved in flash for this lane index, 0 = none: reference == savedReference means the lane runs on the saved calibration (0.6+) */
 } hpLaneStatusRsp_t;
-_Static_assert(sizeof(hpLaneStatusRsp_t) == 40U, "hpLaneStatusRsp_t layout");
-#define HP_LANE_STATUS_RSP_BYTES 40U
+_Static_assert(sizeof(hpLaneStatusRsp_t) == 42U, "hpLaneStatusRsp_t layout");
+#define HP_LANE_STATUS_RSP_BYTES 42U
 
 /* ---- 0x27 LANE_RAW_STREAM (request) ------------------------------
  * Streams one lane's raw samples as STR_RAW_SAMPLES (puts it in RAW mode; lane 0 stops and restores the previous mode). One lane at a time.

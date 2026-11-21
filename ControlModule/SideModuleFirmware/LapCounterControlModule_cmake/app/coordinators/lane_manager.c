@@ -839,7 +839,7 @@ static void laneDone(uint16_t tag, ctrlStatus_e status, uint16_t rxLen)
         } else {
             laneSignal_t sig;
             memcpy(&sig, laneReqBuf, sizeof(sig));
-            laneLogicStatusRsp(lane, &laneReqSt, &sig, &laneReqRsp);
+            laneLogicStatusRsp(lane, &laneReqSt, &sig, laneRef[lane - 1U], &laneReqRsp);
             laneReqDone   = true;
             laneReqStatus = CTRL_OK;
         }

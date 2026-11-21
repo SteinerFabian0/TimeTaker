@@ -163,7 +163,7 @@ export const CHECKS: readonly CheckInfo[] = [
   { id: 'lane.sync', part: 'lane', title: 'SYNC', description: 'SYNC_LOCKED and SYNC_ALIGNED set, not SYNC_LOST: fail when lost or not locked, warn when not aligned.' },
   { id: 'lane.config', part: 'lane', title: 'Config', description: 'CONFIG_VALID flag: fail when clear; warn while the config push runs (joined).' },
   { id: 'lane.calibrated', part: 'lane', title: 'Baseline learned', description: 'CALIBRATED flag (baseline established) and a reference: warn while learning.' },
-  { id: 'lane.savedReference', part: 'lane', title: 'Saved reference', description: 'The last LANE_CALIBRATE outcome this session: SAVED ok, NOT_SAVED / FORGOTTEN warn, FAILED fail, none unknown.' },
+  { id: 'lane.savedReference', part: 'lane', title: 'Saved reference', description: 'A failed / not saved calibration this session wins (fail / warn). Else from LANE_STATUS: running on the saved calibration (reference == savedReference) ok; nothing saved, or the lane runs on another value, warn; no LANE_STATUS yet: the session outcome, else unknown.' },
   { id: 'lane.signal', part: 'lane', title: 'Signal level', description: 'Baseline: fail < signalLowFail, warn < signalLowWarn (misaligned / dirty); baseline or rawMax >= saturationFail fail, >= saturationWarn warn (lower the IR current).' },
   { id: 'lane.drift', part: 'lane', title: 'Drift', description: 'baseline / reference: warn < driftWarn, fail < driftFail (clean the strip, recalibrate); warn > driftHighWarn.' },
   { id: 'lane.noise', part: 'lane', title: 'Noise', description: 'noise / (baseline - thrLow): warn >= noiseWarn, fail >= noiseFail.' },
@@ -295,7 +295,7 @@ function laneChecks(i: HealthInputs, t: HealthThresholds, lane: number, ctrlOnli
 
   if (!ls) {
     for (const id of CHECK_IDS.lane.slice(2)) {
-      out.push(id === 'lane.savedReference' ? savedReference(node.calibration, null) : mk(id, 'unknown', 'no LANE_STATUS yet'));
+      out.push(id === 'lane.savedReference' ? savedReference(node.calibration, null, null) : mk(id, 'unknown', 'no LANE_STATUS yet'));
     }
     return { index: lane, online, checks: out };
   }
@@ -317,7 +317,7 @@ function laneChecks(i: HealthInputs, t: HealthThresholds, lane: number, ctrlOnli
     ? mk('lane.calibrated', 'ok', `baseline ${ls.baseline}, reference ${ls.reference}${stale}`, ls.reference)
     : mk('lane.calibrated', 'warn', `learning the baseline${stale}`, ls.reference));
 
-  out.push(savedReference(node.calibration, ls.reference));
+  out.push(savedReference(node.calibration, ls.reference, ls.savedReference));
 
   const peak = Math.max(ls.baseline, ls.rawMax);
   if (!learned && peak < t.saturationWarn) out.push(mk('lane.signal', 'unknown', 'baseline not learned yet', ls.raw));
@@ -360,15 +360,21 @@ function laneChecks(i: HealthInputs, t: HealthThresholds, lane: number, ctrlOnli
   return { index: lane, online, checks: out };
 }
 
-function savedReference(cal: NodeModel['lanes'][number]['calibration'], reference: number | null): Check {
+function savedReference(cal: NodeModel['lanes'][number]['calibration'], reference: number | null, saved: number | null): Check {
   const id = 'lane.savedReference';
-  if (!cal) return mk(id, 'unknown', reference ? `not known this session (reference ${reference})` : 'not known this session', reference);
-  switch (cal.result) {
-    case 'saved': return mk(id, 'ok', `saved ${cal.reference}`, cal.reference);
-    case 'notSaved': return mk(id, 'warn', `learned ${cal.reference} but not saved: used until power-off`, cal.reference);
-    case 'forgotten': return mk(id, 'warn', 'no saved reference: the lane learns at every power-up', 0);
-    default: return mk(id, 'fail', cal.timedOut ? 'calibration timed out' : 'calibration failed (lane busy or left)', 0);
+  // The last calibration of this session failing (or not reaching flash) is the news.
+  if (cal?.result === 'failed') return mk(id, 'fail', cal.timedOut ? 'calibration timed out' : 'calibration failed (lane busy or left)', 0);
+  if (cal?.result === 'notSaved') return mk(id, 'warn', `learned ${cal.reference} but not saved yet (the control module retries)`, cal.reference);
+  // LANE_STATUS.savedReference: what the control module keeps for this lane index.
+  if (reference !== null && saved !== null) {
+    if (saved === 0) return mk(id, 'warn', `nothing saved: the lane learned ${reference} at power-up; calibrate with the lane free`, 0);
+    if (reference === saved) return mk(id, 'ok', `running on the saved calibration ${saved}`, saved);
+    return mk(id, 'warn', `lane runs on ${reference}, saved is ${saved}: recalibrate`, saved);
   }
+  if (!cal) return mk(id, 'unknown', 'no LANE_STATUS yet', null);
+  // failed / notSaved returned above: only saved and forgotten are left.
+  return cal.result === 'saved' ? mk(id, 'ok', `saved ${cal.reference}`, cal.reference)
+    : mk(id, 'warn', 'no saved reference: the lane learns at every power-up', 0);
 }
 
 /** The health report. Pure: same inputs, same report. */

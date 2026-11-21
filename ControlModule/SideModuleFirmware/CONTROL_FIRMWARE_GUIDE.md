@@ -382,7 +382,9 @@ The lane's *reference* is its bare-foil level (lane_protocol.h
 "Reference"). The control module saves one per lane index in the settings
 record (version 2; a version-1 record loads with all references 0) and seeds
 it at every configure, so a car parked on the line at power-up cannot spoil
-the baseline.
+the baseline. `LANE_STATUS.savedReference` reports the kept value (0 =
+none), so the host can tell `reference == savedReference` (running on the
+saved calibration) from a reference the lane learned at power-up.
 
 - `LANE_CALIBRATE{laneMask, action}`; the response only acknowledges, each
   lane's outcome follows as `EVT_LANE_CALIBRATED{lane, result, reference,

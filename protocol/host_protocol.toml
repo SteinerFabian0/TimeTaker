@@ -903,6 +903,7 @@ response = [
   { name = "reference", type = "u16", doc = "Saved/learned clean level (lane_protocol.h \"Reference\"), 0 = none (0.6+, was reserved)" },
   { name = "rawMin", type = "u16", doc = "Lowest sample since the previous LANE_STATUS of this lane (0.6+)" },
   { name = "rawMax", type = "u16", doc = "Highest sample since the previous LANE_STATUS of this lane (0.6+)" },
+  { name = "savedReference", type = "u16", doc = "The reference the control module has saved in flash for this lane index, 0 = none: reference == savedReference means the lane runs on the saved calibration (0.6+)" },
 ]
 example_request = { lane = 4 }
 example_response = { status = -21 }

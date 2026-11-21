@@ -285,7 +285,7 @@ void laneLogicCalEvent(uint8_t lane, uint8_t result, uint16_t reference, uint16_
 }
 
 void laneLogicStatusRsp(uint8_t lane, const laneStatus_t *st, const laneSignal_t *sig,
-                        hpLaneStatusRsp_t *out)
+                        uint16_t savedReference, hpLaneStatusRsp_t *out)
 {
     memset(out, 0, sizeof(*out));
     out->lane          = lane;
@@ -309,6 +309,7 @@ void laneLogicStatusRsp(uint8_t lane, const laneStatus_t *st, const laneSignal_t
     out->reference     = sig->reference;
     out->rawMin        = sig->rawMin;
     out->rawMax        = sig->rawMax;
+    out->savedReference = savedReference;
 }
 
 void laneLogicNodeInfo(uint8_t lane, const laneId_t *id, uint8_t nodeState, hpNodeInfo_t *out)
