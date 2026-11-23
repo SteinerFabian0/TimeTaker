@@ -114,7 +114,6 @@ h1, h2, .display {
   position: fixed; inset: 0 auto 0 0; z-index: 20;
   width: var(--rail-w);
   display: flex; flex-direction: column;
-  padding-bottom: 6px;
   transition: width var(--rail-t) ease-out;
   user-select: none;
 }
@@ -144,7 +143,14 @@ h1, h2, .display {
 .rail.open .brand-word { opacity: 1; }
 
 .rail-group { padding: 0 0 6px; }
-.rail-group-system { margin-top: auto; }
+/* Collapsed, the System group sits on the screen's bottom edge with Settings'
+ * bottom border just below it: selected, Settings is a tab with no bottom
+ * side and no downward line. Open, it lifts so the parallelograms are whole. */
+.rail-group-system {
+  margin-top: auto; padding-bottom: 0; margin-bottom: calc(-1 * var(--b-thick));
+  transition: margin-bottom var(--rail-t) ease-out;
+}
+.rail.open .rail-group-system { margin-bottom: 8px; }
 .rail-group-label {
   height: 20px; padding-left: 20px; overflow: hidden; white-space: nowrap;
   font: 600 12px/20px var(--font-body); text-transform: uppercase; letter-spacing: .12em; color: var(--muted);

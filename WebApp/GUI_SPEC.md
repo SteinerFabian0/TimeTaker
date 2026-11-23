@@ -52,7 +52,11 @@ driver counts (§5.4).
 
 - **No sidebar panel:** the rail is a column of **thick, tall boxes that
   touch** each other (neighbours share one border).
-  Groups stay separated by a gap; System sits at the bottom.
+  Groups stay separated by a gap; System sits at the bottom. Collapsed,
+  it sits on the screen's bottom edge with Settings' bottom border just
+  below it, so selected Settings is a tab with no bottom side and no
+  downward line; open, the group lifts a few pixels so the parallelograms
+  are whole.
 - **Borders and fill:** none while collapsed (just the icons); when open,
   2.5 px outlines and the panel fill fade in with the opening motion. The
   selected item: 3 px orange, no tint (no fill colour).
