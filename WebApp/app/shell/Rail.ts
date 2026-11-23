@@ -1,7 +1,8 @@
 // The sidebar (GUI_SPEC §2.1): a collapsed icon rail that expands OVER the
 // page to show names.
 //   mouse:    hover expands, click navigates and collapses (stays collapsed
-//             until the pointer leaves and comes back);
+//             until the pointer moves onto another item, or leaves and
+//             comes back);
 //   touch:    a tap anywhere on the rail expands it, a tap on an item then
 //             navigates and collapses, a tap outside (scrim) collapses;
 //   keyboard: focus on the rail expands it, Enter navigates, Esc collapses.
@@ -16,8 +17,9 @@ import { Icon } from './icons.ts';
 export const expanded = signal(false);
 /** How the user last interacted with the rail. */
 let input: 'mouse' | 'touch' | 'keyboard' = 'mouse';
-/** After a mouse click, hover may not re-open the rail until the pointer leaves. */
-let hoverLocked = false;
+/** After a mouse click: the clicked area. Hovering it does not re-open the
+ *  rail; moving onto another item (or leaving the rail) does. */
+let hoverLocked: string | null = null;
 
 function collapse() { expanded.value = false; }
 
@@ -25,12 +27,21 @@ function onPointerDown(e: PointerEvent) {
   input = e.pointerType === 'mouse' ? 'mouse' : 'touch';
 }
 function onPointerEnter(e: PointerEvent) {
-  if (e.pointerType === 'mouse' && !hoverLocked) expanded.value = true;
+  if (e.pointerType === 'mouse' && hoverLocked === null) expanded.value = true;
 }
 function onPointerLeave(e: PointerEvent) {
   if (e.pointerType !== 'mouse') return;
-  hoverLocked = false;
+  hoverLocked = null;
   collapse();
+}
+/** Hover lock: re-open as soon as the pointer is over a different item. */
+function onPointerOver(e: PointerEvent) {
+  if (e.pointerType !== 'mouse' || hoverLocked === null) return;
+  const item = (e.target as Element).closest('.rail-item');
+  if (item && item.getAttribute('href') !== '#/' + hoverLocked) {
+    hoverLocked = null;
+    expanded.value = true;
+  }
 }
 function onKeyDown(e: KeyboardEvent) {
   input = 'keyboard';
@@ -57,7 +68,7 @@ function go(id: string, e: MouseEvent) {
   }
   navigate(id);
   collapse();
-  if (input === 'mouse') hoverLocked = true;
+  if (input === 'mouse') hoverLocked = id;
   else (e.currentTarget as HTMLElement).blur();
   if (input !== 'mouse') document.getElementById('main')?.focus({ preventScroll: true });
 }
@@ -90,7 +101,7 @@ export function Rail() {
   return html`
     <div class=${'scrim' + (open ? ' on' : '')} onClick=${collapse} aria-hidden="true"></div>
     <nav class=${'rail' + (open ? ' open' : '')} aria-label=${t('nav.label')}
-        onPointerDown=${onPointerDown} onPointerEnter=${onPointerEnter} onPointerLeave=${onPointerLeave}
+        onPointerDown=${onPointerDown} onPointerEnter=${onPointerEnter} onPointerLeave=${onPointerLeave} onPointerOver=${onPointerOver}
         onKeyDown=${onKeyDown} onFocusIn=${onFocusIn} onFocusOut=${onFocusOut} onClick=${onRailClick}>
       <div class="rail-brand">
         <span class="brand-mark" aria-hidden="true"></span>

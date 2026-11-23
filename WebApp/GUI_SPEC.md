@@ -71,7 +71,10 @@ driver counts (§5.4).
   the names appear (large, bold), and the **page slides right and goes dark** (scrim), so choosing
   the area is the only thing in focus. Closing runs it backwards.
   (Decided 2026-11-23: no overlay panel.)
-- **Desktop:** hovering the rail expands it. A click navigates and collapses it.
+- **Desktop:** hovering the rail expands it. A click navigates and collapses it;
+  it stays collapsed while the pointer rests on the clicked icon and expands
+  again as soon as the pointer moves onto any other icon (or leaves and
+  comes back).
 - **Touch (iPad):** a tap anywhere on the rail expands it; a tap on an item
   navigates and collapses it; a tap on the dark page collapses it.
 - **No connection badge in the rail** (decided 2026-11-23): the bottom group
