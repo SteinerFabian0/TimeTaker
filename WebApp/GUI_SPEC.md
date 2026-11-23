@@ -63,9 +63,10 @@ driver counts (§5.4).
   an **open tab**: orange on top, left and bottom, no right side and no fill
   (it opens into the page), and orange lines
   run from its right corners up and down to the screen edges. Open: a full
-  orange parallelogram, no lines. The right side and the lines swap without
-  a transition (closing: once the boxes are square again; opening: at once),
-  so no line sweeps across the open parallelograms.
+  orange parallelogram, no lines. Closing: the right side fades out
+  linearly with the morph and is gone the moment the box is square, then the
+  lines fade in. Opening: the lines vanish at once (so none sweeps across the
+  parallelograms) and the right side fades in with the morph.
 - **Opening (one 0.2 s motion):** the squares **widen and lean into
   parallelograms** at the same time (rail 360 px), the orange lines vanish,
   the names appear (large, bold), and the **page slides right and goes dark** (scrim), so choosing
