@@ -53,15 +53,21 @@ driver counts (§5.4).
 - **No sidebar panel:** the rail is a column of **thick, tall boxes that
   touch** each other (neighbours share one border).
   Groups stay separated by a gap; System sits at the bottom.
-- **Borders:** thin (1.5 px) while collapsed, thick (2.5 px) when open; the
-  width grows with the opening motion. The selected item: 4 px orange.
-- **Collapsed:** icons in **upright squares as wide as the rail** (screen
-  edge to edge line, no gap), icon 40 % of the square, with **one vertical
-  line** as the rail's edge. Square = rail width = **92 px**, smaller on short
-  screens so all 8 squares + logo always fit (60 px minimum). The selected square has an
-  orange tint.
+- **Borders and fill:** none while collapsed (just the icons); when open,
+  2.5 px outlines and the panel fill fade in with the opening motion. The
+  selected item: 3 px orange, no tint (no fill colour).
+- **Collapsed:** only the icons, each centred in an invisible **upright
+  square as wide as the rail** (screen edge to the rail's edge), icon 40 %
+  of the square. No grey edge line: the orange lines are the rail's edge. Square = rail width = **92 px**, smaller on short
+  screens so all 8 squares + logo always fit (60 px minimum). The selected square is
+  an **open tab**: orange on top, left and bottom, no right side and no fill
+  (it opens into the page), and orange lines
+  run from its right corners up and down to the screen edges. Open: a full
+  orange parallelogram, no lines. The right side and the lines swap without
+  a transition (closing: once the boxes are square again; opening: at once),
+  so no line sweeps across the open parallelograms.
 - **Opening (one 0.2 s motion):** the squares **widen and lean into
-  parallelograms** at the same time (rail 360 px), the edge line fades out,
+  parallelograms** at the same time (rail 360 px), the orange lines vanish,
   the names appear (large, bold), and the **page slides right and goes dark** (scrim), so choosing
   the area is the only thing in focus. Closing runs it backwards.
   (Decided 2026-11-23: no overlay panel.)

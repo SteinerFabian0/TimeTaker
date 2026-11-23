@@ -29,7 +29,7 @@
   --icon: calc(var(--rail-w) * .4);
   --b-thin: 1.5px;     /* rail borders, collapsed */
   --b-open: 2.5px;     /* rail borders, open (grows with the morph) */
-  --b-thick: 4px;      /* the selected item */
+  --b-thick: 3px;      /* the selected item */
   --rail-t: .2s;
   --font-display: 'Chakra Petch', 'Titillium Web', system-ui, sans-serif;
   --font-body: 'Titillium Web', system-ui, sans-serif;
@@ -103,10 +103,11 @@ h1, h2, .display {
 .time, .tnum { font-variant-numeric: tabular-nums; }
 
 /* --- Rail ------------------------------------------------------------------
- * No panel: a column of touching boxes. Collapsed: upright squares, thin
- * borders, the active one thick and orange, one vertical line as the rail's
- * edge. Opening: the squares widen and lean into parallelograms in the same
- * motion, the edge line fades, the page slides right and goes dark (scrim). */
+ * No panel: a column of touching boxes. Collapsed: just the icons; the active
+ * one is an open orange tab whose lines run along the rail's edge to the top
+ * and bottom of the screen. Opening: the boxes widen and lean into outlined
+ * parallelograms in the same motion, the orange lines fade, the page slides
+ * right and goes dark (scrim). */
 
 .rail {
   position: fixed; inset: 0 auto 0 0; z-index: 20;
@@ -117,12 +118,6 @@ h1, h2, .display {
   user-select: none;
 }
 .rail.open { width: var(--rail-open-w); }
-.rail::after {                            /* the rail's edge, collapsed only */
-  content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: 1px;
-  background: var(--rail-line);
-  transition: opacity var(--rail-t) ease-out;
-}
-.rail.open::after { opacity: 0; }
 
 .scrim {
   position: fixed; inset: 0; z-index: 15;   /* behind the rail (z 20), over the page */
@@ -159,7 +154,7 @@ h1, h2, .display {
 .rail-item {
   position: relative; isolation: isolate;
   display: flex; align-items: center; gap: 20px;
-  /* collapsed: a square as wide as the rail, from the screen edge to the edge line */
+  /* collapsed: a square as wide as the rail, from the screen edge to the rail's edge */
   height: var(--rail-w); margin: 0;
   padding: 0 0 0 calc((var(--rail-w) - var(--icon)) / 2);
   text-decoration: none; color: var(--muted); white-space: nowrap;
@@ -170,19 +165,54 @@ h1, h2, .display {
 .rail.open .rail-item { margin-left: 12px; margin-right: 18px; }
 .rail-item + .rail-item { margin-top: calc(-1 * var(--b-thin)); }   /* neighbours share one border */
 .rail.open .rail-item + .rail-item { margin-top: calc(-1 * var(--b-open)); }
+/* Collapsed: just the icons, no fill, no outline (the box is still there,
+ * invisible, so it can morph). Open: fill and outline fade in with the lean. */
 .rail-item::before {
   content: ''; position: absolute; inset: 0; z-index: -1;
   transform: skewX(0deg);
-  background: var(--panel);
-  border: var(--b-thin) solid var(--rail-line);
-  transition: transform var(--rail-t) ease-out, border-width var(--rail-t) ease-out, background .12s, border-color .12s;
+  background: transparent;
+  border: var(--b-thin) solid transparent;
+  transition: transform var(--rail-t) ease-out, border-width var(--rail-t) ease-out,
+              background var(--rail-t) ease-out, border-color var(--rail-t) ease-out;
 }
-.rail.open .rail-item::before { transform: skewX(var(--slant)); border-width: var(--b-open); }
+.rail.open .rail-item::before {
+  transform: skewX(var(--slant)); border-width: var(--b-open);
+  background: var(--panel); border-color: var(--rail-line);
+}
 .rail-item:hover { color: var(--text); z-index: 1; }
-.rail-item:hover::before { background: var(--panel-2); border-color: var(--muted); }
+.rail.open .rail-item:hover::before { background: var(--panel-2); border-color: var(--muted); }
+/* Active, collapsed: an open tab. Orange on top, left and bottom, no right
+ * side, no fill, and orange lines run from its right corners to the top and
+ * bottom of the screen. Open: a full orange parallelogram, no lines.
+ * The right side and the lines swap without a transition: closing, they swap
+ * once the boxes are square again (delay = the morph); opening, at once.
+ * Otherwise the lines sweep across the open parallelograms while the boxes
+ * shrink, and a fading right side flashes in the opening. */
 .rail-item.active { color: var(--accent); z-index: 2; }
-.rail-item.active::before,
-.rail.open .rail-item.active::before { background: var(--accent-soft); border: var(--b-thick) solid var(--accent); }
+.rail-item.active::before {
+  background: transparent;
+  border: var(--b-thick) solid var(--accent); border-right-width: 0;
+  transition: transform var(--rail-t) ease-out, background var(--rail-t) ease-out,
+              border-color var(--rail-t) ease-out, border-top-width var(--rail-t) ease-out,
+              border-bottom-width var(--rail-t) ease-out, border-left-width var(--rail-t) ease-out,
+              border-right-width 0s var(--rail-t);
+}
+.rail.open .rail-item.active::before {
+  background: var(--panel); border-color: var(--accent); border-width: var(--b-thick);
+  transition-delay: 0s;
+}
+/* Every item has the lines (invisible), so a newly selected one fades them in
+ * from 0 instead of appearing with them mid-motion. */
+.rail-item::after {
+  --gap-top: calc(100vh + var(--b-thick));                     /* ends under the top border */
+  --gap-end: calc(100vh + var(--rail-w) - var(--b-thick));     /* starts over the bottom border */
+  content: ''; position: absolute; right: 0; width: var(--b-thick);
+  top: -100vh; bottom: -100vh; pointer-events: none;
+  background: linear-gradient(var(--accent) var(--gap-top), transparent var(--gap-top),
+                              transparent var(--gap-end), var(--accent) var(--gap-end));
+  opacity: 0; transition: none;
+}
+.rail:not(.open) .rail-item.active::after { opacity: 1; transition: opacity .1s ease-out var(--rail-t); }
 .rail-icon { position: relative; flex: none; display: grid; place-items: center; width: var(--icon); height: var(--icon); }
 .rail-icon .icon { width: 100%; height: 100%; }
 .rail-label {
@@ -194,7 +224,7 @@ h1, h2, .display {
 .rail-label small { font: 400 14px/1.2 var(--font-body); color: var(--muted); }
 .rail.open .rail-label { opacity: 1; }
 /* Collapsed, the hidden names, group labels and wordmark stick out past the
-   edge line; they must not catch the pointer, or hovering the page beside the
+   rail's edge; they must not catch the pointer, or hovering the page beside the
    rail would open it. Only the squares themselves count. */
 .rail:not(.open) .rail-label,
 .rail:not(.open) .rail-group-label,
