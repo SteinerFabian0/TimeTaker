@@ -65,7 +65,8 @@ driver counts (§5.4).
   run from its right corners up and down to the screen edges. Open: a full
   orange parallelogram, no lines. Closing: the right side fades out
   linearly with the morph and is gone the moment the box is square, then the
-  lines fade in. Opening: the lines vanish at once (so none sweeps across the
+  lines **draw out** from the tab's corners, up and down to the screen
+  edges (0.45 s). Opening: the lines vanish at once (so none sweeps across the
   parallelograms) and the right side fades in with the morph.
 - **Opening (one 0.2 s motion):** the squares **widen and lean into
   parallelograms** at the same time (rail 360 px), the orange lines vanish,
