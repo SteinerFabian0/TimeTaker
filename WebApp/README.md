@@ -8,6 +8,7 @@ race engine: a pure fold over the device's timestamped events. Layering and plan
 
 ```
 npm test                     # all tests (Node >= 22.18 runs the .ts files directly)
+npm run app                  # dev server → http://localhost:5173/app/  (the GUI)
 npm run debug                # dev server → http://localhost:5173/debug/
 node tools/tt.ts --sim suite all   # bench CLI against the simulator (tools/README.md)
 node tools/tt.ts hello             # ... and against the board on /dev/ttyACM*
@@ -66,6 +67,8 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
 | `src/director/raceDirector.ts` | UI intents → device requests + host actions; adaptive holdoff; `active()` (race/start under way) |
 | `src/health/health.ts`, `monitor.ts` | **Status & diagnostics**: pure health rules → `HealthReport`; the poller (STATUS, the single LANE_STATUS reader, lane history, calibration). See below |
 | `src/sync/raceSync.ts` | BroadcastChannel publisher/subscriber (TV window = pure view), `FakeChannelHub` |
+| `app/` | **The GUI** (Preact + htm + signals, no build step). Spec: [`GUI_SPEC.md`](GUI_SPEC.md). `shell/` rail + areas + router, `pages/`, `ui/` shared blocks, `i18n/` (en, de), `styles.css` tokens and the slanted look |
+| `vendor/` | Vendored, unmodified: Preact 10.29.8, htm 3.1.1, @preact/signals 1.3.4 (+ core 1.14.5), mapped by the import map in `app/index.html`; fonts Chakra Petch and Titillium Web (OFL) |
 | `debug/` | The debug console (plain DOM) |
 | `tools/` | `tt.ts` bench CLI + suites, fixture generator, mutation check, dev server: see `tools/README.md` |
 | `test/` | `node:test`; `fixtures/races/*.json` are recorded races (regression tests) |

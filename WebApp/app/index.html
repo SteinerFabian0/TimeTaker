@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>TimeTaker</title>
+  <link rel="icon" href="assets/logo-mark.svg" type="image/svg+xml">
+  <link rel="preload" href="../vendor/fonts/chakra-petch-latin-700-italic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../vendor/fonts/titillium-web-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "preact": "../vendor/preact/preact.js",
+      "preact/hooks": "../vendor/preact/hooks.js",
+      "htm": "../vendor/preact/htm.js",
+      "@preact/signals": "../vendor/preact/signals.js",
+      "@preact/signals-core": "../vendor/preact/signals-core.js"
+    }
+  }
+  </script>
+  <script>
+    // Apply the saved theme before first paint (no flash). Mirrors prefs.ts.
+    try {
+      const t = localStorage.getItem('tt.theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      else if (t === 'system') delete document.documentElement.dataset.theme;
+    } catch {}
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="main.ts"></script>
+</body>
+</html>

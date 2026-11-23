@@ -5,7 +5,8 @@
  * (module.stripTypeScriptTypes). No bundler, no install. The same "run .ts
  * directly" rule as the tests.
  *
- *   npm run debug            → http://localhost:5173/debug/
+ *   npm run app              → http://localhost:5173/app/    (the GUI)
+ *   npm run debug            → http://localhost:5173/debug/  (debug console)
  *
  * Binds to 127.0.0.1 only: Web Serial and Web Bluetooth need a secure context,
  * and localhost is one. Not a production server: the app ships as a static
@@ -32,6 +33,7 @@ const TYPES = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
 
 process.removeAllListeners('warning');   // stripTypeScriptTypes is "experimental": known, fine
@@ -39,6 +41,14 @@ process.removeAllListeners('warning');   // stripTypeScriptTypes is "experimenta
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://${HOST}`);
+    if (url.pathname === '/') {                       // the GUI is the default page
+      res.writeHead(302, { location: '/app/' }).end();
+      return;
+    }
+    if (url.pathname === '/favicon.ico') {            // browsers ask for it regardless of <link rel=icon>
+      res.writeHead(302, { location: '/app/assets/logo-mark.svg' }).end();
+      return;
+    }
     let path = normalize(decodeURIComponent(url.pathname));
     if (path.endsWith('/')) path += 'index.html';
     const file = join(ROOT, path);
@@ -65,5 +75,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`TimeTaker web app dev server: http://localhost:${PORT}/debug/`);
+  console.log(`TimeTaker web app dev server: http://localhost:${PORT}/app/  (debug console: /debug/)`);
 });

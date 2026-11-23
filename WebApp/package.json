@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.ts",
+    "app": "node tools/serve.mjs",
     "debug": "node tools/serve.mjs"
   }
 }
