@@ -11,7 +11,7 @@ npm test                     # all tests (Node >= 22.18 runs the .ts files direc
 npm run app                  # dev server → http://localhost:5173/app/  (the GUI)
 npm run debug                # dev server → http://localhost:5173/debug/
 npm run build                # production build → dist/ (static, offline PWA)
-npm run deploy               # build + publish to GitHub Pages (tools/deploy.mjs)
+npm run deploy               # fallback publish from here; normally: GitHub → Actions → Deploy app
 npm run serve:dist           # serve dist/ locally → http://localhost:5180/app/ (own port: its service worker must not sit on the dev origin)
 npm install && npm run typecheck   # type check (the only thing that needs an install)
 node tools/tt.ts --sim suite all   # bench CLI against the simulator (tools/README.md)
@@ -45,10 +45,14 @@ the app (close all its windows; a plain reload keeps the running build).
 - **Host:** copy `dist/` to any static **HTTPS** host (or a sub-path of one:
   every URL is relative). USB and Bluetooth in the browser need HTTPS or
   localhost; `file://` does not work.
-- **Deploy:** `npm run deploy` (`tools/deploy.mjs`) builds and force-pushes
-  `dist/` as the single commit of this repo's `gh-pages` branch, served by
-  GitHub Pages at https://steinerfabian0.github.io/TimeTaker/app/ (no account
-  needed to use it; the repo must stay public). Setup sheet for hosts:
+- **Deploy:** on GitHub, Actions → **Deploy app** → Run workflow
+  (`.github/workflows/deploy-app.yml`: tests, build, publish; Settings →
+  Pages → Source: GitHub Actions). Served at
+  https://steinerfabian0.github.io/TimeTaker/app/ (no account needed to use
+  it; the repo must stay public). It deploys what is pushed to `main`, so
+  push first. `npm run deploy` (`tools/deploy.mjs`, pushes `dist/` to a
+  `gh-pages` branch) is the fallback from this laptop; it needs a GitHub
+  login in the terminal and Pages set to that branch. Setup sheet for hosts:
   [`HOST_SETUP.md`](HOST_SETUP.md).
 - **Install:** open the URL in Chrome or Edge once and use "Install app"
   (address bar). It then has its own window and start-menu / dock entry and

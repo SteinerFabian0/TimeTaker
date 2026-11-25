@@ -1,0 +1,44 @@
+# Publish the TimeTaker web app to GitHub Pages:
+# https://steinerfabian0.github.io/TimeTaker/app/
+#
+# Runs only when started by hand: Actions → "Deploy app" → Run workflow.
+# It runs the tests, builds WebApp/dist (tools/build.mjs, no install needed)
+# and publishes it. One-time setup: Settings → Pages → Source: GitHub Actions.
+name: Deploy app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}app/
+    defaults:
+      run:
+        working-directory: WebApp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: node tools/build.mjs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: WebApp/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
