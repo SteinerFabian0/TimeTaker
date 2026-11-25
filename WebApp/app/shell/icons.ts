@@ -49,6 +49,8 @@ const glyphs: Record<string, Glyph> = {
     { d: 'M3 4h5v6H3 M3 14h5v6H3 M8 7h4v10H8 M12 12h5 M17 9h4v6h-4z' },
   racePresets: // sliders
     { d: 'M4 6h10 M18 6h2 M14 4v4 M4 12h3 M11 12h9 M7 10v4 M4 18h12 M20 18h0 M16 16v4' },
+  carPresets:  // a car from the side: body, two wheels
+    { d: 'M2 16v-4l3-1.5 3.5-4h7l4 4 2.5 1.5v4h-2 M2 16h2 M10 16h4 M5 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M15 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0' },
   status:      // pulse
     { d: 'M2 12h4l3-7 4 14 3-7h6' },
   settings:    // gear: 8 square teeth + hub

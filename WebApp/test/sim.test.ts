@@ -197,14 +197,14 @@ describe('start sequence', () => {
       const { dev, api, rec } = await connected(t, { lanes: 4 });
       await powered(t, rec, api, 4);
       for (let i = 0; i < 5; i++) {
-        const t0 = await api.startSequence({ lights: 6, stepMs: 500, holdMinMs: 200, holdMaxMs: 1500, pulseRiseMs: 200 });
+        const t0 = await api.startSequence({ lights: 6, stepMs: 500, holdMinMs: 200, holdMaxMs: 1500, pulseRiseMs: 200, attentionPulses: 2 });
         await t.until(() => named(rec, 'EVT_SEQ_STARTED').length === i + 1);
         const started = named(rec, 'EVT_SEQ_STARTED').at(-1)!.value!;
         assert.equal(started['t0Us'], t0);
         assert.equal(started['lights'], 4);                           // n = lanes present
         assert.ok(Number(t0) - Number(dev.sysUs()) >= 140_000);
         await t.sleep(1500);   // T0 + 1.35 s: lane 1 is dark, past the pulses (0.8 s) and before its step
-        await assert.rejects(api.startSequence({ lights: 6, stepMs: 500, holdMinMs: 200, holdMaxMs: 1500, pulseRiseMs: 200 }), status(Status.ERR_SEQ_RUNNING));
+        await assert.rejects(api.startSequence({ lights: 6, stepMs: 500, holdMinMs: 200, holdMaxMs: 1500, pulseRiseMs: 200, attentionPulses: 2 }), status(Status.ERR_SEQ_RUNNING));
         await assert.rejects(api.laneLed(1, { mode: LedMode.OFF }), status(Status.ERR_SEQ_RUNNING));
         await t.until(() => named(rec, 'EVT_LIGHTS_OUT').length === i + 1, 8000);
         const tout = Number(named(rec, 'EVT_LIGHTS_OUT').at(-1)!.value!['toutUs']);
@@ -216,12 +216,12 @@ describe('start sequence', () => {
     });
   });
 
-  test('breathing, far lane stays, one lane per step toward lane 1, all out together', async () => {
+  test('breathing, first lane stays, one lane per step toward the chain end, all out together', async () => {
     const t = rig();
     await t.run(async () => {
       const { dev, api, rec } = await connected(t, { lanes: 3 });
       await powered(t, rec, api, 3);
-      const t0 = Number(await api.startSequence({ lights: 6, stepMs: 1000, holdMinMs: 1000, holdMaxMs: 1000 }));   // P 1000, k 2
+      const t0 = Number(await api.startSequence({ lights: 6, stepMs: 1000, holdMinMs: 1000, holdMaxMs: 1000, pulseRiseMs: 1000, attentionPulses: 2 }));   // P 1000, k 2
       const at = async (relMs: number): Promise<void> => {
         const wait = (t0 + relMs * 1000 - Number(dev.sysUs())) / 1000;
         if (wait > 0) await t.sleep(wait);
@@ -235,19 +235,19 @@ describe('start sequence', () => {
       for (const l of [1, 2, 3]) assert.ok(lv(l) > 950, `peak ${lv(l)}`);
       await at(2000);                                  // trough between the pulses
       for (const l of [1, 2, 3]) assert.ok(lv(l) < 50, `trough ${lv(l)}`);
-      await at(3050);                                  // last peak: lane 3 on at full
-      assert.equal(dev.laneLed(3).mode, LedMode.ON);
-      assert.equal(dev.laneLed(3).level, 1000);
-      await at(3500);                                  // falling: lane 3 held at full, the others half way down
-      assert.equal(lv(3), 1000);
-      for (const l of [1, 2]) assert.ok(Math.abs(lv(l) - 500) < 40, `fall ${lv(l)}`);
-      await at(4100);                                  // trough passed: only lane 3 stays
-      assert.deepEqual([lv(1), lv(2), lv(3)], [0, 0, 1000]);
+      await at(3050);                                  // last peak: lane 1 on at full
+      assert.equal(dev.laneLed(1).mode, LedMode.ON);
+      assert.equal(dev.laneLed(1).level, 1000);
+      await at(3500);                                  // falling: lane 1 held at full, the others half way down
+      assert.equal(lv(1), 1000);
+      for (const l of [2, 3]) assert.ok(Math.abs(lv(l) - 500) < 40, `fall ${lv(l)}`);
+      await at(4100);                                  // trough passed: only lane 1 stays
+      assert.deepEqual([lv(1), lv(2), lv(3)], [1000, 0, 0]);
       await at(4500);                                  // T0 + 2kP + 0.5 s
-      assert.deepEqual([lv(1), lv(2), lv(3)], [0, 0, 1000]);
+      assert.deepEqual([lv(1), lv(2), lv(3)], [1000, 0, 0]);
       await at(5100);                                  // lane 2 lit
-      assert.deepEqual([lv(1), lv(2), lv(3)], [0, 1000, 1000]);
-      await at(6100);                                  // lane 1 lit: all lit
+      assert.deepEqual([lv(1), lv(2), lv(3)], [1000, 1000, 0]);
+      await at(6100);                                  // lane 3 lit: all lit
       assert.deepEqual([lv(1), lv(2), lv(3)], [1000, 1000, 1000]);
       await t.until(() => named(rec, 'EVT_LIGHTS_OUT').length === 1, 4000);
       assert.deepEqual([lv(1), lv(2), lv(3)], [0, 0, 0]);
@@ -255,16 +255,16 @@ describe('start sequence', () => {
     });
   });
 
-  test('attentionPulses 0: far lane at T0, the others every step', async () => {
+  test('attentionPulses 0: first lane at T0, the others every step', async () => {
     const t = rig();
     await t.run(async () => {
       const { dev, api, rec } = await connected(t, { lanes: 3 });
       await powered(t, rec, api, 3);
       const t0 = Number(await api.startSequence({ lights: 6, stepMs: 500, holdMinMs: 500, holdMaxMs: 500, attentionPulses: 0 }));
       await t.sleep((t0 - Number(dev.sysUs())) / 1000 + 100);
-      assert.deepEqual([1, 2, 3].map((l) => dev.laneLed(l).level), [0, 0, 1000]);
+      assert.deepEqual([1, 2, 3].map((l) => dev.laneLed(l).level), [1000, 0, 0]);
       await t.sleep(500);
-      assert.deepEqual([1, 2, 3].map((l) => dev.laneLed(l).level), [0, 1000, 1000]);
+      assert.deepEqual([1, 2, 3].map((l) => dev.laneLed(l).level), [1000, 1000, 0]);
       await t.sleep(500);
       assert.deepEqual([1, 2, 3].map((l) => dev.laneLed(l).level), [1000, 1000, 1000]);
       await t.until(() => named(rec, 'EVT_LIGHTS_OUT').length === 1, 3000);

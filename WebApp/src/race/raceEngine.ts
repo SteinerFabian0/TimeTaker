@@ -94,10 +94,10 @@ export function fold(config: RaceConfig, events: readonly RaceInputEvent[], acti
       if (c.bootId === start.bootId) {
         const j = judgeStart(c.tUs, tout, car.hadPreStart, car.started);
         if (j.kind === 'beforeStart') { reject('beforeStart'); continue; }
-        if (j.kind === 'falseStart' || j.kind === 'start') {           // the start crossing: starts lap 1's timing
+        if (j.kind === 'falseStart' || j.kind === 'start') {           // the start crossing: not a lap
           car.reactionMs = j.reactionMs;
           car.started = true;
-          car.prev = { bootId: c.bootId, tUs: c.tUs };
+          car.prev = { bootId: start.bootId, tUs: tout };              // RACE_RULES.md: lap 1 is timed from lights out
           if (j.kind === 'falseStart') {
             car.falseStart = true;
             car.hadPreStart = true;

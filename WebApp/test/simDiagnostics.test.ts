@@ -112,7 +112,7 @@ describe('sim: lane signal and LANE_STATUS (0.6)', () => {
 });
 
 describe('sim: STATUS 0.6 fields', () => {
-  test('defaults: bridge OK; RSSI 127 without a phone; with a phone the knob value after the first STATS', async () => {
+  test('defaults: bridge OK; RSSI 127 without a BLE connection; with one the knob value after the first STATS', async () => {
     const t = rig();
     await t.run(async () => {
       const dev = t.sim();
@@ -133,7 +133,7 @@ describe('sim: STATUS 0.6 fields', () => {
 });
 
 describe('sim fault knobs → health checks', () => {
-  test('nRF silent: ABSENT after 3 s, phone gone, EVT_BLE_LINK DOWN, BLE node ABSENT; alive again → OK', async () => {
+  test('nRF silent: ABSENT after 3 s, BLE connection gone, EVT_BLE_LINK DOWN, BLE node ABSENT; alive again → OK', async () => {
     const t = rig();
     await t.run(async () => {
       const { dev, api, mon, rec } = await setup(t, 1);

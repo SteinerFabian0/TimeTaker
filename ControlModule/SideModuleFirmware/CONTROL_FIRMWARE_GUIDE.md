@@ -455,8 +455,8 @@ during a burst of crossings loses none.
 
 ### 5.3 Start sequence (build step 5)
 
-**Goal:** all lights breathe in unison, one stays lit at the far end of the
-chain, the others light one by one toward lane 1, and all go out together at a
+**Goal:** all lights breathe in unison, one stays lit at the start of the
+chain (lane 1), the others light one by one toward the end of the chain, and all go out together at a
 random time that nobody knows in advance.
 
 The design is SYSTEM_ARCHITECTURE §6.4. Split it in two:
@@ -464,17 +464,17 @@ The design is SYSTEM_ARCHITECTURE §6.4. Split it in two:
 **`seq_planner` (pure, host-tested):** `plan(params, presentMask, nowUs,
 randomU32) → {T0, Tlit, Tout, per-lane action list}`.
 
-- P = `pulseRiseMs` (0 = 1000), k = `attentionPulses`, n = min(lights,
-  present); lit lanes = the first n present lanes in index order; far-end lane
-  = the highest of them.
+- P = `pulseRiseMs` (0 = 500), k = `attentionPulses`, n = min(lights,
+  present); lit lanes = the first n present lanes in index order; first lane
+  = the lowest of them (lane 1 = start of the daisy chain).
 - `T0 = now + lead`, lead ≥ 150 ms (enough to write every lane twice at
   1 MHz, with retries).
 - T0: every lit lane `LED_PULSE(P)` (lane_protocol 0.3: level(t) =
   (1 − cos(π·t/P))/2 from atUs, same phase on all lanes). Peaks at
-  `T0 + (2i+1)·P`. At the last peak `T0 + (2k−1)·P` the far-end lane gets
+  `T0 + (2i+1)·P`. At the last peak `T0 + (2k−1)·P` the first lane gets
   `LED_ON`; every other lane `LED_OFF` at the trough `T0 + 2k·P` (a following ON
-  at a peak or OFF at a trough is seamless). Then lanes far−1 … 1 get `LED_ON`
-  at `T0 + 2k·P + j·step`. k = 0: no pulse, far-end ON at T0, the others every
+  at a peak or OFF at a trough is seamless). Then the next lanes upward get `LED_ON`
+  at `T0 + 2k·P + j·step`. k = 0: no pulse, first lane ON at T0, the others every
   step.
 - `Tlit = T0 + 2k·P + (n−1)·step`; hold `h` drawn uniformly from
   `[holdMin, holdMax]` with the random word; `Tout = Tlit + h`; `LED_OFF` at

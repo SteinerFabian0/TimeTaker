@@ -249,7 +249,7 @@ export const FaultSource = {
 } as const;
 export type FaultSource = (typeof FaultSource)[keyof typeof FaultSource];
 
-/** Is the nRF52805 itself alive (independent of any phone being connected) */
+/** Is the nRF52805 itself alive (independent of any computer being connected over BLE) */
 export const BleBridgeState = {
   ABSENT: 0,
   OK: 1,
@@ -841,7 +841,7 @@ export type StatusRsp = {
   settingsWrites: number;
   logOldestSeq: number;
   logNextSeq: number;
-  /** enum BleBridgeState. The nRF itself (0.6+); bleLink above is the phone connection */
+  /** enum BleBridgeState. The nRF itself (0.6+); bleLink above is the BLE connection to the computer */
   bleBridge: number;
   /** dBm of the connected central, 127 = unknown / not connected */
   bleRssi: number;
@@ -1280,7 +1280,7 @@ export type LaneCalibrateRsp = {
 export const encodeLaneCalibrateRsp = (v: LaneCalibrateRsp): Uint8Array => encodeStruct(LANE_CALIBRATE_RSP, v);
 export const decodeLaneCalibrateRsp = (b: Uint8Array): LaneCalibrateRsp => decodeStruct(LANE_CALIBRATE_RSP, b) as LaneCalibrateRsp;
 
-// 0x40 START_SEQUENCE (request): Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the last chain lane stays lit at the last peak, then one more lane lights every stepMs toward lane 1; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
+// 0x40 START_SEQUENCE (request): Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the first chain lane (lane 1) stays lit at the last peak, then one more lane lights every stepMs toward the end of the chain; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
 /** START_SEQUENCE request */
 export const START_SEQUENCE_REQ: StructDesc = {
   name: 'StartSequenceReq',
@@ -1307,7 +1307,7 @@ export type StartSequenceReq = {
   holdMaxMs: number;
   /** Time from now to T0; 0 = default (>= 150 ms) */
   leadMs: number;
-  /** Attention pulse: off to full in this many ms; 0 = default 1000 */
+  /** Attention pulse: off to full in this many ms; 0 = default 500 */
   pulseRiseMs: number;
   /** Off-on-off cycles before the countdown; 0 = none */
   attentionPulses: number;

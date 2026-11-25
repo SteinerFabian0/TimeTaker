@@ -3,7 +3,7 @@
  *
  * The status page of the web app shows one block per part: the control
  * module, the BLE chip (nRF52805 bridge) and lanes 1..6. Each part has an
- * online flag (the BLE chip also `connected`: a phone is connected) and a
+ * online flag (the BLE chip also `connected`: a computer is connected over BLE) and a
  * list of checks. A check has a stable string id (CHECKS below: the GUI
  * lists them and may translate them by id), a level, a short message and the
  * measured value.
@@ -53,7 +53,7 @@ export interface PartHealth {
 }
 
 export interface BleHealth extends PartHealth {
-  /** online = the nRF is alive (STATUS.bleBridge not ABSENT). connected = a phone (central) is connected (bleLink UP). */
+  /** online = the nRF is alive (STATUS.bleBridge not ABSENT). connected = a computer (central) is connected over BLE (bleLink UP). */
   readonly connected: boolean;
 }
 
@@ -100,7 +100,7 @@ export const DEFAULT_THRESHOLDS = {
   errorsWarn: 1,
   /** Events the app is behind the device log head. */
   eventLagWarn: 100,
-  /** RSSI of the connected phone (dBm). */
+  /** RSSI of the computer connected over BLE (dBm). */
   rssiWarnDbm: -80,
   rssiFailDbm: -90,
   /** bleCrcErrors + nrfLinkCrcErrors (STM ↔ nRF link frames). */
@@ -153,7 +153,7 @@ export const CHECKS: readonly CheckInfo[] = [
   { id: 'ctrl.eventLog', part: 'control', title: 'Event log', description: 'The app keeps up with the device event log: fail when events were overwritten before the app read them, warn when it lags >= eventLagWarn.' },
   { id: 'ble.bridge', part: 'ble', title: 'BLE chip present', description: 'STATUS.bleBridge: the nRF52805 heartbeats (ABSENT after 3 s of silence) → fail when absent.' },
   { id: 'ble.version', part: 'ble', title: 'BLE link version', description: 'STATUS.bleBridge VERSION_MISMATCH: the nRF link protocol differs, BLE data refused → fail.' },
-  { id: 'ble.rssi', part: 'ble', title: 'Signal strength', description: 'STATUS.bleRssi of the connected phone: warn < rssiWarnDbm, fail < rssiFailDbm; unknown without a phone.' },
+  { id: 'ble.rssi', part: 'ble', title: 'Signal strength', description: 'STATUS.bleRssi of the computer connected over BLE: warn < rssiWarnDbm, fail < rssiFailDbm; unknown without a BLE connection.' },
   { id: 'ble.linkCrc', part: 'ble', title: 'Link CRC errors', description: 'STATUS.bleCrcErrors + nrfLinkCrcErrors (bad frames between STM and nRF): warn >= linkCrcWarn, fail >= linkCrcFail.' },
   { id: 'ble.uart', part: 'ble', title: 'UART errors', description: 'STATUS.bleUartErrors (nRF UART framing/overrun): warn >= uartWarn, fail >= uartFail.' },
   { id: 'ble.dropped', part: 'ble', title: 'Dropped data', description: 'STATUS.bleDataDropped (data the nRF had to drop): warn >= bleDroppedWarn, fail >= bleDroppedFail.' },
@@ -255,7 +255,7 @@ function bleChecks(i: HealthInputs, t: HealthThresholds, ctrlOnline: boolean): {
   if (st.bleBridge === BleBridgeState.VERSION_MISMATCH) out.push(mk('ble.version', 'fail', 'link protocol mismatch: BLE data refused (flash matching firmware)', fw));
   else if (st.bleBridge === BleBridgeState.ABSENT) out.push(mk('ble.version', 'unknown', 'BLE chip absent', null));
   else out.push(mk('ble.version', 'ok', fw ? `firmware ${fw}` : 'matches', fw));
-  if (!connected) out.push(mk('ble.rssi', 'unknown', 'no phone connected', null));
+  if (!connected) out.push(mk('ble.rssi', 'unknown', 'no computer connected over BLE', null));
   else if (st.bleRssi === 127) out.push(mk('ble.rssi', 'unknown', 'RSSI not reported', null));
   else out.push(mk('ble.rssi', lower(st.bleRssi, t.rssiWarnDbm, t.rssiFailDbm), `${st.bleRssi} dBm`, st.bleRssi));
   if (st.bleBridge === BleBridgeState.ABSENT) {

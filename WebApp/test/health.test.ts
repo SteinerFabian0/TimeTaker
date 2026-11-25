@@ -176,7 +176,7 @@ describe('health: BLE chip', () => {
     assert.equal(findCheck(r, 'ble.bridge')!.level, 'ok');
     assert.deepEqual([r.ble.online, r.ble.connected], [true, false]);
   });
-  test('no phone: online, not connected, RSSI unknown', () => {
+  test('no BLE connection: online, not connected, RSSI unknown', () => {
     const r = evaluate(inputs({ status: status({ bleLink: BleLinkState.DOWN, bleRssi: 127 }) }));
     assert.deepEqual([r.ble.online, r.ble.connected], [true, false]);
     assert.equal(findCheck(r, 'ble.rssi')!.level, 'unknown');

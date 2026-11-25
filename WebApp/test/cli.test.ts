@@ -44,7 +44,7 @@ describe('tt --sim', () => {
     assert.equal(st.code, 0, st.out.join('\n'));
     assert.equal(st.out[0], 'overall: WARN');                                   // the simulator boots with lane power off
     assert.ok(st.out.includes('control module: online'));
-    assert.ok(st.out.includes('BLE chip: online, no phone connected'));
+    assert.ok(st.out.includes('BLE chip: online, no computer connected'));
     assert.ok(st.out.some((l) => /WARN ctrl\.lanePower\s+lane power off/.test(l)));
     assert.ok((await cli(['--sim', 'status', '--raw'])).out.some((l) => /^bleBridge\s+1$/.test(l)));
     const json = JSON.parse((await cli(['--sim', '--json', 'status'])).out[0]!) as { lanes: unknown[] };

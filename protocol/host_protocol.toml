@@ -474,7 +474,7 @@ values = [
 [[enum]]
 name = "bleBridgeState"
 prefix = "BLE_BRIDGE"
-doc = "Is the nRF52805 itself alive (independent of any phone being connected)"
+doc = "Is the nRF52805 itself alive (independent of any computer being connected over BLE)"
 values = [
   { name = "ABSENT", value = 0, doc = "No NRF_HELLO yet, or no CTRL frame from the nRF for 3 s (it sends STATS every second)" },
   { name = "OK", value = 1 },
@@ -750,7 +750,7 @@ response = [
   { name = "settingsWrites", type = "u16", doc = "Flash writes since boot" },
   { name = "logOldestSeq", type = "u32" },
   { name = "logNextSeq", type = "u32" },
-  { name = "bleBridge", type = "u8", enum = "bleBridgeState", doc = "The nRF itself (0.6+); bleLink above is the phone connection" },
+  { name = "bleBridge", type = "u8", enum = "bleBridgeState", doc = "The nRF itself (0.6+); bleLink above is the BLE connection to the computer" },
   { name = "bleRssi", type = "i8", doc = "dBm of the connected central, 127 = unknown / not connected" },
   { name = "bleCrcErrors", type = "u16", doc = "Bad link frames the nRF got from the STM (nRF STATS, saturates)" },
   { name = "bleUartErrors", type = "u16", doc = "nRF UART framing/overrun errors (nRF STATS, saturates)" },
@@ -942,7 +942,7 @@ response = []
 id = 0x40
 name = "START_SEQUENCE"
 kind = "request"
-doc = "Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the last chain lane stays lit at the last peak, then one more lane lights every stepMs toward lane 1; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier)."
+doc = "Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the first chain lane (lane 1) stays lit at the last peak, then one more lane lights every stepMs toward the end of the chain; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier)."
 request = [
   { name = "lights", type = "u8", doc = "1..6; lanes present are lit in index order" },
   { name = "armSampling", type = "u8", doc = "1 = also switch sampling ON at T0" },
@@ -950,7 +950,7 @@ request = [
   { name = "holdMinMs", type = "u16" },
   { name = "holdMaxMs", type = "u16" },
   { name = "leadMs", type = "u16", doc = "Time from now to T0; 0 = default (>= 150 ms)" },
-  { name = "pulseRiseMs", type = "u16", doc = "Attention pulse: off to full in this many ms; 0 = default 1000" },
+  { name = "pulseRiseMs", type = "u16", doc = "Attention pulse: off to full in this many ms; 0 = default 500" },
   { name = "attentionPulses", type = "u8", doc = "Off-on-off cycles before the countdown; 0 = none" },
   { name = "reserved", type = "u8" },
 ]

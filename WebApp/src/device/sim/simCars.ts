@@ -17,7 +17,7 @@
  * Paces: SimDevice's own default pace is a short bench lap (4.8–6.8 s, quick
  * protocol tests). Races use raceCarProfiles(): realistic 30–40 s laps with
  * a pace, a consistency and a reaction per driver (RACE_RULES.md: the
- * minimum lap is 20 s, so only a re-slotted "double" is ever that short).
+ * minimum lap is 10 s, so only a re-slotted "double" is ever that short).
  *
  * The grid is *behind* the line: after lights out a car needs its reaction
  * plus a run-up before its first crossing. That first crossing is what the

@@ -1,6 +1,6 @@
 /*
  * The race engine's rules (RACE_RULES.md), one rule per case, on hand-built
- * device logs. Laps are about 30 s (the minimum lap is 20 s).
+ * device logs. Laps are about 30 s (the minimum lap is 10 s).
  * (Recorded races from the simulator are in raceFixtures.test.ts.)
  */
 
@@ -63,9 +63,9 @@ describe('settings (RACE_RULES.md defaults)', () => {
   test('every setting has its default', () => {
     const c = cfg();
     assert.deepEqual(c.falseStart, { action: 'timePenalty', penaltyMs: 5000, apply: 'addToFirstLap' });
-    assert.equal(c.minLapMs, 20_000);
+    assert.equal(c.minLapMs, 10_000);
     assert.equal(c.crashPolicy, 'replacementAllowed');
-    assert.deepEqual(c.startLights, { attentionPulses: 2, pulseRiseMs: 1000, stepMs: 1000, holdMinMs: 200, holdMaxMs: 3000 });
+    assert.deepEqual(c.startLights, { attentionPulses: 3, pulseRiseMs: 500, stepMs: 1000, holdMinMs: 200, holdMaxMs: 3000 });
     assert.equal('firstCrossing' in DEFAULT_RACE, false);              // grid behind the line: a rule, not a setting
     assert.equal('blockedCountsAsCrossing' in DEFAULT_RACE, false);    // a stop on the line is a crossing: a rule
   });
@@ -96,12 +96,12 @@ describe('start', () => {
     assert.equal(s.start?.toutUs, 8_000_000);
   });
 
-  test('grid behind the line: the first crossing starts lap 1 timing, it is not a lap', () => {
+  test('grid behind the line: the first crossing is the start, not a lap; lap 1 is timed from lights out', () => {
     const s = fold(cfg(), start().laps(1, 8600, 30_000, 3).events);
     const c = car(s, 1);
     assert.equal(c.reactionMs, 600);
     assert.equal(c.laps, 2);
-    assert.deepEqual(lapMs(s, 1), [30_000, 30_000]);
+    assert.deepEqual(lapMs(s, 1), [30_600, 30_000]);                   // lap 1 includes the reaction
     assert.equal(c.elapsedMs, 60_600);
   });
 
@@ -111,22 +111,22 @@ describe('start', () => {
     const s = fold(cfg(), log.events);
     assert.equal(car(s, 1).falseStart, false);
     assert.equal(car(s, 1).reactionMs, 500);
-    assert.deepEqual(lapMs(s, 1), [30_000]);
+    assert.deepEqual(lapMs(s, 1), [30_500]);
   });
 
-  test('a crossing after T0 and before lights out is a false start: negative reaction, starts timing', () => {
+  test('a crossing after T0 and before lights out is a false start: negative reaction, lap 1 still from lights out', () => {
     const s = fold(cfg({ falseStart: { action: 'flag' } }), start().x(1, 7500).x(1, 37_500).events);
     const c = car(s, 1);
     assert.equal(c.falseStart, true);
     assert.equal(c.reactionMs, -500);
-    assert.deepEqual(lapMs(s, 1), [30_000]);
+    assert.deepEqual(lapMs(s, 1), [29_500]);
     assert.equal(c.penaltiesMs, 0);                                     // flag only
   });
 
   test('default: a 5 s time penalty added to the first lap time (and so to the total)', () => {
     const s = fold(cfg(), start().x(1, 7500).x(1, 37_500).x(1, 67_500).events);
     const c = car(s, 1);
-    assert.deepEqual(c.lapTimes.map((l) => [l.ms, l.flags]), [[35_000, ['falseStartPenalty']], [30_000, []]]);
+    assert.deepEqual(c.lapTimes.map((l) => [l.ms, l.flags]), [[34_500, ['falseStartPenalty']], [30_000, []]]);
     assert.equal(c.penaltiesMs, 5000);
     assert.equal(c.totalMs, 59_500 + 5000);
     assert.equal(c.bestLapMs, 30_000);
@@ -134,7 +134,7 @@ describe('start', () => {
 
   test('penalty seconds setting and addToTotal: the first lap keeps its own time', () => {
     const s = fold(cfg({ falseStart: { penaltyMs: 3000, apply: 'addToTotal' } }), start().x(1, 7500).x(1, 37_500).events);
-    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[30_000, []]]);
+    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[29_500, []]]);
     assert.equal(car(s, 1).penaltiesMs, 3000);
     assert.equal(car(s, 1).totalMs, 29_500 + 3000);
   });
@@ -155,7 +155,7 @@ describe('start', () => {
   test('a second crossing before lights out is rejected (beforeStart)', () => {
     const s = fold(cfg({ falseStart: { action: 'flag' } }), start().x(1, 5000).x(1, 7000).x(1, 35_000).events);
     assert.deepEqual(car(s, 1).rejected.map((r) => r.reason), ['beforeStart']);
-    assert.deepEqual(lapMs(s, 1), [30_000]);
+    assert.deepEqual(lapMs(s, 1), [27_000]);
   });
 
   test('an aborted sequence does not count; the next one starts the race', () => {
@@ -179,24 +179,24 @@ describe('laps', () => {
     assert.equal(car(s, 2).status, 'finished');
   });
 
-  test('minimum lap 20 s: a faster lap is discarded and the lap runs from the last counted crossing', () => {
-    const s = fold(cfg({ laps: 10 }), start().x(1, 8500).x(1, 38_500).x(1, 58_499).x(1, 78_500).events);
+  test('minimum lap 10 s: a faster lap is discarded and the lap runs from the last counted crossing', () => {
+    const s = fold(cfg({ laps: 10 }), start().x(1, 8500).x(1, 38_500).x(1, 48_499).x(1, 68_500).events);
     const c = car(s, 1);
-    assert.deepEqual(c.rejected.map((r) => [r.reason, r.sinceMs]), [['minLap', 19_999]]);
-    assert.deepEqual(c.lapTimes.map((l) => l.ms), [30_000, 40_000]);
+    assert.deepEqual(c.rejected.map((r) => [r.reason, r.sinceMs]), [['minLap', 9_999]]);
+    assert.deepEqual(c.lapTimes.map((l) => l.ms), [30_500, 30_000]);
   });
 
   test('exactly the minimum counts; the setting moves the limit', () => {
-    const log = start().x(1, 8500).x(1, 28_500).x(1, 53_500).events;
-    assert.deepEqual(lapMs(fold(cfg({ laps: 10 }), log), 1), [20_000, 25_000]);
-    assert.deepEqual(lapMs(fold(cfg({ laps: 10, minLapMs: 21_000 }), log), 1), [45_000]);
+    const log = start().x(1, 8500).x(1, 18_000).x(1, 43_000).events;       // lap 1 from lights out: exactly 10 s
+    assert.deepEqual(lapMs(fold(cfg({ laps: 10 }), log), 1), [10_000, 25_000]);
+    assert.deepEqual(lapMs(fold(cfg({ laps: 10, minLapMs: 11_000 }), log), 1), [35_000]);
   });
 
   test('there is no manual "accept anyway": an acceptCrossing action is ignored with a reason', () => {
     const log = start().x(1, 8500).x(1, 38_500).x(1, 40_000).x(1, 68_500);
     const short = log.events.at(-2)!;
     const s = fold(cfg({ laps: 10 }), log.events, [act({ type: 'acceptCrossing', crossing: pos(short) })]);
-    assert.deepEqual(lapMs(s, 1), [30_000, 30_000]);
+    assert.deepEqual(lapMs(s, 1), [30_500, 30_000]);
     assert.equal(s.appliedActions.length, 0);
     assert.match(s.ignoredActions[0]!.reason, /acceptCrossing/);
   });
@@ -211,7 +211,7 @@ describe('laps', () => {
     const log = start().x(1, 8500).x(1, 38_500, { type: LaneEventType.BLOCKED }).x(1, 41_000, { type: LaneEventType.CLEARED })
       .x(1, 71_000).events;
     const s = fold(cfg(), log);
-    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[30_000, ['blocked']], [32_500, []]]);
+    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[30_500, ['blocked']], [32_500, []]]);
   });
 
   test('flags: suspect timing, lost lane events, lane outage', () => {
@@ -281,7 +281,7 @@ describe('crashes', () => {
 
   test('replacement allowed: a long lap just counts; a crashed/out action is ignored with a reason', () => {
     const log = start().x(1, 8500).x(1, 98_500).x(1, 128_500).events;
-    assert.deepEqual(lapMs(fold(cfg(), log), 1), [90_000, 30_000]);
+    assert.deepEqual(lapMs(fold(cfg(), log), 1), [90_500, 30_000]);
     const s = fold(cfg(), race().events, [act({ type: 'crashOut', lane: 2 })]);
     assert.equal(car(s, 2).status, 'running');
     assert.equal(s.phase, 'finishing');                                 // the race still waits for lane 2
@@ -313,7 +313,7 @@ describe('disqualification', () => {
     const s = fold(cfg(), log.events, [act({ type: 'disqualify', lane: 2, at })]);
     const c = car(s, 2);
     assert.equal(c.status, 'disqualified');
-    assert.deepEqual(c.lapTimes.map((l) => l.ms), [31_000]);
+    assert.deepEqual(c.lapTimes.map((l) => l.ms), [31_700]);
     assert.equal(c.tlfLap, 2);
     assert.deepEqual(c.rejected.map((r) => r.reason), ['disqualified', 'disqualified']);
     assert.equal(s.phase, 'finished');                                  // the race no longer waits for it
@@ -393,7 +393,7 @@ describe('corrections', () => {
     const log = start().x(1, 8500).x(1, 38_500).x(1, 68_500);
     const second = log.events.at(-2)!;
     const s = fold(cfg({ laps: 10 }), log.events, [act({ type: 'ignoreCrossing', crossing: pos(second) })]);
-    assert.deepEqual(lapMs(s, 1), [60_000]);
+    assert.deepEqual(lapMs(s, 1), [60_500]);
     assert.deepEqual(car(s, 1).rejected.map((r) => r.reason), ['ignored']);
   });
 
@@ -423,7 +423,7 @@ describe('device reboot mid-race', () => {
     log.boot(0xb002).x(1, 4000).x(1, 34_000);                         // new clock
     const s = fold(cfg({ laps: 10 }), log.events);
     const c = car(s, 1);
-    assert.deepEqual(c.lapTimes.map((l) => [l.ms, l.flags]), [[30_000, []], [null, ['rebootGap']], [30_000, []]]);
+    assert.deepEqual(c.lapTimes.map((l) => [l.ms, l.flags]), [[30_500, []], [null, ['rebootGap']], [30_000, []]]);
     assert.equal(s.timingGaps.length, 1);
     assert.equal(s.timingGaps[0]?.atRaceMs, 30_500);
     assert.equal(c.elapsedMs, 30_500 + 34_000);
@@ -464,7 +464,7 @@ describe('robustness (review 2026-11-18)', () => {
     const ghost = log.events.at(-3)!;
     const s = fold(cfg(), log.events, [act({ type: 'ignoreCrossing', crossing: pos(ghost) })]);
     assert.equal(car(s, 1).reactionMs, 600);
-    assert.deepEqual(lapMs(s, 1), [30_000]);
+    assert.deepEqual(lapMs(s, 1), [30_600]);
     assert.deepEqual(car(s, 1).rejected.map((r) => r.reason), ['ignored']);
     // a hand in the beam before lights out, ignored by the marshal: no false start, no penalty
     const fs = start().x(1, 7900).x(1, 8600).x(1, 38_600);
@@ -473,7 +473,7 @@ describe('robustness (review 2026-11-18)', () => {
     assert.equal(car(f, 1).falseStart, false);
     assert.equal(car(f, 1).penaltiesMs, 0);
     assert.equal(car(f, 1).reactionMs, 600);
-    assert.deepEqual(lapMs(f, 1), [30_000]);
+    assert.deepEqual(lapMs(f, 1), [30_600]);
   });
 
   test('an ignoreCrossing naming no crossing is ignored with a reason, not applied', () => {
@@ -491,6 +491,6 @@ describe('robustness (review 2026-11-18)', () => {
     const log = start().x(1, 8500).lane(1, LaneState.LEFT, 9000).lane(1, LaneState.JOINED, 9100).x(1, 38_500).x(1, 68_500);
     const mid = log.events.at(-2)!;
     const s = fold(cfg(), log.events, [act({ type: 'ignoreCrossing', crossing: pos(mid) })]);
-    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[60_000, ['laneOutage']]]);
+    assert.deepEqual(car(s, 1).lapTimes.map((l) => [l.ms, l.flags]), [[60_500, ['laneOutage']]]);
   });
 });

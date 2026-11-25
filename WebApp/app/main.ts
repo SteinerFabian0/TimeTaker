@@ -2,6 +2,8 @@
 import { render } from 'preact';
 import { html } from './lib/html.ts';
 import './lib/prefs.ts';
+import './lib/laneColors.ts';   // applies the chosen lane colours
+import './lib/device.ts';   // the time taker connection (reconnects the remembered one)
 import { Rail, expanded } from './shell/Rail.ts';
 import { currentArea } from './shell/areas.ts';
 import { PAGES } from './pages/pages.ts';

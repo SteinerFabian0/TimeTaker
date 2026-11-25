@@ -118,11 +118,11 @@
  *     → ERR_TOO_LATE; no lane present → ERR_LANE_ABSENT; a lane that does not
  *     take its actions → ERR_LANE_NACK (nothing published). [A12]
  *   - n = min(lights, lanes present), the first n present lanes. P = pulseRiseMs
- *     (0 = 1000), k = attentionPulses. From T0 every lit lane breathes
+ *     (0 = 500), k = attentionPulses. From T0 every lit lane breathes
  *     (level = (1 - cos(pi t / P)) / 2, in phase; laneLed() reports it as ON
- *     with that level). The far-end lane (highest index of the n) goes ON at
- *     the last peak T0 + (2k-1)P, the others OFF at the trough T0 + 2kP; then
- *     lanes far-1 .. 1 go ON at T0 + 2kP + j·step. k = 0: far lane on at T0,
+ *     with that level). The first lane (lowest index of the n, start of the chain)
+ *     goes ON at the last peak T0 + (2k-1)P, the others OFF at the trough T0 + 2kP;
+ *     then the next lanes upward go ON at T0 + 2kP + j·step. k = 0: first lane on at T0,
  *     the others every step. Tlit = T0 + 2kP + (n-1)·step; hold uniform in
  *     [holdMin, holdMax] (µs resolution); Tout = Tlit + hold, all OFF. Both events carry n as `lights`. [A13]
  *   - EVT_SEQ_STARTED{t0Us} is published before the response. EVT_LIGHTS_OUT
@@ -194,10 +194,10 @@
  *   - bleBridge: OK while the nRF heartbeats (STATS every second), ABSENT
  *     3 s after it went silent (nrfAlive(false)) or when no module is fitted,
  *     VERSION_MISMATCH by knob. A silent or mismatched nRF accepts no BLE
- *     connection; a phone connected when the nRF dies is gone at once, and
+ *     connection; a computer connected over BLE when the nRF dies is gone at once, and
  *     the control module publishes EVT_BLE_LINK DOWN (supervision timeout)
  *     when it declares the bridge ABSENT. [A25]
- *   - bleRssi: the knob value (default -58 dBm) while a phone is connected
+ *   - bleRssi: the knob value (default -58 dBm) while a computer is connected over BLE
  *     and the bridge is OK with a STATS received (1 s after boot), 127
  *     otherwise. bleCrcErrors / bleUartErrors / bleDataDropped (nRF STATS,
  *     0 before the first STATS) / nrfLinkCrcErrors: knob values,
@@ -389,7 +389,7 @@ const CONFIG_PUSH_MS = 4;
 const LEFT_DETECT_MS = 30;
 const POLL_MS = 10;
 const SEQ_MIN_LEAD_MS = 150;
-const SEQ_DEFAULT_PULSE_MS = 1000;
+const SEQ_DEFAULT_PULSE_MS = 500;
 const REBOOT_DELAY_MS = 100;
 const USB_REENUM_MS = 400;
 const BIND_WINDOW_S = 60;
@@ -733,11 +733,11 @@ export class SimDevice implements SimLinkHost<Link> {
     }
     if (this.#nrf.silentSinceMs !== null) return;
     this.#nrf.silentSinceMs = this.scheduler.now();
-    const hadPhone = [...this.#links].some((l) => l.kind === 'ble');
+    const hadBleLink = [...this.#links].some((l) => l.kind === 'ble');
     for (const l of [...this.#links]) if (l.kind === 'ble') this.#dropLink(l, 'BLE bridge stopped', HCI_SUPERVISION_TIMEOUT, false);
     this.#nrf.downTimer = this.#later(NRF_SILENT_MS, () => {
       this.#nrf.downTimer = null;
-      if (hadPhone && this.#nrf.silentSinceMs !== null) this.#bleLinkEvent(false, HCI_SUPERVISION_TIMEOUT);
+      if (hadBleLink && this.#nrf.silentSinceMs !== null) this.#bleLinkEvent(false, HCI_SUPERVISION_TIMEOUT);
     });
   }
 
@@ -754,7 +754,7 @@ export class SimDevice implements SimLinkHost<Link> {
     return BleBridgeState.OK;
   }
 
-  /** RSSI (dBm) the nRF reports for the connected phone. */
+  /** RSSI (dBm) the nRF reports for the connected computer. */
   setBleRssi(dbm: number): void { this.#bleRssi = Math.max(-128, Math.min(126, Math.round(dbm))); }
 
   /** nRF STATS and the STM's own link CRC counter (STATUS reports them saturated to 16 bits). */
@@ -1838,10 +1838,10 @@ export class SimDevice implements SimLinkHost<Link> {
       this.#lanes[lane]!.led = { mode: LedMode.ON, level: 1000, blinkPeriodMs: 0, blinkOnPermille: 0, blinkCount: 0 };
     };
     const off = (lane: number): void => { this.#lanes[lane]!.led = { ...LED_OFF }; };
-    // Same timeline as seq_planner.c: all lit lanes breathe from T0; the far-end lane (last of `used`) stays on at the
-    // last peak, the others go off at the next trough; then one lane per step toward lane 1; all off at Tout.
+    // Same timeline as seq_planner.c: all lit lanes breathe from T0; the first lane (first of `used`) stays on at the
+    // last peak, the others go off at the next trough; then one lane per step toward the end of the chain; all off at Tout.
     used.forEach((lane, idx) => {
-      const j = n - 1 - idx;   // 0 = far end
+      const j = idx;   // 0 = first lane (start of the chain)
       if (pulses > 0) {
         at(t0Us, () => {
           this.#lanes[lane]!.led = { ...LED_OFF, mode: LedMode.ON, pulse: { startUs: t0Us, riseMs } };

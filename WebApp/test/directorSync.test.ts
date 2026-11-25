@@ -69,10 +69,10 @@ describe('RaceDirector', () => {
     });
   });
 
-  test('START sends the race\'s start lights: defaults 2 pulses, rise 1000 ms, step 1000 ms, hold 200–3000 ms', async () => {
+  test('START sends the race\'s start lights: defaults 3 pulses, rise 500 ms, step 1000 ms, hold 200–3000 ms', async () => {
     assert.deepEqual(
       { p: DEFAULT_START.attentionPulses, r: DEFAULT_START.pulseRiseMs, s: DEFAULT_START.stepMs, lo: DEFAULT_START.holdMinMs, hi: DEFAULT_START.holdMaxMs },
-      { p: 2, r: 1000, s: 1000, lo: 200, hi: 3000 },
+      { p: 3, r: 500, s: 1000, lo: 200, hi: 3000 },
     );
     const sent: StartParams[] = [];
     const api = { startSequence: async (p: StartParams) => { sent.push(p); return 1n; } } as unknown as DirectorApi;

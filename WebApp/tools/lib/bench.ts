@@ -182,7 +182,7 @@ export function formatReport(r: HealthReport): string[] {
   };
   out.push(`control module: ${r.control.online ? 'online' : 'OFFLINE'}`);
   checks(r.control.checks);
-  out.push(`BLE chip: ${r.ble.online ? 'online' : 'OFFLINE'}, ${r.ble.connected ? 'phone connected' : 'no phone connected'}`);
+  out.push(`BLE chip: ${r.ble.online ? 'online' : 'OFFLINE'}, ${r.ble.connected ? 'computer connected' : 'no computer connected'}`);
   checks(r.ble.checks);
   for (const l of r.lanes) {
     out.push(`lane ${l.index}: ${l.online ? 'online' : 'offline'}`);

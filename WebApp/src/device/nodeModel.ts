@@ -11,7 +11,7 @@
  *   EVT_LANE_STATE  JOINED / CONFIGURED / LEFT / FAULT / SYNC_LOST / SYNC_OK
  *                   (0.6: CONFIGURED after FAULT = the lane recovered; it
  *                   clears the fault)
- *   EVT_BLE_LINK    the BLE link to a central (a phone connected or not)
+ *   EVT_BLE_LINK    the BLE link to a central (the computer running this app connected or not)
  *   EVT_LANE_CALIBRATED  the lane's last LANE_CALIBRATE outcome
  *   EVT_SEQ_*       whether a start sequence runs
  *   NODE_LIST       versions and board types (lanes listed are present; a
@@ -83,7 +83,7 @@ export interface NodeModel {
   /** Lanes 1..6 (index 0 unused). */
   readonly lanes: readonly LaneNode[];
   readonly bleLink: BleLink;
-  /** The nRF52805 itself (STATUS.bleBridge, 0.6+): alive or not, independent of a phone. */
+  /** The nRF52805 itself (STATUS.bleBridge, 0.6+): alive or not, independent of a connected computer. */
   readonly bleBridge: BleBridge;
   readonly seqRunning: boolean;
 }

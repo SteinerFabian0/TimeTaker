@@ -4,8 +4,70 @@
     {
       "name": "webapp-debug",
       "runtimeExecutable": "/home/fabian/.local/bin/node",
-      "runtimeArgs": ["WebApp/tools/serve.mjs"],
+      "runtimeArgs": [
+        "WebApp/tools/serve.mjs"
+      ],
       "port": 5173
+    },
+    {
+      "name": "webapp-presets",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=5174",
+        "/home/fabian/.local/bin/node",
+        "WebApp/tools/serve.mjs"
+      ],
+      "port": 5174
+    },
+    {
+      "name": "webapp-lights",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=5175",
+        "/home/fabian/.local/bin/node",
+        "WebApp/tools/serve.mjs"
+      ],
+      "port": 5175
+    },
+    {
+      "name": "webapp-tournaments",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=5176",
+        "/home/fabian/.local/bin/node",
+        "WebApp/tools/serve.mjs"
+      ],
+      "port": 5176
+    },
+    {
+      "name": "webapp-cars",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=5177",
+        "/home/fabian/.local/bin/node",
+        "WebApp/tools/serve.mjs"
+      ],
+      "port": 5177
+    },
+    {
+      "name": "webapp-status",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=5178",
+        "/home/fabian/.local/bin/node",
+        "WebApp/tools/serve.mjs"
+      ],
+      "port": 5178
+    },
+    {
+      "name": "webapp-settings",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PORT=5179",
+        "/home/fabian/.local/bin/node",
+        "WebApp/tools/serve.mjs"
+      ],
+      "port": 5179
     }
   ]
 }

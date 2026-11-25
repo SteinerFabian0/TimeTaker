@@ -25,7 +25,7 @@ const M = 'src/health/monitor.ts';
 const MUTATIONS: { name: string; file: string; from: string; to: string; tests?: string[] }[] = [
   // laps
   { name: 'min-lap check off', file: 'src/race/rules/laps.ts', from: 'sinceMs < config.minLapMs', to: 'false' },
-  { name: 'min-lap default not 20 s', file: 'src/race/rules/config.ts', from: 'minLapMs: 20_000,', to: 'minLapMs: 2000,' },
+  { name: 'min-lap default not 10 s', file: 'src/race/rules/config.ts', from: 'minLapMs: 10_000,', to: 'minLapMs: 1000,' },
   { name: 'IN_HOLDOFF ignored', file: 'src/race/rules/laps.ts', from: 'config.rejectInHoldoff && (c.flags & LaneEventFlag.IN_HOLDOFF)', to: 'false' },
   { name: 'ignoreCrossing ignored', file: 'src/race/raceEngine.ts', from: 'if (acts.ignored.has(posKey(c))) {', to: 'if (false) {' },
   { name: 'BLOCKED not a crossing', file: 'src/race/rules/timeline.ts', from: '(type !== LaneEventType.CROSSING && type !== LaneEventType.BLOCKED)', to: 'type !== LaneEventType.CROSSING' },
@@ -33,7 +33,7 @@ const MUTATIONS: { name: string; file: string; from: string; to: string; tests?:
   { name: 'laneSeq gaps not flagged', file: 'src/race/rules/timeline.ts', from: 'st.lost = true;', to: 'st.lost = false;' },
   { name: 'crossings in log order, not tEntryUs', file: 'src/race/rules/timeline.ts', from: 'a.ord - b.ord || a.tUs - b.tUs || a.evSeq - b.evSeq', to: 'a.ord - b.ord || a.evSeq - b.evSeq' },
   // start
-  { name: 'lap 1 timed from lights out, not the first crossing', file: 'src/race/raceEngine.ts', from: "car.prev = { bootId: c.bootId, tUs: c.tUs };\n          if (j.kind === 'falseStart') {", to: "car.prev = { bootId: start.bootId, tUs: tout };\n          if (j.kind === 'falseStart') {" },
+  { name: 'lap 1 timed from the start crossing, not lights out', file: 'src/race/raceEngine.ts', from: 'car.prev = { bootId: start.bootId, tUs: tout };', to: 'car.prev = { bootId: c.bootId, tUs: c.tUs };' },
   { name: 'aborted sequence still starts the race', file: 'src/race/rules/timeline.ts', from: '      pending = null;\n      start = null;\n    } else if (e.msgId === MsgId.EVT_BOOT', to: '    } else if (e.msgId === MsgId.EVT_BOOT' },
   { name: 'crossings before T0 not ignored', file: 'src/race/rules/timeline.ts', from: 'if (ord === startOrd && tUs < start.t0Us)', to: 'if (false)' },
   { name: 'pre-T0 crossing logged after SEQ_STARTED counted (old rule)', file: 'src/race/rules/timeline.ts', from: 'if (ord === startOrd && tUs < start.t0Us)', to: 'if (ord === startOrd && e.evSeq < start.seqEvSeq && tUs < start.t0Us)' },
@@ -80,7 +80,7 @@ const MUTATIONS: { name: string; file: string; from: string; to: string; tests?:
   { name: 'health: forgotten (no LANE_STATUS) judged ok', file: H, from: ": mk(id, 'warn', 'no saved reference: the lane learns", to: ": mk(id, 'ok', 'no saved reference: the lane learns", tests: HEALTH_TESTS },
   { name: 'health: expected lane absent not a failure', file: H, from: "mk('lane.present', expected ? 'fail' : 'unknown',", to: "mk('lane.present', 'unknown',", tests: HEALTH_TESTS },
   { name: 'health: BLE bridge absent ok', file: H, from: "if (st.bleBridge === BleBridgeState.ABSENT) out.push(mk('ble.bridge', 'fail'", to: "if (false) out.push(mk('ble.bridge', 'fail'", tests: HEALTH_TESTS },
-  { name: 'health: BLE connected ignores the phone link', file: H, from: 'const connected = online && st.bleLink === BleLinkState.UP;', to: 'const connected = online;', tests: HEALTH_TESTS },
+  { name: 'health: BLE connected ignores the BLE link state', file: H, from: 'const connected = online && st.bleLink === BleLinkState.UP;', to: 'const connected = online;', tests: HEALTH_TESTS },
   { name: 'health: RSSI not judged', file: H, from: 'lower(st.bleRssi, t.rssiWarnDbm, t.rssiFailDbm)', to: "'ok'", tests: HEALTH_TESTS },
   { name: 'health: stale STATUS still online', file: H, from: 'inputs.statusAgeMs <= t.statusStaleMs;', to: 'true;', tests: HEALTH_TESTS },
   { name: 'health: overall: a failing check only warns', file: H, from: "const overall: OverallLevel = w === 'unknown' ? 'ok' : w;", to: "const overall: OverallLevel = w === 'unknown' ? 'ok' : w === 'fail' ? 'warn' : w;", tests: HEALTH_TESTS },

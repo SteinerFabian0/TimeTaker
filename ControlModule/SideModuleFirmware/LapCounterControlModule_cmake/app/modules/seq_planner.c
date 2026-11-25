@@ -62,7 +62,7 @@ ctrlStatus_e seqPlannerPlan(const seqPlanParams_t *params, uint8_t presentMask, 
     plan->t0Us     = nowUs + leadUs;
     plan->litCount = n;
     plan->holdUs   = holdUs;
-    plan->farLane  = present[n - 1U];
+    plan->firstLane = present[0];
     const uint64_t tTrough = plan->t0Us + pulsesUs;          /* T0 + 2kP */
     plan->tLitUs = tTrough + (uint64_t)(n - 1U) * stepUs;
     plan->toutUs = plan->tLitUs + holdUs;
@@ -75,7 +75,7 @@ ctrlStatus_e seqPlannerPlan(const seqPlanParams_t *params, uint8_t presentMask, 
     for (uint8_t idx = 0U; idx < n; idx++) {
         const uint8_t  lane = present[idx];
         seqPlanLane_t *l    = &plan->lane[lane - 1U];
-        const uint8_t  j    = (uint8_t)(n - 1U - idx);   /* 0 = far end */
+        const uint8_t  j    = idx;   /* 0 = first lane (start of the chain) */
         plan->litMask |= (uint8_t)(1U << (lane - 1U));
         if (k != 0U) {
             put(l, LANE_ACT_LED_PULSE, (uint16_t)riseMs, plan->t0Us);

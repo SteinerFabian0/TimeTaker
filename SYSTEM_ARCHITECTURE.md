@@ -366,21 +366,21 @@ void ctrlRun(void)
 ### 6.4 Start sequence (the first "act at the edge on one clock" feature)
 
 1. The host sends `START_SEQUENCE{lights=6, stepMs=1000, holdMinMs=200,
-   holdMaxMs=3000, armSampling=1, pulseRiseMs=1000, attentionPulses=2}`.
+   holdMaxMs=3000, armSampling=1, pulseRiseMs=500, attentionPulses=3}`.
 2. `sequence_manager` plans the sequence (P = pulseRiseMs, k = attentionPulses,
-   n lanes lit, the first n present lanes; the "far-end" lane is the highest
-   index of them):
+   n lanes lit, the first n present lanes; the "first" lane is the lowest
+   index of them, lane 1 = the start of the daisy chain, lane 6 its end):
    - `T0 = now + lead`, with lead ≥ 150 ms to write all lanes over the bus;
    - at T0 every lane starts `LED_PULSE(P)`: all lights breathe in unison,
      level = (1 − cos(π·t/P))/2, off to full in P, full to off in P; k cycles
      off-on-off, peaks at `T0 + (2i+1)·P`;
-   - at the last peak `T0 + (2k−1)·P` the far-end lane goes `LED_ON`; every other
-     lane goes `LED_OFF` at the next trough `T0 + 2k·P`, so only the far-end lane
+   - at the last peak `T0 + (2k−1)·P` the first lane goes `LED_ON`; every other
+     lane goes `LED_OFF` at the next trough `T0 + 2k·P`, so only the first lane
      stays lit;
-   - then lane far−1, far−2, … 1 light, one per step, at `T0 + 2k·P + j·step`;
+   - then the next lanes up the chain (2, 3, … n) light, one per step, at `T0 + 2k·P + j·step`;
      all lit at `Tlit = T0 + 2k·P + (n−1)·step`;
    - a TRNG hold h from [holdMin, holdMax]; `Tout = Tlit + h`, all LEDs off at
-     Tout. (k = 0: no breathing, the far-end lane lights at T0.)
+     Tout. (k = 0: no breathing, the first lane lights at T0.)
 3. It writes each lane's **scheduled actions** (LED pulse/on/off at T; at most 5 per lane, queue depth 8)
    through `lane_manager`, then reads each lane's STATUS back
    (`schedulePending`, retried every 2 ms while the lane's main loop has not

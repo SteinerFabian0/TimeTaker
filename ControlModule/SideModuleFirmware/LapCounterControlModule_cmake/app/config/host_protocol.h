@@ -239,7 +239,7 @@ typedef enum {
     HP_FAULT_SRC_SETTINGS   = 4, /* Stored settings failed their CRC; defaults loaded */
 } hpFaultSource_e;
 
-/* Is the nRF52805 itself alive (independent of any phone being connected) */
+/* Is the nRF52805 itself alive (independent of any computer being connected over BLE) */
 typedef enum {
     HP_BLE_BRIDGE_ABSENT           = 0, /* No NRF_HELLO yet, or no CTRL frame from the nRF for 3 s (it sends STATS every second) */
     HP_BLE_BRIDGE_OK               = 1,
@@ -563,7 +563,7 @@ typedef struct __attribute__((packed)) {
     uint16_t settingsWrites;   /* Flash writes since boot */
     uint32_t logOldestSeq;
     uint32_t logNextSeq;
-    uint8_t  bleBridge;        /* hpBleBridgeState_e; The nRF itself (0.6+); bleLink above is the phone connection */
+    uint8_t  bleBridge;        /* hpBleBridgeState_e; The nRF itself (0.6+); bleLink above is the BLE connection to the computer */
     int8_t   bleRssi;          /* dBm of the connected central, 127 = unknown / not connected */
     uint16_t bleCrcErrors;     /* Bad link frames the nRF got from the STM (nRF STATS, saturates) */
     uint16_t bleUartErrors;    /* nRF UART framing/overrun errors (nRF STATS, saturates) */
@@ -805,7 +805,7 @@ _Static_assert(sizeof(hpLaneCalibrateRsp_t) == 2U, "hpLaneCalibrateRsp_t layout"
 #define HP_LANE_CALIBRATE_RSP_BYTES 2U
 
 /* ---- 0x40 START_SEQUENCE (request) -------------------------------
- * Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the last chain lane stays lit at the last peak, then one more lane lights every stepMs toward lane 1; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
+ * Start: from T0 all lights breathe in unison (attentionPulses off-on-off cycles, pulseRiseMs per half), the first chain lane (lane 1) stays lit at the last peak, then one more lane lights every stepMs toward the end of the chain; with all lit, a random hold in [holdMin, holdMax], then all go out together at Tout. EVT_SEQ_STARTED now, EVT_LIGHTS_OUT at Tout (never earlier).
  */
 
 /* START_SEQUENCE request */
@@ -816,7 +816,7 @@ typedef struct __attribute__((packed)) {
     uint16_t holdMinMs;
     uint16_t holdMaxMs;
     uint16_t leadMs;          /* Time from now to T0; 0 = default (>= 150 ms) */
-    uint16_t pulseRiseMs;     /* Attention pulse: off to full in this many ms; 0 = default 1000 */
+    uint16_t pulseRiseMs;     /* Attention pulse: off to full in this many ms; 0 = default 500 */
     uint8_t  attentionPulses; /* Off-on-off cycles before the countdown; 0 = none */
     uint8_t  reserved;
 } hpStartSequenceReq_t;

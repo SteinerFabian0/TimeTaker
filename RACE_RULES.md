@@ -9,17 +9,20 @@ take these as configuration.
 ## Start
 
 - **Grid behind the line.** Cars are placed behind the start/finish line. The
-  first crossing after lights out **starts lap 1's timing**; it is not a lap.
+  first crossing after lights out is the car's start; it is not a lap (the
+  lap counter goes 0 → 1). **Lap 1 is timed from lights out** (changed
+  2026-11-24, was: from the start crossing), so it includes the reaction;
+  later laps run crossing to crossing. Also after a false start.
 - **The host starts the countdown** only when no car is moving. Crossings
   before the start sequence began are ignored (grid positioning, practice).
 - **Start lights** (executed by the lanes on the shared clock): when the host
-  presses start, all lane LEDs breathe in unison (raised sine, off→full 1 s,
-  full→off 1 s), twice. On the last fall every light goes dark except the
-  lane at the far end of the chain. Then one more lane lights every second
-  toward lane 1. With all lit, a random hold of **0.2–3.0 s** (F1 style),
+  presses start, all lane LEDs breathe in unison (raised sine, off→full 0.5 s,
+  full→off 0.5 s), three times. On the last fall every light goes dark except
+  lane 1 (the start of the daisy chain). Then one more lane lights every second
+  toward the end of the chain (lane 6). With all lit, a random hold of **0.2–3.0 s** (F1 style),
   then all go out at the same instant: the race starts.
-  Settings (deeper): number of attention pulses (2), pulse rise time
-  (1000 ms), step between lights (1000 ms), hold range (200–3000 ms).
+  Settings (deeper): number of attention pulses (3), pulse rise time
+  (500 ms), step between lights (1000 ms), hold range (200–3000 ms).
 
 ## False start
 
@@ -34,7 +37,8 @@ take these as configuration.
 
 ## Laps
 
-- **Setting (deeper): minimum lap time**, default **20 s**. Any lap faster
+- **Setting (Track Setup): minimum lap time**, default **10 s** (was 20 s;
+  changed 2026-11-23, the fastest laps are about 19 s). Any lap faster
   than this is discarded, always. There is no manual "accept anyway".
 - A car stopped on the line counts as a crossing (starts the next lap).
 - Lap times use the device timestamps only.

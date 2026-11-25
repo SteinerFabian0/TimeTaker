@@ -201,10 +201,12 @@ export function oracle(config: RaceConfig, truth: readonly TruthCrossing[], stor
       if (fin >= 0) { counted = counted.slice(0, fin + 1); finished = true; }
     }
     const fs = first?.kind === 'falseStart';
+    // Lap 1 is timed from lights out (the start crossing is not a lap), when the start was seen in the start boot.
     const lapMs = counted.map((c, i) => {
       const prev = i === 0 ? first! : counted[i - 1]!;
       if (prev.bootId !== c.bootId) return null;
-      const ms = (c.tEntryUs - prev.tEntryUs) / 1000;
+      const from = i === 0 && prev.bootId === startBoot ? toutUs : prev.tEntryUs;
+      const ms = (c.tEntryUs - from) / 1000;
       return i === 0 && fs && config.falseStart.apply === 'addToFirstLap' ? ms + fsPenalty : ms;
     });
     const timed = lapMs.filter((x): x is number => x !== null);

@@ -251,7 +251,7 @@ export const SUITES: Record<string, Suite> = {
   async health(b, c, o) {
     const st0 = await b.api.status();
     c.ok('STATUS 0.6: bleBridge is a bleBridgeState', [BleBridgeState.ABSENT, BleBridgeState.OK, BleBridgeState.VERSION_MISMATCH].includes(st0.bleBridge as 0), `${st0.bleBridge}`);
-    c.ok('STATUS 0.6: RSSI 127 without a phone, plausible with one', st0.bleRssi === 127 || (st0.bleRssi < 0 && st0.bleRssi > -110), `${st0.bleRssi}`);
+    c.ok('STATUS 0.6: RSSI 127 without a BLE connection, plausible with one', st0.bleRssi === 127 || (st0.bleRssi < 0 && st0.bleRssi > -110), `${st0.bleRssi}`);
     c.ok('STATUS 0.6: settingsDefaults 0 or 1', st0.settingsDefaults <= 1, `${st0.settingsDefaults}`);
     const n = st0.lanesPresent > 0 ? st0.lanesPresent : await powerUp(b, c, o.lanes ?? 6);
     await b.sleep(500);

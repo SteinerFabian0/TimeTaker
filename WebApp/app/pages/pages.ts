@@ -1,64 +1,28 @@
-// Placeholder pages for the shell. Each shows what the area will hold; the
-// Grand Prix, Track Setup and Settings pages also carry real-looking samples
-// so the look (fonts, slant, orange, lane colours) can be judged.
-import { useState } from 'preact/hooks';
+// Placeholder pages for the shell and the page table. Each placeholder shows
+// what the area will hold; Settings carries real-looking samples so the look
+// (fonts, slant, orange, lane colours) can be judged.
 import { html } from '../lib/html.ts';
 import { t } from '../i18n/i18n.ts';
-import { lang, theme, type Lang, type Theme } from '../lib/prefs.ts';
+import { lang, theme, devTools, type Lang, type Theme } from '../lib/prefs.ts';
+import { RacePresetsPage } from './racePresets.ts';
+import { TrackSetupPage } from './trackSetup.ts';
+import { TournamentsPage } from './tournaments.ts';
+import { GrandPrixPage } from './grandPrix.ts';
+import { CarPresetsPage } from './carPresets.ts';
 import { AREAS } from '../shell/areas.ts';
-import { connection } from '../shell/connection.ts';
-import { PageHeader, Panel, Button, Segmented, PowerPackLock, PlannedList, formatTime } from '../ui/ui.ts';
+import { StatusPage } from './status.ts';
+import { PageHeader, Panel, Segmented, PlannedList, Button, ConfirmDialog } from '../ui/ui.ts';
+import { laneColors, setLaneColor, resetLaneColors, currentLaneColor, textOn } from '../lib/laneColors.ts';
+import { useRef, useState } from 'preact/hooks';
+import { APP_VERSION } from '../lib/version.ts';
+import { device, fwVersion, canUsb, canBle } from '../lib/device.ts';
+import { PROTO } from '../../src/protocol/generated.ts';
+import type { ImportPlan } from '../../src/store/libraryFile.ts';
+import { libraryReady, exportLibrary, exportCounts, readImport, applyImport } from '../lib/library.ts';
 
 function header(id: string, children?: unknown) {
   const a = AREAS.find(x => x.id === id)!;
   return html`<${PageHeader} title=${t(a.title)} subtitle=${t(a.subtitle)}>${children}<//>`;
-}
-
-// --- Grand Prix ------------------------------------------------------------
-
-const SAMPLE = [
-  { lane: 1, name: 'Anna',   pos: 2, lap: 3, last: 26_412, best: 25_903, gap: 1_208 },
-  { lane: 2, name: 'Ben',    pos: 1, lap: 3, last: 25_117, best: 24_880, gap: 0 },
-  { lane: 3, name: 'Clara',  pos: 4, lap: 3, last: 28_731, best: 27_046, gap: 4_310 },
-  { lane: 4, name: 'David',  pos: 3, lap: 3, last: 27_002, best: 26_118, gap: 2_954 },
-  { lane: 5, name: 'Emil',   pos: 6, lap: 2, last: 31_560, best: 29_377, gap: -1 },
-  { lane: 6, name: 'Fritzi', pos: 5, lap: 3, last: 27_915, best: 27_311, gap: 6_802 },
-];
-
-function LaneTile({ d, fastest }: { d: typeof SAMPLE[number]; fastest: boolean }) {
-  const L = lang.value;
-  return html`<article class="lane-tile" style=${`--lane: var(--lane-${d.lane})`}>
-    <div class="lane-flag"><span>${d.lane}</span></div>
-    <div class="lane-main">
-      <div class="lane-top">
-        <span class="lane-pos">P${d.pos}</span>
-        <span class="lane-name">${d.name}</span>
-        <span class="lane-lap"><small>${t('gp.lap')}</small> ${d.lap}<small>/5</small></span>
-      </div>
-      <dl class="lane-times">
-        <div><dt>${t('gp.last')}</dt><dd class="time">${formatTime(d.last, L)}</dd></div>
-        <div class=${fastest ? 'fastest' : ''}><dt>${t('gp.best')}</dt><dd class="time">${formatTime(d.best, L)}</dd></div>
-        <div><dt>${t('gp.gap')}</dt><dd class="time">${d.gap === 0 ? '—' : d.gap < 0 ? '+1 L' : '+' + formatTime(d.gap, L)}</dd></div>
-      </dl>
-    </div>
-  </article>`;
-}
-
-export function GrandPrixPage() {
-  const fastest = Math.min(...SAMPLE.map(d => d.best));
-  return html`
-    ${header('grand-prix', html`<${Button} kind="primary">${t('gp.start')}<//>`)}
-    <${Panel} title=${t('common.preview')} class="gp-preview">
-      <div class="race-bar">
-        <span class="chip chip-accent">${t('gp.groupA')}</span>
-        <span class="race-count">${t('gp.raceOf', { n: 7, total: 18 })}</span>
-        <span class="checker" aria-hidden="true"></span>
-      </div>
-      <div class="lane-grid">
-        ${SAMPLE.map(d => html`<${LaneTile} key=${d.lane} d=${d} fastest=${d.best === fastest} />`)}
-      </div>
-    <//>
-    <${PlannedList} keys=${['plan.grandPrix.1', 'plan.grandPrix.2', 'plan.grandPrix.3', 'plan.grandPrix.4']} />`;
 }
 
 // --- Simple placeholders ---------------------------------------------------
@@ -69,47 +33,92 @@ export const TimeAttackPage = () => html`${header('time-attack')}
 export const TrainingPage = () => html`${header('training')}
   <${PlannedList} keys=${['plan.training.1', 'plan.training.2', 'plan.training.3']} />`;
 
-export const TournamentsPage = () => html`${header('tournaments')}
-  <${PlannedList} keys=${['plan.tournaments.1', 'plan.tournaments.2', 'plan.tournaments.3']} />`;
-
-export const RacePresetsPage = () => html`${header('race-presets')}
-  <${PlannedList} keys=${['plan.racePresets.1', 'plan.racePresets.2', 'plan.racePresets.3']} />`;
-
-export function StatusPage() {
-  const c = connection.value;
-  return html`${header('status', html`<a class="btn btn-ghost" href="../debug/"><span>${t('status.debugLink')}</span></a>`)}
-    <${Panel} title=${t('status.connection')}>
-      <div class="conn-row">
-        <span class=${'conn-dot ' + (c.link === 'offline' ? 'fail' : c.overall)}></span>
-        <span>${t(`conn.${c.link}` as 'conn.offline')}</span>
-        <span class=${'tag' + (c.powerPack ? ' tag-pp' : '')}>${c.powerPack ? t('conn.powerPack') : t('conn.noPowerPack')}</span>
-      </div>
-    <//>
-    <${PlannedList} keys=${['plan.status.1', 'plan.status.2', 'plan.status.3']} />`;
-}
-
-// --- Track Setup -----------------------------------------------------------
-
-export function TrackSetupPage() {
-  const pp = connection.value.powerPack;
-  // Expert mode is local state: off every time the page is opened (GUI_SPEC §8.2).
-  const [expert, setExpert] = useState(false);
-  const [level, setLevel] = useState<string>('3');
-  return html`
-    ${header('track-setup', html`<label class=${'switch' + (pp ? '' : ' disabled')}>
-        <input type="checkbox" checked=${expert} disabled=${!pp}
-          onChange=${(e: Event) => setExpert((e.target as HTMLInputElement).checked)} />
-        <span class="switch-track"></span><span>${t('ts.expert')}</span></label>`)}
-    <p class="hint expert-hint">${t('ts.expertHint')}</p>
-    ${!pp && html`<${PowerPackLock} />`}
-    <${Panel} title=${t('ts.speed')} class=${pp ? '' : 'locked'}>
-      <${Segmented} big label=${t('ts.speed')} disabled=${!pp} value=${level} onChange=${setLevel}
-        options=${[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: String(n) }))} />
-      <p class="hint">${t('ts.speedHint')}</p>
-    <//>`;
-}
 
 // --- Settings --------------------------------------------------------------
+
+/** The six lane colours: a click on a swatch opens the system colour picker. */
+function LaneColorPicker() {
+  void theme.value;                       // the defaults differ per theme
+  const set = laneColors.value;
+  return html`<div class="lane-swatches">
+      ${[1, 2, 3, 4, 5, 6].map(n => {
+        const c = currentLaneColor(n);
+        return html`<label class=${'swatch swatch-pick' + (set[n - 1] ? ' changed' : '')} style=${`--lane: var(--lane-${n}); color: ${textOn(c)}`}
+            title=${t('set.lanes.pick', { n })}>
+          <span>${n}</span>
+          <input type="color" value=${c} aria-label=${t('set.lanes.pick', { n })}
+            onInput=${(e: Event) => setLaneColor(n, (e.target as HTMLInputElement).value)} />
+        </label>`;
+      })}
+    </div>
+    ${set.some(Boolean) && html`<div class="lane-reset"><${Button} onClick=${resetLaneColors}>${t('set.lanes.reset')}<//></div>`}`;
+}
+
+
+// --- Data: export / import ---------------------------------------------------
+
+function DataPanel() {
+  const input = useRef<HTMLInputElement>(null);
+  const [plan, setPlan] = useState<ImportPlan | null>(null);
+  const [note, setNote] = useState<{ text: string; warn?: boolean } | null>(null);
+  const ready = libraryReady.value;
+  const n = ready ? exportCounts() : null;
+
+  const chosen = async (e: Event) => {
+    const el = e.target as HTMLInputElement;
+    const file = el.files?.[0];
+    el.value = '';                           // the same file can be chosen again
+    if (!file) return;
+    setNote(null);
+    const r = await readImport(file);
+    if (!r.ok) { setNote({ text: t(`set.data.err.${r.error}`), warn: true }); return; }
+    if (!r.plan.presets.length && !r.plan.templates.length && !r.plan.carPresets.length) { setNote({ text: t('set.data.nothing') }); return; }
+    setPlan(r.plan);
+  };
+  const counts = (p: ImportPlan) => ({ p: p.presets.length, t: p.templates.length, c: p.carPresets.length });
+
+  return html`<${Panel} title=${t('set.data')}>
+    <p class="hint">${t('set.data.hint')}</p>
+    <div class="data-actions">
+      <${Button} kind="primary" disabled=${!ready} onClick=${exportLibrary}>${t('set.data.export')}<//>
+      <${Button} disabled=${!ready} onClick=${() => input.current?.click()}>${t('set.data.import')}<//>
+      <input ref=${input} type="file" accept=".json,application/json" hidden onChange=${chosen} />
+    </div>
+    ${n && html`<p class="hint">${t('set.data.exportCount', { p: n.presets, t: n.templates, c: n.carPresets })}</p>`}
+    ${note && html`<p class=${note.warn ? 'field-warn' : 'hint'} role="status">${note.text}</p>`}
+    <${ConfirmDialog} open=${plan !== null} title=${t('set.data.confirmTitle')}
+      body=${plan && html`<p>${t('set.data.adds', counts(plan))}</p>
+        ${plan.skipped > 0 && html`<p>${t('set.data.skipped', { n: plan.skipped })}</p>`}
+        ${plan.renamed > 0 && html`<p>${t('set.data.renamed', { n: plan.renamed })}</p>`}`}
+      confirmLabel=${t('set.data.confirm')} cancelLabel=${t('common.cancel')}
+      onConfirm=${() => { if (plan) { applyImport(plan); setNote({ text: t('set.data.done', counts(plan)) }); } }}
+      onClose=${() => setPlan(null)} />
+  <//>`;
+}
+
+// --- About -------------------------------------------------------------------
+
+function AboutPanel() {
+  const d = device.value;
+  const on = d.state === 'connected';
+  const app = `${PROTO.major}.${PROTO.minor}`;
+  const dev = on && d.hello ? `${d.hello.protoMajor}.${d.hello.protoMinor}` : null;
+  const off = t('set.about.notConnected');
+  const yesNo = (b: boolean) => t(b ? 'set.about.yes' : 'set.about.no');
+  const rows: [string, string][] = [
+    [t('set.about.app'), APP_VERSION],
+    [t('set.about.protocol'), dev && dev !== app ? t('set.about.protocolDevice', { app, dev }) : app],
+    [t('set.about.fwControl'), on ? fwVersion(d.nodes.ctrl) : off],
+    [t('set.about.fwBle'), on ? fwVersion(d.nodes.ble) : off],
+    [`${t('set.about.browser')} · ${t('set.about.usb')}`, yesNo(canUsb)],
+    [`${t('set.about.browser')} · ${t('set.about.ble')}`, yesNo(canBle)],
+  ];
+  return html`<${Panel} title=${t('set.about')}>
+    <dl class="st-facts">
+      ${rows.map(([k, v]) => html`<div><dt>${k}</dt><dd class="tnum">${v}</dd></div>`)}
+    </dl>
+  <//>`;
+}
 
 export function SettingsPage() {
   return html`
@@ -126,13 +135,17 @@ export function SettingsPage() {
           options=${(['dark', 'light', 'system'] as const).map(v => ({ value: v, label: t(`set.theme.${v}`) }))} />
       <//>
       <${Panel} title=${t('set.lanes')}>
-        <div class="lane-swatches">
-          ${[1, 2, 3, 4, 5, 6].map(n => html`<span class="swatch" style=${`--lane: var(--lane-${n})`}><span>${n}</span></span>`)}
-        </div>
+        <${LaneColorPicker} />
+        <p class="hint">${t('set.lanes.hint')}</p>
       <//>
-      <${Panel} title=${t('set.about')}>
-        <p class="hint">${t('set.version', { v: '0.1 (shell)' })}</p>
+      <${Panel} title=${t('set.devTools')}>
+        <${Segmented} label=${t('set.devTools')} value=${devTools.value ? 'on' : 'off'}
+          onChange=${(v: string) => { devTools.value = v === 'on'; }}
+          options=${[{ value: 'on', label: t('set.devTools.on') }, { value: 'off', label: t('set.devTools.off') }]} />
+        <p class="hint">${t('set.devTools.hint')}</p>
       <//>
+      <${DataPanel} />
+      <${AboutPanel} />
     </div>`;
 }
 
@@ -142,6 +155,7 @@ export const PAGES: Record<string, () => unknown> = {
   'training': TrainingPage,
   'tournaments': TournamentsPage,
   'race-presets': RacePresetsPage,
+  'car-presets': CarPresetsPage,
   'track-setup': TrackSetupPage,
   'status': StatusPage,
   'settings': SettingsPage,

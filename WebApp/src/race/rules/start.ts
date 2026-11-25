@@ -3,13 +3,14 @@
  * EVT_LIGHTS_OUT (CONTROL guide §5.3: the device never reveals Tout early).
  *
  * - The grid is behind the line: a car's first crossing after lights out
- *   starts lap 1's timing; it is not a lap. Its reaction time is
- *   crossing − Tout (so it includes the run-up to the line).
+ *   is its start; it is not a lap. Lap 1 is timed from lights out (Tout),
+ *   so it includes the reaction. Its reaction time is crossing − Tout (so it
+ *   includes the run-up to the line).
  * - Crossings timed before the start sequence began (T0) never get here:
  *   they are grid positioning / practice (timeline).
  * - A crossing at or after T0 and before Tout is a FALSE START. It is the
- *   car's start crossing (the car is past the line; lap 1 ends at its next
- *   crossing); its reaction time is negative. A second crossing before Tout
+ *   car's start crossing (the car is past the line; lap 1, from Tout, ends
+ *   at its next crossing); its reaction time is negative. A second crossing before Tout
  *   is rejected ('beforeStart').
  * - What happens (falseStart.action):
  *     flag         shown only

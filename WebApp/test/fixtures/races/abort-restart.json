@@ -10,7 +10,7 @@
    "mode": "laps",
    "laps": 4,
    "durationMs": 300000,
-   "minLapMs": 20000,
+   "minLapMs": 10000,
    "rejectInHoldoff": true,
    "falseStart": {
     "action": "timePenalty",
@@ -19,8 +19,8 @@
    },
    "crashPolicy": "replacementAllowed",
    "startLights": {
-    "attentionPulses": 2,
-    "pulseRiseMs": 1000,
+    "attentionPulses": 3,
+    "pulseRiseMs": 500,
     "stepMs": 1000,
     "holdMinMs": 200,
     "holdMaxMs": 3000
@@ -169,31 +169,31 @@
   {
    "bootId": 2489494664,
    "evSeq": 9,
-   "msgId": 198,
-   "name": "EVT_SEQ_ABORTED",
+   "msgId": 193,
+   "name": "EVT_CROSSING",
    "value": {
     "evSeq": 9,
-    "reason": 1,
-    "reserved": "000000",
-    "atUs": "8909000"
+    "lane": 1,
+    "type": 1,
+    "flags": 0,
+    "reserved": 0,
+    "tEntryUs": "8150403",
+    "laneSeq": 0,
+    "dwell10us": 1588,
+    "depth": 889,
+    "reserved2": 0
    }
   },
   {
    "bootId": 2489494664,
    "evSeq": 10,
-   "msgId": 193,
-   "name": "EVT_CROSSING",
+   "msgId": 198,
+   "name": "EVT_SEQ_ABORTED",
    "value": {
     "evSeq": 10,
-    "lane": 1,
-    "type": 1,
-    "flags": 0,
-    "reserved": 0,
-    "tEntryUs": "8862510",
-    "laneSeq": 0,
-    "dwell10us": 1588,
-    "depth": 889,
-    "reserved2": 0
+    "reason": 1,
+    "reserved": "000000",
+    "atUs": "8209000"
    }
   },
   {
@@ -206,7 +206,7 @@
     "lights": 3,
     "armSampling": 1,
     "stepMs": 1000,
-    "t0Us": "12061000"
+    "t0Us": "11361000"
    }
   },
   {
@@ -218,7 +218,7 @@
     "evSeq": 12,
     "lights": 3,
     "reserved": "000000",
-    "toutUs": "20944395"
+    "toutUs": "19244395"
    }
   },
   {
@@ -232,7 +232,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "21885931",
+    "tEntryUs": "20185931",
     "laneSeq": 1,
     "dwell10us": 2897,
     "depth": 762,
@@ -250,7 +250,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "22050129",
+    "tEntryUs": "20350129",
     "laneSeq": 0,
     "dwell10us": 1636,
     "depth": 949,
@@ -268,7 +268,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "22093218",
+    "tEntryUs": "20393218",
     "laneSeq": 0,
     "dwell10us": 2520,
     "depth": 630,
@@ -286,7 +286,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "54308710",
+    "tEntryUs": "52608710",
     "laneSeq": 1,
     "dwell10us": 2679,
     "depth": 894,
@@ -304,7 +304,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "54938322",
+    "tEntryUs": "53238322",
     "laneSeq": 2,
     "dwell10us": 2316,
     "depth": 768,
@@ -322,7 +322,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "57961904",
+    "tEntryUs": "56261904",
     "laneSeq": 1,
     "dwell10us": 2642,
     "depth": 871,
@@ -340,7 +340,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "87291038",
+    "tEntryUs": "85591038",
     "laneSeq": 2,
     "dwell10us": 2900,
     "depth": 836,
@@ -358,7 +358,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "88106720",
+    "tEntryUs": "86406720",
     "laneSeq": 3,
     "dwell10us": 2808,
     "depth": 806,
@@ -376,7 +376,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "95350705",
+    "tEntryUs": "93650705",
     "laneSeq": 2,
     "dwell10us": 1672,
     "depth": 879,
@@ -394,7 +394,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "119583172",
+    "tEntryUs": "117883172",
     "laneSeq": 3,
     "dwell10us": 2763,
     "depth": 816,
@@ -412,7 +412,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "121646220",
+    "tEntryUs": "119946220",
     "laneSeq": 4,
     "dwell10us": 2092,
     "depth": 555,
@@ -430,7 +430,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "131686338",
+    "tEntryUs": "129986338",
     "laneSeq": 3,
     "dwell10us": 2356,
     "depth": 801,
@@ -448,7 +448,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "151305056",
+    "tEntryUs": "149605056",
     "laneSeq": 4,
     "dwell10us": 2702,
     "depth": 939,
@@ -466,7 +466,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "155280995",
+    "tEntryUs": "153580995",
     "laneSeq": 5,
     "dwell10us": 2354,
     "depth": 788,
@@ -484,7 +484,7 @@
     "type": 1,
     "flags": 0,
     "reserved": 0,
-    "tEntryUs": "167957467",
+    "tEntryUs": "166257467",
     "laneSeq": 4,
     "dwell10us": 2616,
     "depth": 647,
@@ -507,7 +507,7 @@
     "falseStart": false,
     "reactionMs": 941.536,
     "lapMs": [
-     33052.391,
+     33993.927,
      33168.398,
      33539.5,
      33634.775
@@ -522,7 +522,7 @@
     "falseStart": false,
     "reactionMs": 1148.823,
     "lapMs": [
-     35868.686,
+     37017.509,
      37388.801,
      36335.633,
      36271.129
@@ -537,7 +537,7 @@
     "falseStart": false,
     "reactionMs": 1105.734,
     "lapMs": [
-     32258.581,
+     33364.315,
      32982.328,
      32292.134,
      31721.884

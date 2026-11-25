@@ -10,7 +10,7 @@
  *     falseStart.apply       'addToFirstLap'  | 'addToTotal'; 'stopAndGo' is a
  *                                             documented future value (power
  *                                             board) and is rejected for now
- *     minLapMs               20000            any faster lap is discarded, always
+ *     minLapMs               10000            any faster lap is discarded, always
  *     startLights            2 attention pulses, rise 1000 ms, step 1000 ms,
  *                            hold 200–3000 ms (the director sends these)
  *   internal (not in RACE_RULES.md)
@@ -22,7 +22,7 @@ import { LaneEventFlag } from '../../protocol/generated.ts';
 import type { RaceConfig, StartLightsConfig } from '../types.ts';
 
 export const DEFAULT_START_LIGHTS: StartLightsConfig = {
-  attentionPulses: 2, pulseRiseMs: 1000, stepMs: 1000, holdMinMs: 200, holdMaxMs: 3000,
+  attentionPulses: 3, pulseRiseMs: 500, stepMs: 1000, holdMinMs: 200, holdMaxMs: 3000,
 };
 
 export const DEFAULT_RACE: Omit<RaceConfig, 'id' | 'entries'> = {
@@ -30,7 +30,7 @@ export const DEFAULT_RACE: Omit<RaceConfig, 'id' | 'entries'> = {
   mode: 'laps',
   laps: 20,
   durationMs: 5 * 60_000,
-  minLapMs: 20_000,
+  minLapMs: 10_000,
   rejectInHoldoff: true,
   falseStart: { action: 'timePenalty', penaltyMs: 5000, apply: 'addToFirstLap' },
   crashPolicy: 'replacementAllowed',

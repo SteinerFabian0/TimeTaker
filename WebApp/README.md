@@ -110,7 +110,7 @@ The contract the status page is built on (`src/health/`). No DOM.
 HealthReport {
   overall: 'ok' | 'warn' | 'fail'          // worst check; 'fail' while the control module is offline
   control: { online, checks: Check[] }      // online: session open and STATUS fresh (< statusStaleMs)
-  ble:     { online, connected, checks }    // online: nRF alive (STATUS.bleBridge != ABSENT); connected: a phone (bleLink UP)
+  ble:     { online, connected, checks }    // online: nRF alive (STATUS.bleBridge != ABSENT); connected: a computer over BLE (bleLink UP)
   lanes:   [{ index: 1..6, online, checks }] // always 6; online: on the bus (node model)
 }
 Check { id: string, level: 'ok' | 'warn' | 'fail' | 'unknown', message: string, value: number | string | boolean | null }
@@ -134,7 +134,7 @@ Edges: upper bounds `value >= warn → warn, >= fail → fail`; lower bounds
 | | `ctrl.eventLog` | events overwritten before the app read them → fail; ≥ 100 behind → warn |
 | BLE chip | `ble.bridge` | bleBridge ABSENT → fail |
 | | `ble.version` | VERSION_MISMATCH → fail |
-| | `ble.rssi` | with a phone: < −80 dBm warn, < −90 fail; no phone / 127 → unknown |
+| | `ble.rssi` | with a BLE connection: < −80 dBm warn, < −90 fail; none / 127 → unknown |
 | | `ble.linkCrc` | bleCrcErrors + nrfLinkCrcErrors ≥ 1 warn, ≥ 50 fail |
 | | `ble.uart` | ≥ 1 warn, ≥ 50 fail |
 | | `ble.dropped` | ≥ 1 warn, ≥ 100 fail |
@@ -210,7 +210,7 @@ rule. Settings (main = race setup screen, deeper = advanced page):
 | Hold range (deeper) | `startLights.holdMinMs` / `holdMaxMs` | 200 / 3000 | ms, random hold before lights out |
 
 Fixed rules (not settings): grid behind the line (the first crossing after
-lights out starts lap 1's timing); crossings timed before the start sequence
+lights out is the start, not a lap; lap 1 is timed from lights out); crossings timed before the start sequence
 began (T0) are ignored; a car stopped on the line (BLOCKED) is a crossing; a
 disqualification applies from its log position, later laps never count and
 the lap in progress shows TLF; the race ends when every car still in the race
