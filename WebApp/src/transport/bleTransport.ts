@@ -160,7 +160,8 @@ export class BleTransport implements Transport {
     try { if (this.device.gatt?.connected) this.device.gatt.disconnect(); } catch { /* already gone */ }
   }
 
-  async #writeChunk(rx: CharacteristicLike, chunk: Uint8Array): Promise<void> {
+  async #writeChunk(rx: CharacteristicLike, bytes: Uint8Array): Promise<void> {
+    const chunk = bytes as Uint8Array<ArrayBuffer>;     // never a SharedArrayBuffer here
     const mode = this.#opts.writeMode;
     if (mode !== 'withResponse' && rx.writeValueWithoutResponse) return rx.writeValueWithoutResponse(chunk);
     if (mode !== 'withoutResponse' && rx.writeValueWithResponse) return rx.writeValueWithResponse(chunk);

@@ -163,7 +163,7 @@ export const SUITES: Record<string, Suite> = {
     await b.sleep(1000);
     await b.api.laneRawStream(0);
     const raw = b.streams.slice(rawMark).filter((s) => s.msgId === MsgId.STR_RAW_SAMPLES).map((s) => s.value!);
-    c.ok('raw stream: chunks with counting chunkSeq', raw.length >= 5 && raw.every((r, i) => i === 0 || r['chunkSeq'] === ((raw[i - 1]!['chunkSeq'] as number) + 1) & 0xffff), `${raw.length} chunks`);
+    c.ok('raw stream: chunks with counting chunkSeq', raw.length >= 5 && raw.every((r, i) => i === 0 || (r['chunkSeq'] as number) === (((raw[i - 1]!['chunkSeq'] as number) + 1) & 0xffff)), `${raw.length} chunks`);
     await b.api.lanePower(false);
   },
 

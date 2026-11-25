@@ -18,6 +18,7 @@ import { APP_VERSION } from '../lib/version.ts';
 import { device, fwVersion, canUsb, canBle } from '../lib/device.ts';
 import { PROTO } from '../../src/protocol/generated.ts';
 import type { ImportPlan } from '../../src/store/libraryFile.ts';
+import { storagePersisted, canKeepAwake, keptAwake } from '../lib/platform.ts';
 import { libraryReady, exportLibrary, exportCounts, readImport, applyImport } from '../lib/library.ts';
 
 function header(id: string, children?: unknown) {
@@ -112,6 +113,8 @@ function AboutPanel() {
     [t('set.about.fwBle'), on ? fwVersion(d.nodes.ble) : off],
     [`${t('set.about.browser')} · ${t('set.about.usb')}`, yesNo(canUsb)],
     [`${t('set.about.browser')} · ${t('set.about.ble')}`, yesNo(canBle)],
+    [t('set.about.storage'), t(storagePersisted.value === true ? 'set.about.storageKept' : storagePersisted.value === false ? 'set.about.storageMay' : 'set.about.unknown')],
+    [t('set.about.awake'), !canKeepAwake ? t('set.about.no') : keptAwake.value ? t('set.about.awakeOn') : t('set.about.awakeReady')],
   ];
   return html`<${Panel} title=${t('set.about')}>
     <dl class="st-facts">

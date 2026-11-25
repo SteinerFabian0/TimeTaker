@@ -8,9 +8,12 @@
  *   npm run app              → http://localhost:5173/app/    (the GUI)
  *   npm run debug            → http://localhost:5173/debug/  (debug console)
  *
+ *   node tools/serve.mjs --dist → the production build in dist/ (npm run build),
+ *                                  on port 5180 (its service worker stays off the dev origin)
+ *
  * Binds to 127.0.0.1 only: Web Serial and Web Bluetooth need a secure context,
- * and localhost is one. Not a production server: the app ships as a static
- * PWA later (SYSTEM_ARCHITECTURE §11).
+ * and localhost is one. Not a production server: the app ships as the static
+ * PWA tools/build.mjs writes.
  */
 
 import { createServer } from 'node:http';
@@ -19,8 +22,10 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripTypeScriptTypes } from 'node:module';
 
-const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PORT = Number(process.env.PORT ?? 5173);
+// --dist: serve the production build (npm run build) instead of the sources.
+const ROOT = resolve(fileURLToPath(new URL(process.argv.includes('--dist') ? '../dist' : '..', import.meta.url)));
+// The build gets its own port: its service worker must never sit on the dev server's origin.
+const PORT = Number(process.env.PORT ?? (process.argv.includes('--dist') ? 5180 : 5173));
 const HOST = '127.0.0.1';
 
 const TYPES = {
@@ -30,6 +35,7 @@ const TYPES = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.ts': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
@@ -75,5 +81,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`TimeTaker web app dev server: http://localhost:${PORT}/app/  (debug console: /debug/)`);
+  console.log(`TimeTaker web app ${process.argv.includes('--dist') ? 'build (dist/)' : 'dev server'}: http://localhost:${PORT}/app/  (debug console: /debug/)`);
 });

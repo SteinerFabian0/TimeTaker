@@ -246,8 +246,8 @@ export async function main(argv: string[], out: (l: string) => void = console.lo
       }
       case 'abort': await api.abortSequence(); out('aborted'); break;
       case 'bind':
-        if (sub === 'allow') await api.bindAllow(int(a, 'seconds'));
-        else if (sub === 'remove') await api.bindRemove(fromHex(a ?? ''));
+        if (sub === 'allow') await api.bindAllow(int(rest[1], 'seconds'));
+        else if (sub === 'remove') await api.bindRemove(fromHex(rest[1] ?? ''));
         else if (sub === 'clear') await api.bindClear();
         else if (sub !== 'list' && sub !== undefined) throw new Error('bind list|allow|remove|clear');
         {

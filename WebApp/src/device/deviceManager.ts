@@ -125,7 +125,7 @@ export class DeviceManager {
     const s = this.#session;
     this.#session = null;
     await s?.close('stopped');
-    this.#setState('disconnected', 'stopped');
+    this.#setState('disconnected', null, 'stopped');
   }
 
   /** Connect with a transport the user just picked (port picker, BLE chooser). */

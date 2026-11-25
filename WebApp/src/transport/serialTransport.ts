@@ -46,7 +46,7 @@ export class SerialTransport implements Transport {
   #writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   #closing = false;
   #onDisconnect = (e: Event): void => {
-    if ((e as Event & { target: unknown }).target === this.#port) this.#lost('USB unplugged');
+    if ((e.target as unknown) === this.#port) this.#lost('USB unplugged');
   };
   #handlers: TransportHandlers | null = null;
 

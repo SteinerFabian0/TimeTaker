@@ -27,7 +27,8 @@
  *   heartbeat   PING every pingIntervalMs. Each answer refines the clock
  *               estimate (sysUs ↔ scheduler time, from the lowest-RTT recent
  *               sample). Only the live clock display uses it: results never
- *               do. Nothing heard for staleAfterMs → onStale(true).
+ *               do. Nothing heard for staleAfterMs → onStale(true), judged
+ *               only on a heartbeat that ran on time (hidden tabs throttle timers).
  *
  * Events are keyed on (bootId, evSeq). A new bootId means the device rebooted:
  * onBoot() fires and the counting starts over. The race engine sees a flagged
@@ -177,6 +178,7 @@ export class DeviceSession implements Requester {
   #recovering: Promise<void> | null = null;
   #hello: HelloRsp | null = null;
   #lastHeardMs = 0;
+  #lastBeatMs = 0;
   #stale = false;
   #closeWaiters: ((reason: string) => void)[] = [];
 
@@ -240,6 +242,7 @@ export class DeviceSession implements Requester {
       if (hello.bindState === BindState.UNBOUND) hello = await this.#waitBound();
       this.#setState('open');
       await this.#sendResume();
+      this.#lastBeatMs = this.#sched.now();
       this.#pingTimer = this.#sched.setInterval(() => this.#heartbeat(), this.#opts.pingIntervalMs);
       await this.ping();
       return hello;
@@ -294,8 +297,14 @@ export class DeviceSession implements Requester {
 
   #heartbeat(): void {
     if (this.#state === 'closed') return;
-    const silent = this.#sched.now() - this.#lastHeardMs;
-    if (silent >= this.#opts.staleAfterMs && !this.#stale) {
+    const now = this.#sched.now();
+    const silent = now - this.#lastHeardMs;
+    // A hidden browser tab runs timers late (Chrome: once a second, after
+    // 5 min once a minute). Then the silence is our own: no PING went out to
+    // be answered. Judge staleness only on a beat that came about on time.
+    const onTime = now - this.#lastBeatMs <= 2 * this.#opts.pingIntervalMs;
+    this.#lastBeatMs = now;
+    if (onTime && silent >= this.#opts.staleAfterMs && !this.#stale) {
       this.#stale = true;
       this.#listener.onStale?.(true);
     }

@@ -70,7 +70,7 @@ class FakeApi implements MonitorApi {
       status: 0, lane, state: LaneBusState.SAMPLING, samplingMode: SamplingMode.ON, fifoCount: 0,
       flags: LaneStatusFlag.SYNC_LOCKED | LaneStatusFlag.SYNC_ALIGNED | LaneStatusFlag.SENSOR_OK | LaneStatusFlag.CONFIG_VALID | LaneStatusFlag.CALIBRATED,
       droppedEvents: 0, syncShifts: 0, badWrites: 0, lateActions: 0, lastError: 0, resetCause: ResetCause.POWER_ON, faultId: 0,
-      uptimeMs: 1, raw: 3000 + n, baseline: 3000, thrLow: 2100, thrHigh: 2400, noise: 8, reference: 3000, rawMin: 2990, rawMax: 3010,
+      uptimeMs: 1, raw: 3000 + n, baseline: 3000, thrLow: 2100, thrHigh: 2400, noise: 8, reference: 3000, rawMin: 2990, rawMax: 3010, savedReference: 0,
     };
   }
 

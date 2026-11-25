@@ -4,6 +4,7 @@ import { html } from './lib/html.ts';
 import './lib/prefs.ts';
 import './lib/laneColors.ts';   // applies the chosen lane colours
 import './lib/device.ts';   // the time taker connection (reconnects the remembered one)
+import './lib/platform.ts'; // persistent storage, screen kept on during a Grand Prix
 import { Rail, expanded } from './shell/Rail.ts';
 import { currentArea } from './shell/areas.ts';
 import { PAGES } from './pages/pages.ts';

@@ -370,6 +370,24 @@ describe('stale link', () => {
       assert.deepEqual(stale, [true, false]);
     });
   });
+
+  test('a throttled heartbeat (hidden tab: timers once a minute) is not taken for a dead link', async () => {
+    const t = rig();
+    await t.run(async () => {
+      const dev = t.sim();
+      const stale: boolean[] = [];
+      // The browser runs the 1 s PING interval once a minute; the device answers every PING.
+      const throttled = { ...t.clock, now: () => t.clock.now(),
+        setTimeout: t.clock.setTimeout.bind(t.clock), clearTimeout: t.clock.clearTimeout.bind(t.clock),
+        setInterval: (fn: () => void) => t.clock.setInterval(fn, 60_000), clearInterval: t.clock.clearInterval.bind(t.clock) };
+      const s = new DeviceSession(dev.transport('usb'), { clientId: new Uint8Array(16).fill(2), clientName: 't', scheduler: throttled },
+        { onStale: (x) => stale.push(x) });
+      t.sessions.push(s);
+      await s.connect();
+      await t.sleep(5 * 60_000);
+      assert.deepEqual(stale, []);
+    });
+  });
 });
 
 describe('real timers', () => {

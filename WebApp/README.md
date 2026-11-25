@@ -10,18 +10,73 @@ race engine: a pure fold over the device's timestamped events. Layering and plan
 npm test                     # all tests (Node >= 22.18 runs the .ts files directly)
 npm run app                  # dev server → http://localhost:5173/app/  (the GUI)
 npm run debug                # dev server → http://localhost:5173/debug/
+npm run build                # production build → dist/ (static, offline PWA)
+npm run serve:dist           # serve dist/ locally → http://localhost:5180/app/ (own port: its service worker must not sit on the dev origin)
+npm install && npm run typecheck   # type check (the only thing that needs an install)
 node tools/tt.ts --sim suite all   # bench CLI against the simulator (tools/README.md)
 node tools/tt.ts hello             # ... and against the board on /dev/ttyACM*
 ```
 
-There is no install and no build step. Node strips the TypeScript types
-itself: in the tests, and in `tools/serve.mjs` for the browser. That is why
-the TypeScript stays within `erasableSyntaxOnly`:
+There is no install and no build step for development. Node strips the
+TypeScript types itself: in the tests, and in `tools/serve.mjs` for the
+browser. That is why the TypeScript stays within `erasableSyntaxOnly`:
 
 - no `enum` (use `as const` objects), no `namespace`;
 - no parameter properties, no `private` constructors (use `#private`
   fields);
 - imports carry the `.ts` extension.
+
+Stripping does not check types. `npm run typecheck` does (`tsc` over `src`,
+`test`, `tools` with `tsconfig.node.json`, and `app` with
+`tsconfig.app.json`); its dev dependencies (TypeScript, the Preact typings
+matching `vendor/`) are only for that.
+
+## Ship: build, host, install
+
+`npm run build` (`tools/build.mjs`) writes `dist/`: the modules reachable
+from `app/main.ts`, types stripped and imports rewritten to `.js`, the
+vendored libraries and fonts, a web app manifest and a service worker
+(`dist/app/sw.js`) that precaches the whole build (~1 MB) under a content
+hash. After the first visit the app starts and runs with **no network**.
+A new build installs in the background and is used from the next start of
+the app (close all its windows; a plain reload keeps the running build).
+
+- **Host:** copy `dist/` to any static **HTTPS** host (or a sub-path of one:
+  every URL is relative). USB and Bluetooth in the browser need HTTPS or
+  localhost; `file://` does not work.
+- **Install:** open the URL in Chrome or Edge once and use "Install app"
+  (address bar). It then has its own window and start-menu / dock entry and
+  works offline. An installed app also gets persistent storage more readily.
+- **Safety nets in the app:** it asks the browser to keep its storage
+  (Settings → About shows whether it may still be cleared: export a backup),
+  and holds a screen wake lock while a Grand Prix runs, so the laptop does
+  not sleep and drop the link mid-event.
+
+### Platforms
+
+Needs **Chrome or Edge 111+** (an older or other browser gets a notice, not a
+blank page). Lap times come from the time taker's own clock, so a slow
+laptop shows them later, never wrong.
+
+| Platform | USB | Bluetooth | Notes |
+|---|---|---|---|
+| Windows 10/11 | yes, no driver (inbox CDC driver) | yes | Edge is preinstalled: nothing to install at all |
+| macOS | yes | yes | macOS asks once to let Chrome use Bluetooth |
+| ChromeOS | yes | yes | |
+| Linux | yes, with `dialout` or the udev rule below | behind a Chrome flag | `chrome://flags/#enable-experimental-web-platform-features` |
+| Android | no | yes | layouts are not made for phones |
+| iPad / iPhone | no | no | every iOS browser is WebKit: no Web Serial, no Web Bluetooth |
+| Firefox, Safari | no | no | the app runs, but cannot reach a time taker |
+
+After a reload, USB reconnects by itself. Bluetooth does only where Chrome
+offers `navigator.bluetooth.getDevices()` (still behind
+`chrome://flags/#enable-web-bluetooth-new-permissions-backend` on most
+systems); otherwise press Connect Bluetooth once more (Status).
+
+A hidden or minimised window keeps receiving events (reads are not timers);
+Chrome only slows its timers. The heartbeat ignores its own late beats
+(`deviceSession.ts`), and in firmware v1 a silent host only changes the panel
+LED: no session or event is lost.
 
 ## Debug console (`debug/`)
 
@@ -75,7 +130,7 @@ Backbone only, no GUI yet (SYSTEM_ARCHITECTURE §11). `race/`, `device/`,
 
 ## Tests
 
-`npm test`: 282 tests, about 2 s (seam review 2026-11-18: 50 runs, 36 of
+`npm test`: 410 tests (2026-11-25), about 2 s (seam review 2026-11-18: 50 runs, 36 of
 them 12 at a time, no flaky test; 2026-11-19: 4 consecutive green runs after
 the 0.6 diagnostics work). Simulated time runs on `VirtualClock`, so a
 60 s bind timeout or a 20-lap race takes milliseconds.

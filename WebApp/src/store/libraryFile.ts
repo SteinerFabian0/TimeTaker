@@ -116,8 +116,8 @@ export interface ImportOptions {
 }
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
-const sameWithout = <T extends object>(a: T, b: T, ...keys: (keyof T)[]): boolean => {
-  const strip = (x: T) => { const c: Record<string, unknown> = { ...x }; for (const k of keys) delete c[k as string]; return c; };
+const sameWithout = <T extends object>(a: T, b: T, ...keys: (keyof T & string)[]): boolean => {
+  const strip = (x: T) => { const c: Record<string, unknown> = { ...(x as Record<string, unknown>) }; for (const k of keys) delete c[k]; return c; };
   return same(strip(a), strip(b));
 };
 

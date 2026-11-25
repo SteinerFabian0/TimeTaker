@@ -141,7 +141,7 @@ export class RaceDirector {
 
   // ---- corrections (host actions) ----------------------------------------------------
 
-  #act(draft: Omit<ActionDraft, 'at'>): HostAction {
+  #act(draft: ActionDraft extends infer A ? A extends ActionDraft ? Omit<A, 'at'> : never : never): HostAction {
     const d = { ...draft, at: this.#o.store.position(), wallTime: this.#o.wallClock?.() ?? new Date().toISOString() } as ActionDraft;
     return this.#o.store.appendAction(this.#o.raceId, d, this.#o.newId);
   }
