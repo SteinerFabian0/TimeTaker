@@ -980,6 +980,11 @@ Built 2026-11-24 (`app/pages/status.ts`, wiring in `app/lib/device.ts`):
 2. Time Attack and Training: two tabs or one (§7).
 3. How the Power Pack reports position for "distance covered" (hardware not
    designed yet).
+4. **iPad (§3.3) cannot reach a time taker** (found 2026-11-25): every iOS
+   browser is WebKit, which has neither Web Serial nor Web Bluetooth. An iPad
+   could only be a second screen, and that needs a sync over the network
+   (BroadcastChannel only reaches windows of the same browser). Keep the iPad
+   layout goal, drop it, or plan a network display?
 
 ## 14. Build order (proposal)
 
