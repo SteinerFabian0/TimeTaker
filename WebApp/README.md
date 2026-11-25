@@ -46,10 +46,9 @@ the app (close all its windows; a plain reload keeps the running build).
   every URL is relative). USB and Bluetooth in the browser need HTTPS or
   localhost; `file://` does not work.
 - **Deploy:** `npm run deploy` (`tools/deploy.mjs`) builds and force-pushes
-  `dist/` as the single commit of the public repo
-  `SteinerFabian0/timetaker-app`, served by GitHub Pages at
-  https://steinerfabian0.github.io/timetaker-app/app/ (no account needed to
-  use it). The main repo stays private. Setup sheet for hosts:
+  `dist/` as the single commit of this repo's `gh-pages` branch, served by
+  GitHub Pages at https://steinerfabian0.github.io/TimeTaker/app/ (no account
+  needed to use it; the repo must stay public). Setup sheet for hosts:
   [`HOST_SETUP.md`](HOST_SETUP.md).
 - **Install:** open the URL in Chrome or Edge once and use "Install app"
   (address bar). It then has its own window and start-menu / dock entry and

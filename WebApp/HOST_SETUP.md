@@ -1,6 +1,6 @@
 # TimeTaker: Einrichtung / Setup
 
-**Link:** https://steinerfabian0.github.io/timetaker-app/app/
+**Link:** https://steinerfabian0.github.io/TimeTaker/app/
 
 ## Deutsch
 
