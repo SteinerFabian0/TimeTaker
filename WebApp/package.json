@@ -12,7 +12,8 @@
     "debug": "node tools/serve.mjs",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.app.json",
     "build": "node tools/build.mjs",
-    "serve:dist": "node tools/serve.mjs --dist"
+    "serve:dist": "node tools/serve.mjs --dist",
+    "deploy": "node tools/deploy.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3",
