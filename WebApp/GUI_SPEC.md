@@ -15,8 +15,9 @@ SYSTEM_ARCHITECTURE §12).
 ## 1. Who uses it and how
 
 - **The host** (the user's uncle, and colleagues who get a system) runs a
-  race evening on a **laptop**, sometimes with an **external monitor** or an
-  **iPad**. They are not developers. Everything they touch on race day must be
+  race evening on a **laptop**, sometimes with an **external monitor**. They
+  are not developers. (No iPad: dropped 2026-11-25, iOS browsers cannot reach
+  a time taker.) Everything they touch on race day must be
   obvious.
 - **One car per lane, for the whole evening.** The car stays on its lane;
   **the drivers rotate** between lanes. A "lane" and a "car" are the same thing
@@ -82,7 +83,7 @@ driver counts (§5.4).
   it stays collapsed while the pointer rests on the clicked icon and expands
   again as soon as the pointer moves onto any other icon (or leaves and
   comes back).
-- **Touch (iPad):** a tap anywhere on the rail expands it; a tap on an item
+- **Touch (touchscreen laptops):** a tap anywhere on the rail expands it; a tap on an item
   navigates and collapses it; a tap on the dark page collapses it.
 - **No connection badge in the rail** (decided 2026-11-23): the bottom group
   is just Status, Track Setup, Settings. Connection (USB / BLE / simulator /
@@ -160,8 +161,9 @@ readability at 13 px. Alternatives if one fails: Saira (italic), Exo 2
 
 ### 3.3 Layout
 
-- Designed for a **1366 × 768 laptop** first, must work at 1920 × 1080 and on
-  an iPad (1024 × 768 landscape, touch targets ≥ 44 px).
+- Designed for a **1366 × 768 laptop** first, must work at 1920 × 1080.
+  Touch targets stay ≥ 44 px (touchscreen laptops). No iPad (dropped
+  2026-11-25: no Web Serial or Web Bluetooth on iOS).
 - **External monitor: v1 mirrors the laptop.** So the Grand Prix and Time
   Attack screens must read well from a few metres: big lane tiles, big times.
   **[later]** "Open display window": a second browser window that is a pure
@@ -384,7 +386,7 @@ repechage) are resolved by "more wins, then best lap" without a race.
 ### 5.3 The builder (visual)
 
 A full freeform node editor (drag nodes, draw wires) is heavy to use on a
-laptop touchpad and an iPad. Recommendation: a **column-based bracket
+laptop touchpad. Recommendation: a **column-based bracket
 builder**:
 
 - Columns are rounds (left → right). Each column holds node cards
@@ -980,11 +982,10 @@ Built 2026-11-24 (`app/pages/status.ts`, wiring in `app/lib/device.ts`):
 2. Time Attack and Training: two tabs or one (§7).
 3. How the Power Pack reports position for "distance covered" (hardware not
    designed yet).
-4. **iPad (§3.3) cannot reach a time taker** (found 2026-11-25): every iOS
-   browser is WebKit, which has neither Web Serial nor Web Bluetooth. An iPad
-   could only be a second screen, and that needs a sync over the network
-   (BroadcastChannel only reaches windows of the same browser). Keep the iPad
-   layout goal, drop it, or plan a network display?
+
+**Decided 2026-11-25:** no iPad. Every iOS browser is WebKit, which has
+neither Web Serial nor Web Bluetooth, so an iPad could only ever be a second
+screen over a network sync. The app targets laptops (Chrome/Edge).
 
 ## 14. Build order (proposal)
 

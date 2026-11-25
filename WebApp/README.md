@@ -65,7 +65,7 @@ laptop shows them later, never wrong.
 | ChromeOS | yes | yes | |
 | Linux | yes, with `dialout` or the udev rule below | behind a Chrome flag | `chrome://flags/#enable-experimental-web-platform-features` |
 | Android | no | yes | layouts are not made for phones |
-| iPad / iPhone | no | no | every iOS browser is WebKit: no Web Serial, no Web Bluetooth |
+| iPad / iPhone | no | no | not supported (every iOS browser is WebKit: no Web Serial, no Web Bluetooth) |
 | Firefox, Safari | no | no | the app runs, but cannot reach a time taker |
 
 After a reload, USB reconnects by itself. Bluetooth does only where Chrome
